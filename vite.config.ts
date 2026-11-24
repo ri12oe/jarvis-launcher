@@ -1,0 +1,39 @@
+import react from "@vitejs/plugin-react";
+import { defineConfig, type Plugin } from "vite";
+
+function contentSecurityPolicy(): Plugin {
+  return {
+    name: "content-security-policy",
+    transformIndexHtml(html, ctx) {
+      const scriptSrc = ctx.server ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'";
+      const policy = [
+        "default-src 'self'",
+        scriptSrc,
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        "connect-src 'self' ws://127.0.0.1:5173 http://127.0.0.1:5173",
+      ].join("; ");
+      const meta = `<meta http-equiv="Content-Security-Policy" content="${policy}" />`;
+      return html.replace("<head>", `<head>\n    ${meta}`);
+    },
+  };
+}
+
+export default defineConfig({
+  base: "./",
+  plugins: [react(), contentSecurityPolicy()],
+  server: {
+    host: "127.0.0.1",
+    port: 5173,
+    strictPort: true,
+  },
+  preview: {
+    host: "127.0.0.1",
+    port: 4173,
+    strictPort: true,
+  },
+  build: {
+    outDir: "dist/renderer",
+    emptyOutDir: true,
+  },
+});
