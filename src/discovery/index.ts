@@ -1,16 +1,9 @@
 import { matchAiApps } from "../shared/match";
-import type { DiscoveredApp, InstalledProgram, ShortcutRecord } from "../shared/types";
+import type { StoreApp } from "../shared/start-apps";
+import type { DiscoveredApp, InstalledProgram } from "../shared/types";
 import { readInstalledPrograms } from "./registry";
+import { readStartApps } from "./start-apps";
 import { scanShortcuts, windowsStartMenuRoots } from "./shortcuts";
-
-export interface DiscoveryInput {
-  shortcuts: readonly ShortcutRecord[];
-  programs: readonly InstalledProgram[];
-}
-
-export function discoverFromRecords(input: DiscoveryInput): DiscoveredApp[] {
-  return matchAiApps(input);
-}
 
 export async function discoverInstalledApps(options: {
   platform: NodeJS.Platform;
@@ -19,11 +12,19 @@ export async function discoverInstalledApps(options: {
   shortcutRoots?: readonly string[];
   readTarget?: (lnkPath: string) => string | undefined;
   programs?: InstalledProgram[];
+  /** Pass this in tests. Omitted on a real Windows host, where Get-StartApps runs. */
+  storeApps?: readonly StoreApp[];
 }): Promise<DiscoveredApp[]> {
   const env = options.env ?? process.env;
   const roots =
     options.shortcutRoots ?? (options.platform === "win32" ? windowsStartMenuRoots(env) : []);
   const shortcuts = scanShortcuts(roots, { readTarget: options.readTarget });
   const programs = options.programs ?? (await readInstalledPrograms(options.platform));
-  return discoverFromRecords({ shortcuts, programs });
+  const storeApps = options.storeApps ?? (await loadStoreApps(options.platform));
+  return matchAiApps({ shortcuts, programs, storeApps });
+}
+
+async function loadStoreApps(platform: NodeJS.Platform): Promise<StoreApp[]> {
+  if (platform !== "win32" || process.platform !== "win32") return [];
+  return readStartApps(platform);
 }

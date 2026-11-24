@@ -1,5 +1,6 @@
 import type { AiAppId, DiscoveredApp, InstalledProgram, ShortcutRecord } from "./types";
 import { AI_APP_IDS } from "./types";
+import { isStoreAppId, type StoreApp } from "./start-apps";
 
 export interface AiAppPattern {
   id: AiAppId;
@@ -9,26 +10,21 @@ export interface AiAppPattern {
 }
 
 /**
- * Word-boundary matches so "Chat" does not hit ChatGPT's slot and "Elm Studio"
- * does not hit LM Studio. Patterns are the whole discovery rule set.
+ * Cursor and Copilot are anchored to the product name so "Mouse Cursor" and
+ * "GitHub Copilot" do not take those tiles. Other names still use a word boundary.
  */
 export const AI_APP_PATTERNS: readonly AiAppPattern[] = [
   { id: "chatgpt", label: "ChatGPT", pattern: /\bchat\s*gpt\b/i },
   { id: "claude", label: "Claude", pattern: /\bclaude\b/i },
-  { id: "cursor", label: "Cursor", pattern: /\bcursor\b/i },
+  { id: "cursor", label: "Cursor", pattern: /^cursor(?:\s*\([^)]*\))?$/i },
   { id: "grok", label: "Grok", pattern: /\bgrok\b/i },
-  { id: "copilot", label: "Copilot", pattern: /\bcopilot\b/i },
+  { id: "copilot", label: "Copilot", pattern: /^(?:microsoft\s+)?copilot(?:\s*\([^)]*\))?$/i },
   { id: "perplexity", label: "Perplexity", pattern: /\bperplexity\b/i },
   { id: "ollama", label: "Ollama", pattern: /\bollama\b/i },
   { id: "lm-studio", label: "LM Studio", pattern: /\blm[\s-]?studio\b/i },
 ];
 
 const PATTERN_BY_ID = new Map(AI_APP_PATTERNS.map((pattern) => [pattern.id, pattern]));
-
-export function matches(pattern: RegExp, value: string): boolean {
-  pattern.lastIndex = 0;
-  return pattern.test(value);
-}
 
 function fileBaseName(filePath: string): string {
   const trimmed = filePath.replace(/[\\/]+$/, "");
@@ -37,13 +33,19 @@ function fileBaseName(filePath: string): string {
   return base.replace(/\.(exe|lnk)$/i, "");
 }
 
+function isUninstaller(name: string, target?: string): boolean {
+  if (/unins|uninstall/i.test(name)) return true;
+  if (target && /unins|uninstall/i.test(target)) return true;
+  return false;
+}
+
 interface Candidate {
   pattern: AiAppPattern;
   label: string;
   source: DiscoveredApp["source"];
   launchPath: string;
   launchKind: DiscoveredApp["launchKind"];
-  /** Lower is better. Exact canonical name beats a longer shortcut, which beats the registry. */
+  /** Lower is better. Exact canonical name beats a longer shortcut, then a Store app, then the registry. */
   rank: number;
 }
 
@@ -60,47 +62,59 @@ function rankShortcut(name: string, canonical: string): number {
   return 1 + Math.min(name.length, 500) / 1000;
 }
 
+function considerName(
+  candidates: Candidate[],
+  haystacks: string[],
+  candidate: Omit<Candidate, "pattern" | "label" | "rank">,
+  rankFor: (pattern: AiAppPattern) => number,
+): void {
+  for (const pattern of AI_APP_PATTERNS) {
+    if (!haystacks.some((value) => pattern.pattern.test(value))) continue;
+    consider(candidates, pattern, { label: pattern.label, rank: rankFor(pattern), ...candidate });
+  }
+}
+
 /**
  * Pick at most one launchable app per known AI name.
- * A Start Menu shortcut wins over an uninstall entry. Display names that
- * match but have no shortcut and no exe path are ignored — those entries
- * are often uninstallers or bare install folders.
+ * A Start Menu shortcut wins over a Store app, which wins over an uninstall entry.
+ * Uninstallers are ignored in every source.
  */
 export function matchAiApps(input: {
   shortcuts: readonly ShortcutRecord[];
   programs: readonly InstalledProgram[];
+  storeApps?: readonly StoreApp[];
 }): DiscoveredApp[] {
   const candidates: Candidate[] = [];
 
   for (const shortcut of input.shortcuts) {
+    if (isUninstaller(shortcut.name, shortcut.target)) continue;
     const targetName = shortcut.target ? fileBaseName(shortcut.target) : "";
     const haystacks = [shortcut.name, targetName].filter((value) => value.length > 0);
-    for (const pattern of AI_APP_PATTERNS) {
-      if (!haystacks.some((value) => matches(pattern.pattern, value))) continue;
-      consider(candidates, pattern, {
-        label: pattern.label,
+    considerName(
+      candidates,
+      haystacks,
+      {
         source: "shortcut",
         launchPath: shortcut.lnkPath,
         launchKind: "shortcut",
-        rank: rankShortcut(shortcut.name, pattern.label),
-      });
-    }
+      },
+      (pattern) => rankShortcut(shortcut.name, pattern.label),
+    );
+  }
+
+  for (const app of input.storeApps ?? []) {
+    if (isUninstaller(app.name) || !isStoreAppId(app.appId)) continue;
+    considerName(candidates, [app.name], { source: "store", launchPath: app.appId, launchKind: "store" }, () => 5);
   }
 
   for (const program of input.programs) {
-    if (!program.exePath) continue;
-    if (/unins|uninstall/i.test(program.exePath)) continue;
-    const haystacks = [program.name, fileBaseName(program.exePath)];
-    for (const pattern of AI_APP_PATTERNS) {
-      if (!haystacks.some((value) => matches(pattern.pattern, value))) continue;
-      consider(candidates, pattern, {
-        label: pattern.label,
-        source: "uninstall",
-        launchPath: program.exePath,
-        launchKind: "exe",
-        rank: 10,
-      });
-    }
+    if (!program.exePath || isUninstaller(program.name, program.exePath)) continue;
+    considerName(
+      candidates,
+      [program.name, fileBaseName(program.exePath)],
+      { source: "uninstall", launchPath: program.exePath, launchKind: "exe" },
+      () => 10,
+    );
   }
 
   const best = new Map<AiAppId, Candidate>();

@@ -4,6 +4,8 @@ export interface LaunchEnvironment {
   platform: string;
   /** Existing Microsoft Edge executables, most preferred first. */
   edgeExecutables: readonly string[];
+  /** Full path to explorer.exe, usually `%SystemRoot%\explorer.exe`. */
+  explorerPath: string;
   folders: Record<"desktop" | "documents" | "downloads" | "pictures", string>;
 }
 
@@ -13,7 +15,11 @@ export interface EdgePathEnv {
 }
 
 const EDGE_PROTOCOL = "microsoft-edge:";
-const EXPLORER_COMMAND = "explorer.exe";
+
+export function windowsExplorerPath(systemRoot?: string): string {
+  const root = systemRoot?.trim() ? systemRoot.trim().replace(/[\\/]+$/, "") : "C:\\Windows";
+  return `${root}\\explorer.exe`;
+}
 
 export function planEdgeLaunch(env: LaunchEnvironment): LaunchAction {
   const exe = env.edgeExecutables.find((candidate) => candidate.trim().length > 0);
@@ -21,15 +27,18 @@ export function planEdgeLaunch(env: LaunchEnvironment): LaunchAction {
   return { type: "openExternal", url: EDGE_PROTOCOL };
 }
 
-export function planExplorerLaunch(_env: LaunchEnvironment): LaunchAction {
-  return { type: "spawn", command: EXPLORER_COMMAND, args: [] };
+export function planExplorerLaunch(explorerPath: string): LaunchAction {
+  return { type: "spawn", command: explorerPath, args: [] };
 }
 
 export function planFolderLaunch(folderPath: string): LaunchAction {
   return { type: "openPath", path: folderPath };
 }
 
-export function planDiscoveredLaunch(app: DiscoveredApp): LaunchAction {
+export function planDiscoveredLaunch(app: DiscoveredApp, explorerPath: string): LaunchAction {
+  if (app.launchKind === "store") {
+    return { type: "spawn", command: explorerPath, args: [`shell:AppsFolder\\${app.launchPath}`] };
+  }
   return { type: "openPath", path: app.launchPath };
 }
 
@@ -40,7 +49,48 @@ export function planExtraLaunch(tile: ExtraTile | PinnedFolder): LaunchAction {
 export interface LaunchDeps {
   openPath(targetPath: string): Promise<string>;
   openExternal(url: string): Promise<void>;
-  spawn(command: string, args: readonly string[]): void;
+  spawn(command: string, args: readonly string[]): void | Promise<void>;
+}
+
+export interface SpawnedChild {
+  once(event: "error", listener: (error: Error) => void): void;
+  once(event: "spawn", listener: () => void): void;
+  unref(): void;
+}
+
+export interface DetachedSpawnOptions {
+  detached: true;
+  stdio: "ignore";
+  windowsHide: boolean;
+}
+
+/**
+ * Spawn a detached process and surface a missing executable.
+ * Without an `error` listener, Node throws after the caller already returned success.
+ */
+export function spawnDetached(
+  command: string,
+  args: readonly string[],
+  spawnImpl: (command: string, args: string[], options: DetachedSpawnOptions) => SpawnedChild,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let child: SpawnedChild;
+    try {
+      child = spawnImpl(command, [...args], {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: false,
+      });
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error("Spawn failed"));
+      return;
+    }
+    child.once("error", (error) => reject(error));
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });
 }
 
 /** Performs a launch plan. `openPath` returns an error string, empty when it worked. */
@@ -54,7 +104,7 @@ export async function runLaunch(action: LaunchAction, deps: LaunchDeps): Promise
     await deps.openExternal(action.url);
     return;
   }
-  deps.spawn(action.command, action.args);
+  await deps.spawn(action.command, action.args);
 }
 
 export function planBuiltinLaunch(builtin: BuiltinId, env: LaunchEnvironment): LaunchAction {
@@ -62,7 +112,7 @@ export function planBuiltinLaunch(builtin: BuiltinId, env: LaunchEnvironment): L
     case "edge":
       return planEdgeLaunch(env);
     case "explorer":
-      return planExplorerLaunch(env);
+      return planExplorerLaunch(env.explorerPath);
     case "desktop":
     case "documents":
     case "downloads":

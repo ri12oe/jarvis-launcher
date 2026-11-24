@@ -21,8 +21,6 @@ const BUILTIN_KINDS: Record<BuiltinId, TileKind> = {
   pictures: "folder",
 };
 
-const BUILTIN_SET = new Set<string>(BUILTIN_IDS);
-
 export function composeTiles(
   config: JarvisConfig,
   discovered: readonly DiscoveredApp[],
@@ -43,7 +41,7 @@ export function composeTiles(
       id: app.id,
       label: app.label,
       kind: "app",
-      action: planDiscoveredLaunch(app),
+      action: planDiscoveredLaunch(app, env.explorerPath),
     });
   }
 
@@ -86,8 +84,4 @@ export function composeTiles(
       return a.index - b.index;
     })
     .map((entry) => entry.tile);
-}
-
-export function isBuiltinId(id: string): id is BuiltinId {
-  return BUILTIN_SET.has(id);
 }

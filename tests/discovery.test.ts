@@ -141,4 +141,25 @@ describe("discoverInstalledApps", () => {
     });
     expect(found).toEqual([]);
   });
+
+  it("matches injected Store apps without calling PowerShell", async () => {
+    const found = await discoverInstalledApps({
+      platform: "win32",
+      shortcutRoots: [],
+      programs: [],
+      storeApps: [
+        { name: "ChatGPT", appId: "OpenAI.ChatGPT-Desktop_2p2nqsdnc2c4m!App" },
+        { name: "Calculator", appId: "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App" },
+      ],
+    });
+    expect(found).toEqual([
+      {
+        id: "chatgpt",
+        label: "ChatGPT",
+        source: "store",
+        launchKind: "store",
+        launchPath: "OpenAI.ChatGPT-Desktop_2p2nqsdnc2c4m!App",
+      },
+    ]);
+  });
 });

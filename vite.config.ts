@@ -5,13 +5,18 @@ function contentSecurityPolicy(): Plugin {
   return {
     name: "content-security-policy",
     transformIndexHtml(html, ctx) {
-      const scriptSrc = ctx.server ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'";
+      const dev = Boolean(ctx.server);
+      const scriptSrc = dev ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'";
+      const connectSrc = dev
+        ? "connect-src 'self' ws://127.0.0.1:5173 http://127.0.0.1:5173"
+        : "connect-src 'self'";
       const policy = [
         "default-src 'self'",
+        "base-uri 'none'",
         scriptSrc,
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data:",
-        "connect-src 'self' ws://127.0.0.1:5173 http://127.0.0.1:5173",
+        connectSrc,
       ].join("; ");
       const meta = `<meta http-equiv="Content-Security-Policy" content="${policy}" />`;
       return html.replace("<head>", `<head>\n    ${meta}`);

@@ -2,7 +2,7 @@
 
 A full-screen JARVIS-style launcher that sits on top of Windows. It is an Electron window, not a shell replacement. It does not change Explorer, `explorer.exe`, logon shell keys, or any other system setting.
 
-Click a tile to open that app or folder. The launcher only reads Start Menu shortcuts and the uninstall program list, then opens the thing you clicked. It never deletes, moves, or edits your files. The only file it writes is its own `config.json`.
+Click a tile to open that app or folder. The launcher only reads Start Menu shortcuts, the uninstall program list, and the Start menu app list. It never deletes, moves, or edits your files. The only file it writes is its own `config.json`.
 
 ## Install
 
@@ -22,7 +22,7 @@ That starts the renderer, compiles the Electron main process, and opens the laun
 
 `npm test` runs the unit tests. `npm run typecheck` typechecks the main process and the renderer.
 
-On Linux or macOS the window still opens, with Microsoft Edge, File Explorer, and the standard folder tiles. Scanning Start Menu `.lnk` files and the uninstall registry happens only on Windows, so those systems will not list installed AI apps.
+On Linux or macOS the window still opens, with Microsoft Edge, File Explorer, and the standard folder tiles. Scanning Start Menu `.lnk` files, packaged apps, and the uninstall registry happens only on Windows, so those systems will not list installed AI apps.
 
 ## Build a Windows installer and a portable exe
 
@@ -43,7 +43,7 @@ The build does not turn on code signing (`signAndEditExecutable` is false).
 
 The launcher does not write shell registry keys. Two ways to start it at login:
 
-**Config flag.** Set `"openAtLogin": true` in `config.json`. On Windows and macOS, Electron's login-item API registers or removes the app. On Windows that is the normal per-user startup entry, not `Winlogon\Shell`. Restart the launcher after changing it. Set it back to `false` to remove that entry.
+**Config flag.** Set `"openAtLogin": true` in `config.json`. On Windows and macOS, Electron's login-item API registers or removes the app. On Windows that is the normal per-user startup entry, not `Winlogon\Shell`. A portable exe passes `PORTABLE_EXECUTABLE_FILE` as the login path, so Windows does not start the temporary unpacked copy. Restart the launcher after changing the flag. Set it back to `false` to remove that entry. The setting is applied at startup and again when the config value changes, not on every refresh.
 
 **Startup folder shortcut.** In File Explorer, open:
 
@@ -88,7 +88,7 @@ A broken file is left as it is. The launcher uses defaults in memory until the J
 - `order` pulls those ids to the front. Anything you leave out stays in the default order after them.
 - `labels` renames a tile. Ids and paths must be absolute (`C:\...`, `\\server\share`, or `/...`). Custom ids cannot reuse a built-in or discovered id.
 
-Discovered apps are added automatically when their Start Menu shortcut or uninstall entry matches. You do not have to list them.
+Discovered apps are added automatically when a Start Menu shortcut, a packaged Start app, or an uninstall entry matches. You do not have to list them.
 
 ## What it detects
 
@@ -97,20 +97,22 @@ Shortcut names (and, when Windows can read them, shortcut targets) under:
 - `%ProgramData%\Microsoft\Windows\Start Menu\Programs`
 - `%AppData%\Microsoft\Windows\Start Menu\Programs`
 
+Packaged Store apps such as ChatGPT and Copilot often have no `.lnk` and no uninstall entry. Those are read with `powershell.exe -NoProfile -NonInteractive -Command` running `Get-StartApps` (an argument array, not a shell command line). A match launches with `%SystemRoot%\explorer.exe shell:AppsFolder\<AppID>`.
+
 Plus display names in these uninstall keys, read with `reg query` only:
 
 - `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`
 - `HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall`
 - `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`
 
-A match needs a name like ChatGPT, Claude, Cursor, Grok, Copilot, Perplexity, Ollama, or LM Studio. A Start Menu shortcut is preferred. A registry hit is used only when `DisplayIcon` points at an `.exe`. Uninstall strings are ignored.
+A match needs a name like ChatGPT, Claude, Cursor, Grok, Copilot, Perplexity, Ollama, or LM Studio. Cursor matches the name `Cursor`, and Copilot matches `Copilot` or `Microsoft Copilot`. A Start Menu shortcut is preferred, then a Store app, then the registry. A registry hit is used only when `DisplayIcon` points at an `.exe`. Shortcuts and registry entries whose name or target looks like an uninstaller are ignored. Uninstall strings are ignored.
 
 Fixed tiles:
 
 | Tile | What a click does |
 | --- | --- |
 | Microsoft Edge | Opens `msedge.exe` when it is installed, otherwise the `microsoft-edge:` protocol |
-| File Explorer | Starts `explorer.exe` |
+| File Explorer | Starts `%SystemRoot%\explorer.exe` |
 | Desktop, Documents, Downloads, Pictures | Opens that folder |
 | Pinned folder | Opens the path from the config |
 

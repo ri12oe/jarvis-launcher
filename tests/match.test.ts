@@ -102,6 +102,67 @@ describe("matchAiApps", () => {
     expect(found.map((app) => app.id)).toEqual(["perplexity"]);
   });
 
+  it("ignores uninstaller shortcuts", () => {
+    const found = matchAiApps({
+      shortcuts: [
+        shortcut("Cursor Uninstall", "C:\\Program Files\\cursor\\unins000.exe"),
+        shortcut("Uninstall LM Studio", "C:\\Program Files\\LM Studio\\unins000.exe"),
+        shortcut("Cursor", "C:\\Program Files\\cursor\\Cursor.exe"),
+      ],
+      programs: [],
+    });
+    expect(found.map((app) => app.id)).toEqual(["cursor"]);
+    expect(found[0]?.launchPath).toContain("\\Cursor.lnk");
+  });
+
+  it("drops an uninstaller when it is the only shortcut", () => {
+    const found = matchAiApps({
+      shortcuts: [
+        shortcut("Cursor Uninstall", "C:\\Program Files\\cursor\\unins000.exe"),
+        shortcut("Uninstall LM Studio"),
+      ],
+      programs: [],
+    });
+    expect(found).toEqual([]);
+  });
+
+  it("does not match unrelated cursor or copilot names", () => {
+    const found = matchAiApps({
+      shortcuts: [
+        shortcut("Mouse Cursor"),
+        shortcut("Cursor Theme"),
+        shortcut("GitHub Copilot"),
+        shortcut("Copilot Studio"),
+      ],
+      programs: [],
+    });
+    expect(found).toEqual([]);
+  });
+
+  it("matches Store apps and prefers a shortcut over the same Store app", () => {
+    const storeOnly = matchAiApps({
+      shortcuts: [],
+      programs: [],
+      storeApps: [
+        { name: "ChatGPT", appId: "OpenAI.ChatGPT-Desktop_2p2nqsdnc2c4m!App" },
+        { name: "Copilot", appId: "Microsoft.Copilot_8wekyb3d8bbwe!App" },
+        { name: "Notepad", appId: "Microsoft.WindowsNotepad_8wekyb3d8bbwe!App" },
+        { name: "ChatGPT", appId: "not an app id" },
+      ],
+    });
+    expect(storeOnly.map((app) => [app.id, app.launchKind, app.launchPath])).toEqual([
+      ["chatgpt", "store", "OpenAI.ChatGPT-Desktop_2p2nqsdnc2c4m!App"],
+      ["copilot", "store", "Microsoft.Copilot_8wekyb3d8bbwe!App"],
+    ]);
+
+    const withShortcut = matchAiApps({
+      shortcuts: [shortcut("ChatGPT")],
+      programs: [],
+      storeApps: [{ name: "ChatGPT", appId: "OpenAI.ChatGPT-Desktop_2p2nqsdnc2c4m!App" }],
+    });
+    expect(withShortcut[0]).toMatchObject({ id: "chatgpt", source: "shortcut", launchKind: "shortcut" });
+  });
+
   it("does not treat a partial name as a match", () => {
     const found = matchAiApps({
       shortcuts: [shortcut("CursorSensitivity"), shortcut("MyChatGPTApp"), shortcut("Photocopilot")],

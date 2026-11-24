@@ -63,6 +63,7 @@ async function queryKey(key: string): Promise<string> {
       windowsHide: true,
       timeout: 20_000,
       maxBuffer: 8 * 1024 * 1024,
+      shell: false,
     });
     return stdout;
   } catch {

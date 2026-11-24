@@ -23,8 +23,6 @@ export const BUILTIN_IDS = [
 
 export type BuiltinId = (typeof BUILTIN_IDS)[number];
 
-export type FolderId = "desktop" | "documents" | "downloads" | "pictures";
-
 export interface ShortcutRecord {
   /** File name without `.lnk`. */
   name: string;
@@ -42,10 +40,10 @@ export interface InstalledProgram {
 export interface DiscoveredApp {
   id: AiAppId;
   label: string;
-  source: "shortcut" | "uninstall";
-  /** Present when the app can actually be opened. */
+  source: "shortcut" | "store" | "uninstall";
+  /** Shortcut path, exe path, or packaged app id. */
   launchPath: string;
-  launchKind: "shortcut" | "exe";
+  launchKind: "shortcut" | "exe" | "store";
 }
 
 export interface PinnedFolder {
@@ -93,10 +91,18 @@ export interface ResolvedTile {
   action: LaunchAction;
 }
 
+export interface LauncherTileView {
+  id: string;
+  label: string;
+  kind: TileKind;
+  /** `app.getFileIcon` as a data URL, when the platform could read one. */
+  icon?: string;
+}
+
 export interface LauncherState {
   hotkey: string;
   platform: string;
-  tiles: Array<Pick<ResolvedTile, "id" | "label" | "kind">>;
+  tiles: LauncherTileView[];
   warnings: string[];
 }
 
@@ -107,6 +113,7 @@ export interface LaunchResult {
 
 export interface JarvisBridge {
   getState(): Promise<LauncherState>;
+  onState(listener: (state: LauncherState) => void): () => void;
   launch(tileId: string): Promise<LaunchResult>;
   hide(): void;
   quit(): void;

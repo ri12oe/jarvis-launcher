@@ -6,6 +6,7 @@ import type { DiscoveredApp } from "../src/shared/types";
 const env = {
   platform: "win32" as const,
   edgeExecutables: ["C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"],
+  explorerPath: "C:\\Windows\\explorer.exe",
   folders: {
     desktop: "C:\\Users\\Mario\\Desktop",
     documents: "C:\\Users\\Mario\\Documents",

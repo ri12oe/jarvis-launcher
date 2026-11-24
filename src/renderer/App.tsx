@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { cloneDefaultConfig, DEFAULT_HOTKEY } from "../shared/config";
+import { windowsExplorerPath } from "../shared/launch";
 import { composeTiles } from "../shared/tiles";
 import type { LauncherState, TileKind } from "../shared/types";
 
@@ -32,6 +33,7 @@ function previewState(): LauncherState {
   const tiles = composeTiles(cloneDefaultConfig(), [], {
     platform: "linux",
     edgeExecutables: [],
+    explorerPath: windowsExplorerPath(),
     folders: {
       desktop: `${home}/Desktop`,
       documents: `${home}/Documents`,
@@ -66,26 +68,26 @@ export function App() {
 
   useEffect(() => {
     let cancel = false;
-    const load = async () => {
-      try {
-        const bridge = window.jarvis;
-        const next = bridge ? await bridge.getState() : previewState();
-        if (!cancel) {
-          setState(next);
-          setStatus("");
-        }
-      } catch {
-        if (!cancel) setStatus("LINK LOST");
-      }
+    const bridge = window.jarvis;
+    if (!bridge) {
+      if (import.meta.env.DEV) setState(previewState());
+      else setStatus("LINK LOST");
+      return () => {
+        cancel = true;
+      };
+    }
+    const apply = (next: LauncherState) => {
+      if (cancel) return;
+      setState(next);
+      setStatus("");
     };
-    void load();
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void load();
-    };
-    document.addEventListener("visibilitychange", onVisible);
+    void bridge.getState().then(apply).catch(() => {
+      if (!cancel) setStatus("LINK LOST");
+    });
+    const stop = bridge.onState(apply);
     return () => {
       cancel = true;
-      document.removeEventListener("visibilitychange", onVisible);
+      stop();
     };
   }, []);
 
@@ -136,21 +138,24 @@ export function App() {
       </header>
 
       <main className="stage">
-        <div className="tiles" role="list">
+        <ul className="tiles">
           {tiles.map((tile) => (
-            <button
-              key={tile.id}
-              type="button"
-              role="listitem"
-              className={pressed === tile.id ? "tile pressed" : "tile"}
-              data-kind={tile.kind}
-              onClick={() => void launch(tile.id)}
-            >
-              <span className="kind">{KIND_LABEL[tile.kind]}</span>
-              <span className="label">{tile.label}</span>
-            </button>
+            <li key={tile.id}>
+              <button
+                type="button"
+                className={pressed === tile.id ? "tile pressed" : "tile"}
+                data-kind={tile.kind}
+                onClick={() => void launch(tile.id)}
+              >
+                <span className="kind">
+                  {tile.icon ? <img className="icon" alt="" src={tile.icon} /> : null}
+                  {KIND_LABEL[tile.kind]}
+                </span>
+                <span className="label">{tile.label}</span>
+              </button>
+            </li>
           ))}
-        </div>
+        </ul>
       </main>
 
       <footer className="bottom">

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { cloneDefaultConfig } from "../src/shared/config";
-import { defaultEdgeCandidates, runLaunch } from "../src/shared/launch";
+import { EventEmitter } from "node:events";
+import { defaultEdgeCandidates, runLaunch, spawnDetached, windowsExplorerPath } from "../src/shared/launch";
+import type { SpawnedChild } from "../src/shared/launch";
 import { composeTiles } from "../src/shared/tiles";
 import type { DiscoveredApp, LaunchAction } from "../src/shared/types";
 
@@ -19,6 +21,7 @@ function tilesWith(edgeExecutables: string[], discovered: DiscoveredApp[] = []) 
   return composeTiles(config, discovered, {
     platform: "win32",
     edgeExecutables,
+    explorerPath: windowsExplorerPath("C:\\Windows"),
     folders,
   });
 }
@@ -56,7 +59,7 @@ describe("launch paths", () => {
 
     expect(calls).toEqual([
       `openPath ${edgeExe}`,
-      "spawn explorer.exe",
+      "spawn C:\\Windows\\explorer.exe",
       "openPath C:\\Users\\Mario\\Desktop",
       "openPath C:\\Users\\Mario\\Documents",
       "openPath C:\\Users\\Mario\\Downloads",
@@ -108,6 +111,55 @@ describe("launch paths", () => {
       }),
     ).rejects.toThrow("Failed to open");
     expect(opened).toEqual([lnk]);
+  });
+
+  it("launches a Store app through explorer shell:AppsFolder", async () => {
+    const calls: string[] = [];
+    const tiles = tilesWith(
+      [],
+      [
+        {
+          id: "chatgpt",
+          label: "ChatGPT",
+          source: "store",
+          launchKind: "store",
+          launchPath: "OpenAI.ChatGPT-Desktop_2p2nqsdnc2c4m!App",
+        },
+      ],
+    );
+    await runLaunch(action(tiles, "chatgpt"), {
+      openPath: async () => "",
+      openExternal: async () => undefined,
+      spawn: (command, args) => {
+        calls.push(`${command} ${args.join(" ")}`);
+      },
+    });
+    expect(calls).toEqual([
+      "C:\\Windows\\explorer.exe shell:AppsFolder\\OpenAI.ChatGPT-Desktop_2p2nqsdnc2c4m!App",
+    ]);
+  });
+
+  it("rejects a failed spawn so the caller can report it", async () => {
+    const child = new EventEmitter() as EventEmitter & SpawnedChild;
+    child.unref = () => {
+      throw new Error("unref should wait until spawn succeeds");
+    };
+    const pending = spawnDetached("C:\\Windows\\explorer.exe", [], () => {
+      queueMicrotask(() => child.emit("error", new Error("spawn ENOENT")));
+      return child;
+    });
+    await expect(pending).rejects.toThrow("spawn ENOENT");
+
+    await expect(
+      runLaunch(
+        { type: "spawn", command: "C:\\Windows\\explorer.exe", args: [] },
+        {
+          openPath: async () => "",
+          openExternal: async () => undefined,
+          spawn: () => Promise.reject(new Error("spawn ENOENT")),
+        },
+      ),
+    ).rejects.toThrow("spawn ENOENT");
   });
 
   it("builds the default Edge candidate paths", () => {

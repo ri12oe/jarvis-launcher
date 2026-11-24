@@ -6,7 +6,7 @@
   --blue: #3b7bff;
   --text: #e7fdff;
   --muted: #7f9aa6;
-  font-family: "Cascadia Mono", "Segoe UI Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: "Cascadia Mono", Consolas, ui-monospace, monospace;
 }
 
 * {
@@ -187,7 +187,16 @@ time {
   flex-wrap: wrap;
   justify-content: center;
   gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   animation: rise 0.55s ease 1.45s both;
+}
+
+.tiles > li {
+  display: flex;
+  width: 160px;
+  flex: 0 0 160px;
 }
 
 .tile {
@@ -198,8 +207,7 @@ time {
   background: rgba(3, 12, 20, 0.78);
   border: 1px solid rgba(92, 246, 255, 0.38);
   box-shadow: 0 0 16px rgba(59, 123, 255, 0.16);
-  width: 160px;
-  flex: 0 0 160px;
+  width: 100%;
   min-height: 78px;
   padding: 12px 12px;
   display: flex;
@@ -223,9 +231,17 @@ time {
 }
 
 .kind {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--cyan);
   font-size: 10px;
   letter-spacing: 0.28em;
+}
+
+.icon {
+  width: 14px;
+  height: 14px;
 }
 
 .label {
@@ -343,5 +359,14 @@ time {
 
   .boot {
     display: none;
+  }
+
+  .tile,
+  .tile:hover,
+  .tile:focus-visible,
+  .tile:active,
+  .tile.pressed {
+    transition: none;
+    transform: none;
   }
 }
