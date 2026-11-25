@@ -3,7 +3,7 @@ const LINES = ["Humidity", "Feels like", "Precipitation", "Visibility", "Wind", 
 /** Placeholder. Values stay "--" until a weather source is wired. */
 export function Weather() {
   return (
-    <section className="weather" aria-label="Weather">
+    <section className="weather" aria-hidden="true">
       <p className="weather-place">--</p>
       <p className="weather-temp">--</p>
       <p className="weather-cond">--</p>

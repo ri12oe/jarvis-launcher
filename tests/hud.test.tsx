@@ -128,9 +128,10 @@ describe("HUD ring", () => {
 
     const lit = [...(host?.querySelectorAll(".tile.lit") ?? [])];
     const dim = [...(host?.querySelectorAll(".tile.dim") ?? [])];
-    expect(lit.map((node) => node.textContent)).toEqual(["Microsoft Edge"]);
+    expect(lit.map((node) => node.textContent)).toEqual(["Edge"]);
+    expect(lit[0]?.getAttribute("aria-label")).toBe("Microsoft Edge");
     expect(dim).toHaveLength(tiles.length - 1);
-    expect(document.activeElement?.textContent).toContain("Microsoft Edge");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Microsoft Edge");
 
     await act(async () => {
       dim[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -169,7 +170,7 @@ describe("HUD ring", () => {
     expect(host?.querySelector(".search-pill input, .media input")).toBeNull();
 
     for (const label of ["Microsoft Edge", "File Explorer", "Desktop"]) {
-      const button = [...(host?.querySelectorAll(".tile") ?? [])].find((node) => node.textContent?.includes(label));
+      const button = [...(host?.querySelectorAll(".tile") ?? [])].find((node) => node.getAttribute("aria-label") === label);
       await act(async () => {
         button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });

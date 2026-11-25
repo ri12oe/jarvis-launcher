@@ -433,11 +433,6 @@ button {
   stroke-width: 0.7;
 }
 
-.medal-core {
-  fill: var(--cyan);
-  stroke: none;
-}
-
 .medal-letter {
   fill: #e9fbff;
   font-size: 5px;
@@ -968,6 +963,16 @@ button {
   white-space: nowrap;
 }
 
+.tile-segment .label,
+.tile-rail .label {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.05;
+  text-align: center;
+}
+
 .tile-rail .label,
 .tile-tab .label {
   font-size: clamp(9px, 0.72vw, 13px);
@@ -1070,27 +1075,23 @@ button {
 
 .bottom {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: var(--footer);
+  inset: 0;
   z-index: 4;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px 0 12px;
+  pointer-events: none;
+}
+
+.bottom > * {
+  pointer-events: auto;
 }
 
 .hint {
-  flex: 0 1 180px;
   margin: 0;
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted);
   font-size: 11px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.08em;
 }
 
 .hint.busy {
@@ -1104,6 +1105,13 @@ button {
 .commands {
   display: flex;
   gap: 4px;
+  overflow: hidden;
+}
+
+.command,
+.uptime,
+.media span {
+  white-space: nowrap;
 }
 
 .command:disabled {
@@ -1332,6 +1340,16 @@ button {
 }
 
 @media (max-width: 1000px) {
+  .sys-btn span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
   .corner-dial {
     width: 56px;
     right: 6px;

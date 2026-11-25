@@ -1,6 +1,8 @@
-export function MediaStrip() {
+import type { CSSProperties } from "react";
+
+export function MediaStrip({ style }: { style?: CSSProperties }) {
   return (
-    <div className="media" aria-hidden="true">
+    <div className="media" style={style} aria-hidden="true">
       <span className="icon-row">
         {Array.from({ length: 5 }, (_, index) => (
           <span key={index} />

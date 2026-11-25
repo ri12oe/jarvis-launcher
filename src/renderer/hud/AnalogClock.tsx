@@ -1,13 +1,14 @@
+import type { CSSProperties } from "react";
 import { formatClockParts, useNow } from "./time";
 
-export function AnalogClock() {
+export function AnalogClock({ style }: { style?: CSSProperties }) {
   const now = useNow();
   const parts = formatClockParts(now);
   const seconds = now.getSeconds();
   const minutes = now.getMinutes() + seconds / 60;
   const hours = (now.getHours() % 12) + minutes / 60;
   return (
-    <div className="analog" aria-hidden="true">
+    <div className="analog" style={style} aria-hidden="true">
       <div className="analog-face">
         <span className="hand hour" style={{ transform: `rotate(${hours * 30}deg)` }} />
         <span className="hand minute" style={{ transform: `rotate(${minutes * 6}deg)` }} />

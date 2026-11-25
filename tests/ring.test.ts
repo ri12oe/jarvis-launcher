@@ -183,6 +183,21 @@ describe("slot layout", () => {
     expect(reachable(layout)).toBe(crowded.length);
   });
 
+  it("walks down the rail with ArrowDown at 853x480", () => {
+    const tiles = [
+      { id: "chatgpt", label: "ChatGPT", kind: "app" },
+      { id: "edge", label: "Microsoft Edge", kind: "app" },
+      { id: "explorer", label: "File Explorer", kind: "system" },
+      { id: "desktop", label: "Desktop", kind: "folder" },
+    ];
+    const layout = layoutHud(tiles, { width: 853, height: 480 });
+    const edge = layout.segments.find((place) => place.zone === "rail" && place.slot === 0);
+    const next = stepHud(layout, { index: edge?.index ?? 0, page: 0 }, "ArrowDown");
+    const landed = layout.segments.find((place) => place.index === next.index);
+    expect(landed?.zone).toBe("rail");
+    expect(landed?.slot).toBe((edge?.slot ?? 0) + 1);
+  });
+
   it("puts Microsoft Edge on the rail and ChatGPT in the tabs", () => {
     const layout = layoutHud(
       [

@@ -249,7 +249,7 @@ export function hudFrame(viewport: Viewport, options?: LayoutOptions): HudFrame 
   const cx = width / 2;
   const cy = header + vertical / 2;
   const segH = clamp(reactor * 0.062, 18, 46);
-  const segW = clamp(reactor * 0.15, 44, 124);
+  const segW = clamp(reactor * 0.18, 52, 180);
   const segRadius = Math.max(reactor * 0.32, reactor / 2 - segH * 0.7 - 8);
   const buttonH = clamp(Math.round(height * 0.044), 24, 46);
   const railTop = header + 8;
@@ -273,7 +273,7 @@ export function hudFrame(viewport: Viewport, options?: LayoutOptions): HudFrame 
   const tabH = clamp(Math.round(header * 0.72), 30, 48);
   const tabTop = Math.max(4, (header - tabH) / 2);
   const tabs: Aabb = {
-    left: emblemW + 6,
+    left: emblemW + 16,
     top: tabTop,
     right: Math.max(emblemW + 52, width - calendarW - systemW - 10),
     bottom: tabTop + tabH,
@@ -352,13 +352,13 @@ function tryRing(frame: HudFrame, count: number, radius: number, boxW: number, b
   return slots;
 }
 
-/** The beveled buttons around the reactor. Sixteen when they fit, fewer on a short window. */
+/** The beveled buttons around the reactor. Twenty when they fit, fewer on a short window. */
 export function reactorSlots(frame: HudFrame): SegmentSlot[] {
   let width = frame.segW;
   let height = frame.segH;
   let radius = frame.segRadius;
   for (let shrink = 0; shrink < 8; shrink++) {
-    for (let count = 10; count >= 8; count--) {
+    for (let count = 20; count >= 8; count--) {
       const packed = tryRing(frame, count, radius, width, height);
       if (packed) return packed;
     }
@@ -432,7 +432,7 @@ function placeBox(index: number, zone: TileZone, ring: number, slot: number, cou
     y: (box.top + box.bottom) / 2,
     icon: box,
     label: box,
-    ellipsis: measure.width > Math.max(12, width - (zone === "segment" ? 8 : 30)),
+    ellipsis: measure.width > Math.max(12, width - (zone === "segment" ? 8 : 30)) * (zone === "tab" ? 1 : 2),
     zone,
     pinned,
     rotation: 0,
@@ -536,27 +536,101 @@ export function layoutHud<T extends LayoutTile>(
 }
 
 /** Button boxes for every placed tile, in window coordinates. */
-export function placedTileBoxes(layout: HudLayout, _layoutViewport?: Viewport): Aabb[] {
+export function placedTileBoxes(layout: HudLayout): Aabb[] {
   const boxes: Aabb[] = [];
   for (const segment of layout.segments) boxes.push(segment.icon, segment.label);
   return boxes;
 }
 
+export interface ChromeLayout {
+  /** Small window: analog clock and the second gauge are omitted. */
+  compact: boolean;
+  calendar: Aabb;
+  analog?: Aabb;
+  ram: Aabb;
+  bin: Aabb;
+  gauges: Aabb[];
+  hint: Aabb;
+  commands: Aabb;
+  search: Aabb;
+  media: Aabb;
+  uptime: Aabb;
+  /** Previous, page numbers, and next. Empty when there is one page. */
+  pager: Aabb[];
+}
+
+function box(left: number, top: number, width: number, height: number): Aabb {
+  return { left, top, right: left + width, bottom: top + height };
+}
+
+/** Placeholder widgets and footer controls, in window coordinates. */
+export function chromeLayout(viewport: Viewport, options?: LayoutOptions & { pages?: number }): ChromeLayout {
+  const frame = hudFrame(viewport, options);
+  const { width, height } = viewport;
+  const compact = width < 1100 || height < 640;
+  const calendar = box(width - frame.calendarW - 8, 4, frame.calendarW, Math.max(36, frame.header - 8));
+  let analog: Aabb | undefined;
+  if (!compact) {
+    const size = clamp(Math.round(width * 0.1), 128, 188);
+    analog = box(width - size - 12, frame.header + 12, size, size);
+  }
+  const disk = compact ? 64 : clamp(Math.round(width * 0.072), 96, 136);
+  let diskTop = analog ? analog.bottom + 14 : frame.header + 10;
+  const ram = box(width - disk - 12, diskTop, disk, disk);
+  diskTop = ram.bottom + 12;
+  const bin = box(width - disk - 12, diskTop, disk, disk);
+  const gaugeW = compact ? 132 : clamp(Math.round(width * 0.16), 180, 260);
+  const gaugeH = Math.round(gaugeW * 0.58);
+  const subtitle = options?.subtitle ? subtitlePanelBox(viewport) : undefined;
+  const gaugeBottom = height - frame.footer - 10;
+  const gaugeRight = width - 12;
+  let gaugeLeft = gaugeRight - gaugeW;
+  if (subtitle && gaugeLeft < subtitle.right + 8) gaugeLeft = subtitle.right + 8;
+  const gaugeTop = Math.max(bin.bottom + 12, gaugeBottom - gaugeH);
+  const gauges = [box(gaugeLeft, gaugeTop, Math.min(gaugeW, gaugeRight - gaugeLeft), gaugeH)];
+  if (!compact) {
+    const overlap = Math.round(gaugeW * 0.28);
+    const left = Math.max(subtitle ? subtitle.right + 8 : 8, gaugeLeft - overlap);
+    gauges.unshift(box(left, gaugeTop, gaugeW, gaugeH));
+  }
+  const footerTop = height - frame.footer + 8;
+  const footerH = frame.footer - 16;
+  const pages = options?.pages ?? 1;
+  const pagerW = pages > 1 ? 118 : 0;
+  const hintW = compact ? 108 : 150;
+  const commandW = compact ? 196 : 230;
+  const mediaW = compact ? 132 : 168;
+  const uptimeW = 64;
+  const gap = 8;
+  let x = 10;
+  const hint = box(x, footerTop, hintW, footerH);
+  x += hintW + gap;
+  const commands = box(x, footerTop, commandW, footerH);
+  x += commandW + gap;
+  const pager =
+    pagerW === 0
+      ? []
+      : [
+          box(x, footerTop, 28, footerH),
+          box(x + 32, footerTop, 52, footerH),
+          box(x + 88, footerTop, 28, footerH),
+        ];
+  x += pagerW + (pagerW ? gap : 0);
+  const rightBlock = mediaW + gap + uptimeW + 10;
+  const searchW = Math.max(88, width - x - rightBlock);
+  const search = box(x, footerTop, searchW, footerH);
+  const media = box(width - 10 - uptimeW - gap - mediaW, footerTop, mediaW, footerH);
+  const uptime = box(width - 10 - uptimeW, footerTop, uptimeW, footerH);
+  return { compact, calendar, analog, ram, bin, gauges, hint, commands, search, media, uptime, pager };
+}
+
 /**
- * Previous, readout, and next controls. They sit in the footer, under the tiles.
- * Coordinates are the window, the same space as `placedTileBoxes`.
+ * Previous, readout, and next controls. They sit in the footer, clear of the
+ * search pill and the command buttons.
  */
 export function pageControlBoxes(viewport: Viewport, pageCount: number): Aabb[] {
   if (pageCount < 2) return [];
-  const frame = hudFrame(viewport);
-  const top = viewport.height - frame.footer + 8;
-  const bottom = viewport.height - 8;
-  const cx = frame.cx;
-  return [
-    { left: cx - 86, right: cx - 52, top, bottom },
-    { left: cx - 48, right: cx + 48, top, bottom },
-    { left: cx + 52, right: cx + 86, top, bottom },
-  ];
+  return chromeLayout(viewport, { pages: pageCount }).pager;
 }
 
 function circularDistance(a: number, b: number): number {
@@ -641,6 +715,23 @@ function visibleOnPage(layout: HudLayout, page: number): RingPlacement[] {
   return layout.segments.filter((segment) => segment.pinned || segment.page === page);
 }
 
+function railStep(
+  visible: readonly RingPlacement[],
+  index: number,
+  key: HudKey,
+  selectable?: readonly boolean[],
+): number | null {
+  if (key !== "ArrowUp" && key !== "ArrowDown") return null;
+  const rails = visible
+    .filter((place) => place.zone === "rail" && (!selectable || selectable[place.index] === true))
+    .slice()
+    .sort((a, b) => a.slot - b.slot);
+  const at = rails.findIndex((place) => place.index === index);
+  if (at < 0) return null;
+  const next = rails[at + (key === "ArrowDown" ? 1 : -1)];
+  return next ? next.index : null;
+}
+
 /** The key step the HUD uses for arrows and PageUp/PageDown. */
 export function stepHud(
   layout: HudLayout,
@@ -648,6 +739,10 @@ export function stepHud(
   key: HudKey,
   selectable?: readonly boolean[],
 ): HudFocus {
+  if (key === "ArrowUp" || key === "ArrowDown") {
+    const along = railStep(visibleOnPage(layout, focus.page), focus.index, key, selectable);
+    if (along != null) return { index: along, page: focus.page };
+  }
   if (key === "PageUp" || key === "PageDown") {
     if (layout.pageCount <= 1) return focus;
     const direction = key === "PageDown" ? 1 : -1;

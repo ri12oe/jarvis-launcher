@@ -6,6 +6,7 @@ describe("HUD clock", () => {
 
   it("formats the date line and the day banner from the real date", () => {
     expect(formatHudDate(wednesday)).toBe("25-Nov., Wednesday");
+    expect(formatHudDate(new Date(2026, 4, 1))).toBe("1-May, Friday");
     expect(formatMonthBanner(wednesday)).toEqual({ day: "25", month: "NOVEMBER", weekday: "WEDNESDAY" });
     expect(formatClockParts(wednesday)).toEqual({ hh: "08", mm: "55", ap: "AM" });
   });

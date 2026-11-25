@@ -1,7 +1,9 @@
+import type { CSSProperties } from "react";
+
 /** Placeholder speedometer. The needle stays at rest and the reading is "--". */
-export function Gauge() {
+export function Gauge({ style }: { style?: CSSProperties }) {
   return (
-    <div className="gauge" aria-hidden="true">
+    <div className="gauge" style={style} aria-hidden="true">
       <svg viewBox="0 0 120 78">
         <path className="gauge-arc" d="M12 66 A 48 48 0 0 1 108 66" />
         {Array.from({ length: 9 }, (_, index) => {

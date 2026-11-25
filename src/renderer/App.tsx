@@ -31,21 +31,26 @@ import { tileFallbackIcon } from "../shared/icons";
 import { windowsExplorerPath } from "../shared/launch";
 import { acceptRefreshClick, refreshControlLabel } from "../shared/refresh";
 import {
+  chromeLayout,
   layoutHud,
   stepHud,
   subtitlePanelBox,
+  type Aabb,
   type HudFrame,
   type HudKey,
   type HudLayout,
   type RingPlacement,
   type Viewport,
 } from "../shared/ring";
+import { displayLabel } from "../shared/labels";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, LauncherState, LauncherTileView, VoicePhase, VoiceSnapshot } from "../shared/types";
 import { voiceControlLabel } from "../shared/voice-state";
 import { startMicrophone } from "./mic";
+import { NowProvider } from "./hud/time";
 
 const FILTER_LIMIT = 32;
+const EMPTY_TILES: LauncherTileView[] = [];
 
 const PREVIEW_APPS: DiscoveredApp[] = [
   ["chatgpt", "ChatGPT"],
@@ -186,6 +191,18 @@ function frameStyle(frame: HudFrame): CSSProperties {
   } as CSSProperties;
 }
 
+function absBox(box: Aabb): CSSProperties {
+  return {
+    position: "absolute",
+    left: box.left,
+    top: box.top,
+    width: box.right - box.left,
+    height: box.bottom - box.top,
+    right: "auto",
+    bottom: "auto",
+  };
+}
+
 function tileStyle(place: RingPlacement): CSSProperties {
   if (place.zone === "segment") {
     return {
@@ -225,7 +242,7 @@ export function App() {
   const pageRef = useRef(0);
   const tilesRef = useRef<LauncherTileView[]>([]);
   const placementsRef = useRef<RingPlacement[]>([]);
-  const layoutRef = useRef<HudLayout>(layoutHud([], { width: 1366, height: 768 }));
+  const layoutRef = useRef<HudLayout | null>(null);
   const pageCountRef = useRef(1);
   const selectableRef = useRef<boolean[]>([]);
   const tileRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -416,8 +433,10 @@ export function App() {
       if (isGridKey(event.key)) {
         event.preventDefault();
         dismissLaunch();
+        const currentLayout = layoutRef.current;
+        if (!currentLayout) return;
         const next = stepHud(
-          layoutRef.current,
+          currentLayout,
           { index: activeRef.current, page: pageRef.current },
           event.key,
           selectableRef.current,
@@ -520,14 +539,15 @@ export function App() {
       });
   };
 
-  const tiles = state?.tiles ?? [];
+  const tiles = state?.tiles ?? EMPTY_TILES;
   const showSubtitle = voice.phase !== "idle" || voice.heard.length > 0 || voice.reply.length > 0;
   // Reserve the panel the whole time voice is on, so a turn does not resize the reactor.
   const voiceOn = voice.hasKey && voice.enabled;
   const layout = useMemo(
     () => layoutHud(tiles, viewport, measureHudLabel, { subtitle: voiceOn }),
-    [tiles, viewport, voiceOn],
+    [tiles, viewport.width, viewport.height, voiceOn],
   );
+  if (layoutRef.current === null) layoutRef.current = layout;
   layoutRef.current = layout;
   const selectable = tiles.map((tile) => tileMatches(tile.label, query));
   const pageCount = layout.pageCount;
@@ -560,6 +580,7 @@ export function App() {
   const filtering = query.trim().length > 0;
   const visible = layout.segments.filter((place) => place.pinned || place.page === safePage);
   const panel = voiceOn ? subtitlePanelBox(viewport) : null;
+  const chrome = chromeLayout(viewport, { subtitle: voiceOn, pages: layout.pageCount });
 
   const changePage = (key: HudKey, focusTile: boolean) => {
     const next = stepHud(
@@ -590,7 +611,8 @@ export function App() {
   }, [activeIndex, layout.segments, safePage]);
 
   return (
-    <div className="screen" style={frameStyle(layout.frame)}>
+    <NowProvider>
+    <div className="screen" data-density={chrome.compact ? "compact" : "full"} style={frameStyle(layout.frame)}>
       <Emblem />
       <SystemButtons />
       <Calendar />
@@ -602,19 +624,23 @@ export function App() {
       <ReactorFace frame={layout.frame} phase={voice.phase} />
       <div className="right-stack">
         <Weather />
-        <div className="meters">
-          <RoundMeter name="RAM" />
-          <RoundMeter name="BIN" />
-        </div>
-        <div className="gauges">
-          <Gauge />
-          <Gauge />
-        </div>
+        <RoundMeter name="RAM" style={absBox(chrome.ram)} />
+        <RoundMeter name="BIN" style={absBox(chrome.bin)} />
+        {chrome.gauges.map((gauge, index) => (
+          <Gauge key={index} style={absBox(gauge)} />
+        ))}
       </div>
-      <AnalogClock />
+      {chrome.analog ? <AnalogClock style={absBox(chrome.analog)} /> : null}
 
-      {pageCount > 1 ? (
-        <div className="pager" style={{ left: layout.frame.cx, bottom: 10 }}>
+      {pageCount > 1 && chrome.pager.length > 0 ? (
+        <div
+          className="pager"
+          style={{
+            left: chrome.pager[0].left,
+            top: chrome.pager[0].top,
+            transform: "none",
+          }}
+        >
           <button
             type="button"
             className="arc-btn arc-prev"
@@ -687,6 +713,7 @@ export function App() {
                 data-kind={tile.kind}
                 data-zone={place.zone}
                 data-side={place.side}
+                aria-label={tile.label}
                 aria-disabled={dim || undefined}
                 tabIndex={active ? 0 : -1}
                 onFocus={() => {
@@ -707,8 +734,8 @@ export function App() {
                     )}
                   </span>
                 )}
-                <span className="label" title={place.ellipsis ? tile.label : undefined}>
-                  {tile.label}
+                <span className="label" title={tile.label}>
+                  {displayLabel(tile.label)}
                 </span>
               </button>
             </li>
@@ -737,10 +764,14 @@ export function App() {
       ) : null}
 
       <footer className="bottom">
-        <p className={["hint", busy ? "busy" : "", warn ? "warn" : ""].filter(Boolean).join(" ")} aria-live="polite">
+        <p
+          className={["hint", busy ? "busy" : "", warn ? "warn" : ""].filter(Boolean).join(" ")}
+          style={absBox(chrome.hint)}
+          aria-live="polite"
+        >
           {hint}
         </p>
-        <div className="commands">
+        <div className="commands" style={absBox(chrome.commands)}>
           <button
             type="button"
             className="command"
@@ -762,9 +793,9 @@ export function App() {
             QUIT
           </button>
         </div>
-        <SearchPill />
-        <MediaStrip />
-        <Uptime />
+        <SearchPill style={absBox(chrome.search)} />
+        <MediaStrip style={absBox(chrome.media)} />
+        <Uptime style={absBox(chrome.uptime)} />
       </footer>
 
       <div className="boot" aria-hidden="true">
@@ -774,5 +805,6 @@ export function App() {
         <p className="boot-line line-b">ONLINE</p>
       </div>
     </div>
+    </NowProvider>
   );
 }

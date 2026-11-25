@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from "react";
 
-const MONTHS_SHORT = ["Jan.", "Feb.", "Mar.", "Apr.", "May.", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+const MONTHS_SHORT = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
 const MONTHS = [
   "JANUARY",
   "FEBRUARY",
@@ -17,13 +17,27 @@ const MONTHS = [
 ];
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-export function useNow(): Date {
+const NowContext = createContext<Date | null>(null);
+
+/** One clock for the header, the analog face, and the date banner. */
+export function NowProvider({ children }: { children: ReactNode }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
-  return now;
+  return createElement(NowContext.Provider, { value: now }, children);
+}
+
+export function useNow(): Date {
+  const shared = useContext(NowContext);
+  const [own, setOwn] = useState(() => new Date());
+  useEffect(() => {
+    if (shared) return;
+    const timer = window.setInterval(() => setOwn(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, [shared]);
+  return shared ?? own;
 }
 
 /** `25-Nov., Wednesday` */

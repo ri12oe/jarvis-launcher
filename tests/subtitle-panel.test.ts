@@ -61,7 +61,7 @@ describe("small windows with voice on", () => {
       expect(tilesPerPage(on)).toBeGreaterThanOrEqual(Math.max(1, tilesPerPage(off) - 4));
       expect(on.pageCount).toBeLessThanOrEqual(off.pageCount + 1);
       expect(on.pageCount).toBeLessThan(tiles.length);
-      for (const box of placedTileBoxes(on, viewport)) {
+        for (const box of placedTileBoxes(on)) {
         expect(box.left).toBeGreaterThanOrEqual(-0.5);
         expect(box.top).toBeGreaterThanOrEqual(-0.5);
         expect(box.right).toBeLessThanOrEqual(viewport.width + 0.5);
@@ -83,7 +83,7 @@ describe("voice subtitle panel", () => {
         const layout = layoutHud(tiles, viewport, undefined, { subtitle: true });
         const panel = subtitlePanelBox(viewport);
         expect(layout.segments).toHaveLength(count);
-        for (const box of placedTileBoxes(layout, viewport)) {
+        for (const box of placedTileBoxes(layout)) {
           expect(boxesOverlap(box, panel)).toBe(false);
         }
         expect(panel.bottom).toBeLessThanOrEqual(viewport.height - 72);

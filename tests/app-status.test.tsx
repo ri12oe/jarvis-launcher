@@ -83,7 +83,8 @@ describe("App launch status", () => {
   it("clears LAUNCH FAILED when a tile is clicked and when the window hides", async () => {
     await renderApp();
     const tile = host?.querySelector(".tile");
-    expect(tile?.textContent).toContain("Microsoft Edge");
+    expect(tile?.getAttribute("aria-label")).toBe("Microsoft Edge");
+    expect(tile?.textContent).toContain("Edge");
 
     await act(async () => {
       tile?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
