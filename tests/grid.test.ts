@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   clampIndex,
   filterTiles,
+  clearLaunchStatus,
   footerHint,
   launchStatusText,
   nextVisibleTile,
@@ -106,5 +107,14 @@ describe("footer hint", () => {
     expect(statusAfterPublish(explorer, false)).toBe(explorer);
     expect(statusAfterPublish(unknown, false)).toBe(unknown);
     expect(statusAfterPublish("SELECT A SYSTEM", false)).toBe("");
+  });
+
+  it("clears a launch failure on click and on hide", () => {
+    const failed = launchStatusText("spawn C:\\Windows\\explorer.exe ENOENT");
+    expect(clearLaunchStatus(failed)).toBe("");
+    expect(clearLaunchStatus("LAUNCH FAILED")).toBe("");
+    expect(clearLaunchStatus("LINK LOST")).toBe("LINK LOST");
+    expect(clearLaunchStatus("REFRESH FAILED")).toBe("REFRESH FAILED");
+    expect(clearLaunchStatus("")).toBe("");
   });
 });

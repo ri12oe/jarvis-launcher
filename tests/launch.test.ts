@@ -150,6 +150,15 @@ describe("launch paths", () => {
     });
     await expect(pending).rejects.toThrow("spawn ENOENT");
 
+    const spawned = new EventEmitter() as EventEmitter & SpawnedChild;
+    spawned.pid = 4242;
+    spawned.unref = () => undefined;
+    const pid = spawnDetached("C:\\Windows\\explorer.exe", [], () => {
+      queueMicrotask(() => spawned.emit("spawn"));
+      return spawned;
+    });
+    await expect(pid).resolves.toBe(4242);
+
     await expect(
       runLaunch(
         { type: "spawn", command: "C:\\Windows\\explorer.exe", args: [] },

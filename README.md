@@ -1,6 +1,6 @@
 # Jarvis Launcher
 
-A full-screen JARVIS-style launcher that sits on top of Windows. It is an Electron window, not a shell replacement. It does not change Explorer, `explorer.exe`, logon shell keys, or any other system setting.
+A full-screen JARVIS-style launcher for Windows. It is an Electron window, not a shell replacement. It does not change Explorer, `explorer.exe`, logon shell keys, or any other system setting.
 
 Click a tile to open that app or folder. The launcher only reads Start Menu shortcuts, the uninstall program list, and the Start menu app list. It never deletes, moves, or edits your files. The only file it writes is its own `config.json`.
 
@@ -20,7 +20,11 @@ npm run dev
 
 That starts the renderer, compiles the Electron main process, and opens the launcher. The default hotkey is **Ctrl+Alt+J** (`CommandOrControl+Alt+J` in the config). Press it again, or Esc, to hide the window. The process keeps running so the hotkey still works. Quit from the tray icon or the QUIT control.
 
-Arrow keys move through the tiles as they are laid out. Enter launches the focused tile. Typing filters the grid by name, and the footer shows that text (`FILTER  EDGE`). Backspace edits it. A space activates the focused button. Esc clears the filter, and hides the window when the filter is already empty. Hiding from the hotkey clears the filter too. A failed launch stays in the footer as `LAUNCH FAILED` plus the reason until the next key, click, or refresh.
+Arrow keys move through the tiles as they are laid out. Enter launches the focused tile. Typing filters the grid by name, and the footer shows that text (`FILTER  EDGE`). Backspace edits it. A space activates the focused button. Esc clears the filter, and hides the window when the filter is already empty. Hiding from the hotkey clears the filter too. A failed launch stays in the footer as `LAUNCH FAILED` plus the reason until the next key, click, refresh, or hide.
+
+A click launches the app immediately. Jarvis stays full screen behind it and is not always on top, so the centered window can sit in front. Esc and the hotkey still hide it. On Windows one PowerShell helper starts with Jarvis and stays up for the life of the app. It is compiled once. Commands go in on stdin and JSON comes back on stdout, and the helper waits on stdin while it has nothing to do. It exits when that pipe closes, including a crash, Ctrl+C, or Task Manager ending Jarvis, and it also exits if Jarvis's process is gone. Quitting asks it to exit and kills the process tree only if it is still running. The click does not wait for the helper to start. If a fresh window list is not ready, which is only in the moment right after Jarvis itself starts, the click waits at most about 300ms, launches the app, and then hides Jarvis without trying to center. Once the helper is ready, the list taken at the click is the before list: windows already open at that moment.
+
+A window from the before list is moved only when it is the foreground window and its executable or Store app id matches the tile. Waiting longer does not make an old background window eligible. File Explorer is the exception: only a new Explorer window is moved, never one that was already open. A window that appears after the click is moved when its executable matches. A different executable is accepted only when the tile has nothing to match, or the tile is a stub launcher: a Store app opened with `shell:AppsFolder`, an unresolved `.lnk`, or an Update.exe-style launcher. A resolved `.lnk` uses the target executable, so an updater dialog for that app is left alone. A packaged app whose window is hosted by ApplicationFrameHost does not carry the app id on that window, so it is matched as a new window instead of by AUMID. Owned popups are skipped. The helper sets per-monitor DPI awareness, then restores, resizes, and brings the chosen window forward (`ShowWindow`, `SetWindowPos`, `SetForegroundWindow`). The desktop and the taskbar are refused. Nothing is written to the registry, and `explorer.exe` is not restarted or set as a shell. Jarvis hides only when no matching window turns up or the move fails. A click before the helper is ready hides as soon as the app has been launched, without waiting out the watch. A window that was placed stays in front of the full-screen launcher. `"launchWindow": { "mode": "default" }` leaves the app's own size and leaves Jarvis up.
 
 The tray menu is Show, Hide, Refresh, and Quit. The footer REFRESH control runs that same reload. A second click does nothing while a reload is already running, and the control reads REFRESHING until it finishes. The first scan, and any later scan that is not a button click, shows SCANNING in the footer until the list is ready. A reload that throws shows REFRESH FAILED and leaves the previous list in place. Opening the window uses the list already in memory. Saving `config.json` re-reads it too.
 
@@ -74,6 +78,7 @@ A broken file is left as it is. The launcher uses defaults in memory until the J
   "hotkey": "CommandOrControl+Alt+J",
   "openAtLogin": false,
   "startHidden": false,
+  "launchWindow": { "mode": "centered", "widthPct": 70, "heightPct": 70 },
   "pinnedFolders": [
     { "id": "projects", "label": "Projects", "path": "C:\\Users\\Mario\\Projects" }
   ],
@@ -95,6 +100,7 @@ A broken file is left as it is. The launcher uses defaults in memory until the J
 - A path is absolute (`C:\...`, `\\server\share`, or `/...`).
 - A label is 1 to 80 characters after trimming.
 - `hotkey` is an Electron accelerator with at least one modifier. Shift cannot be the only modifier.
+- `launchWindow.mode` is `"centered"` (the default) or `"default"`. `centered` is the Windows placement above. `default` does not resize the app. `widthPct` and `heightPct` are percents of the work area, from 10 to 100. The default is 70 and 70. Other platforms ignore this and still leave Jarvis up.
 
 Discovered apps are added automatically when a Start Menu shortcut, a packaged Start app, or an uninstall entry matches. You do not have to list them.
 
@@ -138,6 +144,7 @@ Check both `JarvisLauncher-Setup.exe` and `JarvisLauncher-portable.exe` where it
 - Autostart works for the NSIS install and the portable exe (`openAtLogin`, or a shortcut in the Startup folder)
 - REFRESH reloads the list. The footer reads SCANNING during the first scan, and REFRESH FAILED if a reload throws
 - Arrow keys move across the tiles, Enter launches the focused tile, Esc clears a filter and then hides, and typing filters the grid
+- A click leaves Jarvis up and opens the app in a centered window about 70% of the work area on that display. The window list is taken at the click from the helper that stays running for the life of Jarvis. An app that is already open is restored only when its window is in front. File Explorer moves only a new Explorer window. Jarvis stays full screen behind a placed window, and hides only if that window cannot be found or the move fails. A click in the moment after Jarvis starts, before the helper has compiled, launches the app and hides Jarvis without centering. `"launchWindow": { "mode": "default" }` leaves the app's own size and leaves Jarvis up
 
 ## Tests
 
@@ -145,4 +152,4 @@ Check both `JarvisLauncher-Setup.exe` and `JarvisLauncher-portable.exe` where it
 npm test
 ```
 
-Matching, config validation, shortcut scanning, registry parsing, Start menu app parsing, launch plans, the refresh gate, footer hints, and grid navigation are covered. Launch tests mock `openPath`, `openExternal`, and `spawn`, so they do not need Windows.
+Matching, config validation, shortcut scanning, registry parsing, Start menu app parsing, launch plans, the refresh gate, footer hints, grid navigation, and window placement are covered. Launch tests mock `openPath`, `openExternal`, and `spawn`. The placement tests mock the window list, so they do not need Windows. The Windows CI job also starts the helper, reads a real window list, moves a window that the test created, and checks that closing stdin exits the helper.

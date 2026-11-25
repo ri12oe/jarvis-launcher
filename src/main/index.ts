@@ -8,6 +8,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  screen,
   shell,
   Tray,
   type IpcMainEvent,
@@ -19,10 +20,17 @@ import { DEFAULT_HOTKEY } from "../shared/config";
 import { hotkeyRegistrationWarnings } from "../shared/hotkey";
 import { tileFallbackIcon, tileIconFile } from "../shared/icons";
 import { defaultEdgeCandidates, runLaunch, spawnDetached, windowsExplorerPath } from "../shared/launch";
+import {
+  centerLaunchedWindow,
+  LAUNCH_BASELINE_WAIT_MS,
+  LAUNCH_WINDOW_WATCH_MS,
+  targetFromAction,
+} from "../shared/launch-window";
 import { loginItemOptions } from "../shared/login-item";
 import { createRefreshGate, isMainFrameSender } from "../shared/refresh";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, JarvisConfig, LauncherState, LauncherTileView, ResolvedTile } from "../shared/types";
+import { createWindowSession, type WindowWatch } from "./window-snapshot";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -36,6 +44,8 @@ let scanning = true;
 let refreshFailed = false;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let configWatchStarted = false;
+let placeSerial = 0;
+const placementHelper = createWindowSession({ platform: process.platform, env: process.env });
 let configFilePath = "";
 let session: { config: JarvisConfig; tiles: ResolvedTile[]; view: LauncherTileView[]; warnings: string[] } | null =
   null;
@@ -217,12 +227,75 @@ function publishState(): void {
   contents.send("jarvis:state", currentState());
 }
 
-async function execute(action: ResolvedTile["action"]): Promise<void> {
-  await runLaunch(action, {
+async function execute(action: ResolvedTile["action"]): Promise<number | undefined> {
+  return runLaunch(action, {
     openPath: (targetPath) => shell.openPath(targetPath),
     openExternal: (url) => shell.openExternal(url),
     spawn: (command, args) => spawnDetached(command, args, (cmd, cmdArgs, options) => spawnProcess(cmd, cmdArgs, options)),
   });
+}
+
+function browserHwnd(win: BrowserWindow): number | undefined {
+  try {
+    const buf = win.getNativeWindowHandle();
+    const value = buf.length >= 8 ? buf.readBigUInt64LE(0) : buf.length >= 4 ? BigInt(buf.readUInt32LE(0)) : 0n;
+    if (value <= 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) return undefined;
+    return Number(value);
+  } catch {
+    return undefined;
+  }
+}
+
+type PlacementOutcome = "placed" | "missed" | "skipped" | "cancelled";
+
+/**
+ * Move the new window in front of Jarvis.
+ * The before list was taken at the click, before the app was launched.
+ * `missed` means no window was found or the move failed, and Jarvis should hide.
+ * A placed window stays in front of the full-screen launcher, which is not always on top.
+ */
+async function centerAfterLaunch(
+  action: ResolvedTile["action"],
+  spawnedPid: number | undefined,
+  watch: WindowWatch,
+  serial: number,
+  baseline: readonly number[] | undefined,
+): Promise<PlacementOutcome> {
+  const win = mainWindow;
+  const launchWindow = session?.config.launchWindow;
+  if (!win || win.isDestroyed() || !launchWindow) return "skipped";
+  if (process.platform !== "win32" || launchWindow.mode !== "centered") return "skipped";
+  const launcherHwnd = browserHwnd(win);
+  if (!launcherHwnd) return "missed";
+  let workArea: Electron.Rectangle;
+  try {
+    workArea = screen.getDisplayMatching(win.getBounds()).workArea;
+  } catch {
+    return "missed";
+  }
+  try {
+    const placed = await centerLaunchedWindow({
+      platform: process.platform,
+      mode: launchWindow.mode,
+      widthPct: launchWindow.widthPct,
+      heightPct: launchWindow.heightPct,
+      workArea,
+      launcherHwnd,
+      launcherPid: process.pid,
+      spawnedPid,
+      baseline,
+      target: targetFromAction(action, readShortcutTarget),
+      // Physical pixels. The helper is per-monitor v2, so Windows does not scale these again.
+      toScreenRect: (rect) => screen.dipToScreenRect(win, rect),
+      nextSample: () => (serial === placeSerial ? watch.nextSample() : Promise.resolve(undefined)),
+      placeWindow: (hwnd, rect) => (serial === placeSerial ? watch.place(hwnd, rect) : Promise.resolve(false)),
+    });
+    if (serial !== placeSerial) return "cancelled";
+    return placed ? "placed" : "missed";
+  } catch {
+    if (serial !== placeSerial) return "cancelled";
+    return "missed";
+  }
 }
 
 function showWindow(): void {
@@ -265,6 +338,7 @@ function allowNavigation(url: string): boolean {
 function createWindow(startHidden: boolean): void {
   mainWindow = new BrowserWindow({
     fullscreen: true,
+    alwaysOnTop: false,
     frame: false,
     show: false,
     backgroundColor: "#03060a",
@@ -339,11 +413,38 @@ function registerIpc(): void {
     if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
     if (!session) await refreshGate.requestRefresh();
     if (typeof tileId !== "string") return { ok: false, error: "Unknown tile" };
-    const tile = session?.tiles.find((item) => item.id === tileId);
+    const current = session;
+    if (!current) return { ok: false, error: "Unknown tile" };
+    const tile = current.tiles.find((item) => item.id === tileId);
     if (!tile) return { ok: false, error: "Unknown tile" };
+    const centering = process.platform === "win32" && current.config.launchWindow.mode === "centered";
+    const serial = centering ? ++placeSerial : placeSerial;
+    let baseline: number[] | undefined;
+    if (centering) {
+      const before = await placementHelper.sample(LAUNCH_BASELINE_WAIT_MS);
+      if (!before) {
+        try {
+          await execute(tile.action);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Launch failed";
+          return { ok: false, error: message };
+        }
+        hideWindow();
+        return { ok: true };
+      }
+      baseline = before.windows.map((window) => window.hwnd);
+    }
     try {
-      await execute(tile.action);
-      return { ok: true };
+      const spawnedPid = await execute(tile.action);
+      if (!centering) return { ok: true };
+      const watch = placementHelper.serve(LAUNCH_WINDOW_WATCH_MS);
+      try {
+        const outcome = await centerAfterLaunch(tile.action, spawnedPid, watch, serial, baseline);
+        if (outcome === "missed") hideWindow();
+        return { ok: true };
+      } finally {
+        watch.close();
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Launch failed";
       return { ok: false, error: message };
@@ -373,6 +474,7 @@ if (!gotLock) {
   app.setPath("userData", path.join(app.getPath("appData"), "jarvis-launcher"));
   app.on("second-instance", () => showWindow());
   app.whenReady().then(async () => {
+    if (process.platform === "win32") placementHelper.start();
     app.setAppUserModelId("com.mario.jarvis-launcher");
     registerIpc();
     // Paint before discovery. Get-StartApps can use its full timeout.
@@ -386,6 +488,7 @@ if (!gotLock) {
 
   app.on("before-quit", () => {
     quitting = true;
+    placementHelper.stop();
     if (refreshTimer) clearTimeout(refreshTimer);
     if (configFilePath) fs.unwatchFile(configFilePath);
     globalShortcut.unregisterAll();
