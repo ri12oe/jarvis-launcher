@@ -236,7 +236,6 @@ function tileStyle(place: RingPlacement): CSSProperties {
       width: place.width,
       height: place.height,
       transform: `translate(-50%, -50%) rotate(${place.rotation ?? 0}deg)`,
-      fontSize: 11,
     };
   }
   return {
@@ -575,20 +574,23 @@ export function App() {
   layoutRef.current = layout;
   const plateCopy = useMemo(() => {
     const lines = new Array<string[]>(tiles.length);
+    const fonts = new Array<number>(tiles.length).fill(11);
     const entries = layout.segments.map((place) => {
       const label = tiles[place.index]?.label ?? "";
+      const fontPx = fittedFont(place, label);
+      fonts[place.index] = fontPx;
       return {
         label,
         width: plateWidth(place),
-        fontPx: fittedFont(place, label),
+        fontPx,
         maxLines: place.zone === "tab" ? 1 : 2,
       };
     });
-    const texts = plateTexts(entries);
+    const texts = plateTexts(entries, measurePlateWidth);
     layout.segments.forEach((place, index) => {
       lines[place.index] = texts[index] ?? [];
     });
-    return lines;
+    return { lines, fonts };
   }, [layout, tiles]);
   const selectable = tiles.map((tile) => tileMatches(tile.label, query));
   const pageCount = layout.pageCount;
@@ -761,7 +763,7 @@ export function App() {
                 ]
                   .filter(Boolean)
                   .join(" ")}
-                style={{ ...tileStyle(place), fontSize: fittedFont(place, tile.label) }}
+                style={{ ...tileStyle(place), fontSize: plateCopy.fonts[place.index] }}
                 data-kind={tile.kind}
                 data-zone={place.zone}
                 data-side={place.side}
@@ -787,7 +789,7 @@ export function App() {
                   </span>
                 )}
                 <span className="label" title={tile.label}>
-                  {(plateCopy[place.index] ?? [tile.label]).map((line, lineIndex) => (
+                  {(plateCopy.lines[place.index] ?? [tile.label]).map((line, lineIndex) => (
                     <span key={lineIndex} className="label-line">
                       {line}
                     </span>

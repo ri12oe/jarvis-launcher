@@ -20,6 +20,8 @@ const LABELS = [
   "To Do",
   "To Do",
   "File Explorer",
+  "Microsoft Visual Studio 2022 Enterprise",
+  "Microsoft Visual Studio 2022 Professional",
   ...Array.from({ length: 12 }, (_, index) => `Module ${index + 1}`),
 ].join("|");
 
@@ -128,8 +130,14 @@ describe("rendered geometry", () => {
           if (letters.length >= 4 && first.startsWith(letters.slice(0, 4))) return [];
           return [`short ${plate.full} -> ${plate.shown}`];
         });
+        const faces: string[] = [];
         const misses: string[] = [];
         for (const button of document.querySelectorAll<HTMLButtonElement>(".tile-segment")) {
+          const faceW = parseFloat(button.style.width);
+          const faceH = parseFloat(button.style.height);
+          if (Math.abs(button.offsetWidth - faceW) > 1 || Math.abs(button.offsetHeight - faceH) > 1 || faceW < 72 || faceH < 36) {
+            faces.push(`${button.getAttribute("aria-label")} ${button.offsetWidth}x${button.offsetHeight} != ${faceW}x${faceH}`);
+          }
           const angle = Number((button.style.transform.match(/rotate\(([-\d.]+)deg\)/) ?? [])[1] ?? 0) * (Math.PI / 180);
           const rect = button.getBoundingClientRect();
           const cx = rect.left + rect.width / 2;
@@ -152,12 +160,14 @@ describe("rendered geometry", () => {
           plates: plates.map((plate) => plate.shown),
           dupes: [...new Set(dupes)],
           unreadable: unreadable.slice(0, 12),
+          faces: faces.slice(0, 8),
           misses: misses.slice(0, 8),
           count: plates.length,
         };
       });
       expect(report.dupes, JSON.stringify(report.plates)).toEqual([]);
       expect(report.unreadable, report.unreadable.join("\n")).toEqual([]);
+      expect(report.faces, report.faces.join("\n")).toEqual([]);
       expect(report.misses, report.misses.join("\n")).toEqual([]);
       expect(report.count).toBeGreaterThan(0);
       expect(report.problems, report.problems.join("\n")).toEqual([]);

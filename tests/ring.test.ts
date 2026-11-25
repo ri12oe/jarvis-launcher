@@ -7,6 +7,7 @@ import {
   labelSide,
   hudFrame,
   layoutHud,
+  plateFace,
   reactorSlots,
   measureLabel,
   metricsFromAdvance,
@@ -175,6 +176,20 @@ describe("slot layout", () => {
         }
       }
     }
+  });
+
+  it("sizes each plate face from its ring chord", () => {
+    const frame = hudFrame({ width: 1920, height: 1080 });
+    const slots = reactorSlots(frame);
+    const half = slots.length / 2;
+    slots.forEach((slot, index) => {
+      const radius = Math.hypot(slot.x - frame.cx, slot.y - frame.cy);
+      const count = index < half ? half : slots.length - half;
+      expect(slot.faceWidth).toBeCloseTo(plateFace(radius, count).width);
+      expect(slot.faceHeight).toBeCloseTo(plateFace(radius, count).height);
+      expect(slot.faceWidth).toBeGreaterThanOrEqual(72);
+      expect(slot.faceHeight).toBeGreaterThanOrEqual(36);
+    });
   });
 
   it("fills an outer and an inner ring, about twenty plates at 1920", () => {
