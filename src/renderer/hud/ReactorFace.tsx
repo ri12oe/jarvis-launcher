@@ -24,23 +24,28 @@ export function ReactorFace({
   const mark = phase === "idle" ? "standby" : phase;
   const size = frame.reactor;
   const slots = reactorSlots(frame);
+  const half = slots.length % 2 === 0 ? slots.length / 2 : slots.length;
   return (
     <div
       className="reactor"
       style={{ width: size, height: size, left: frame.cx - size / 2, top: frame.cy - size / 2 }}
     >
       {slots.map((slot, index) => {
-        if (used.has(index)) return null;
+        const ringCount = index < half ? half : Math.max(1, slots.length - half);
+        const radius = Math.hypot(slot.x - frame.cx, slot.y - frame.cy);
+        const chord = 2 * radius * Math.sin(Math.PI / Math.max(3, ringCount));
+        const plateH = Math.max(32, Math.min(64, radius * 0.16));
         return (
           <span
             key={index}
-            className="plate-btn"
+            className={index < half ? "plate-face" : "plate-face inner"}
+            data-filled={used.has(index) ? "yes" : "no"}
             aria-hidden="true"
             style={{
               left: size / 2 + (slot.x - frame.cx),
               top: size / 2 + (slot.y - frame.cy),
-              width: slot.width,
-              height: slot.height,
+              width: chord * 1.02,
+              height: plateH,
               transform: `translate(-50%, -50%) rotate(${slot.rotation}deg)`,
             }}
           />

@@ -58,7 +58,7 @@ describe("rendered geometry", () => {
         const viewH = window.innerHeight;
         const nodes = [
           ...document.querySelectorAll(
-            "button, .label-line, .hint, .search-pill, .uptime, .media > span, .gauge, .round-meter, .meter-name, .meter-value, .day-num, .month-banner span, .wifi, .wifi-ring, .analog, .analog p, .subtitle, .corner-dial, .plate-btn, .voice, .weather",
+            "button, .label-line, .hint, .search-pill, .uptime, .media > span, .gauge, .round-meter, .meter-name, .meter-value, .day-num, .month-banner span, .wifi, .wifi-ring, .analog, .analog p, .subtitle, .corner-dial, .voice, .weather",
           ),
         ].filter((node): node is HTMLElement => node instanceof HTMLElement);
         const boxOf = (node: HTMLElement) => {

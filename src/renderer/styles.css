@@ -378,20 +378,22 @@ button {
   stroke-width: 0.9;
 }
 
-.plate-btn {
+.plate-face {
   position: absolute;
-  z-index: 1;
+  z-index: 2;
   pointer-events: none;
-  background: linear-gradient(180deg, #5c6774, #171d26 42%, #10151c);
-  border: 1px solid #8b97a3;
+  background: linear-gradient(180deg, #8b97a4 0%, #3a4450 8%, #1a212b 42%, #10151c 100%);
+  border: 1px solid #c5ced6;
   box-shadow:
-    inset 0 1px 0 rgba(220, 228, 234, 0.55),
-    inset 0 -2px 0 rgba(0, 0, 0, 0.55);
+    inset 0 2px 0 rgba(236, 242, 246, 0.85),
+    inset 0 -4px 0 rgba(0, 0, 0, 0.72),
+    0 2px 0 rgba(0, 0, 0, 0.45);
+  clip-path: polygon(7% 0, 93% 0, 100% 100%, 0 100%);
 }
 
-.plate-btn.inner {
-  background: linear-gradient(180deg, #4a5562, #12171e 46%, #0c1016);
-  border-color: #6e7a86;
+.plate-face.inner {
+  background: linear-gradient(180deg, #7c8794 0%, #343e4a 10%, #161c24 46%, #0c1016 100%);
+  clip-path: polygon(5% 0, 95% 0, 100% 100%, 0 100%);
 }
 
 .hairline {
@@ -459,40 +461,42 @@ button {
 }
 
 .ring.solid {
-  width: 62%;
-  height: 62%;
-  border: 4px solid #bff8ff;
-  box-shadow: 0 0 16px #7af3ff, 0 0 32px rgba(40, 160, 255, 0.85), inset 0 0 10px #7af3ff;
+  width: 70%;
+  height: 70%;
+  border: 5px solid #e7fdff;
+  box-shadow: 0 0 22px #bff8ff, 0 0 48px rgba(40, 170, 255, 0.95), inset 0 0 16px #7af3ff;
 }
 
 .ring.hatch {
-  width: 70%;
-  height: 70%;
+  width: 84%;
+  height: 84%;
   background: repeating-conic-gradient(
-    from 7deg,
-    rgba(170, 245, 255, 0.95) 0 0.7deg,
-    transparent 0.7deg 3.4deg
+    from 6deg,
+    rgba(210, 252, 255, 1) 0 1.6deg,
+    transparent 1.6deg 4.2deg
   );
-  -webkit-mask: radial-gradient(circle, transparent 86%, #000 88% 97%, transparent 99%);
-  mask: radial-gradient(circle, transparent 86%, #000 88% 97%, transparent 99%);
+  filter: drop-shadow(0 0 10px rgba(90, 230, 255, 0.95));
+  -webkit-mask: radial-gradient(circle, transparent 72%, #000 76% 96%, transparent 99%);
+  mask: radial-gradient(circle, transparent 72%, #000 76% 96%, transparent 99%);
 }
 
 .ring.hatch.inner {
-  width: 54%;
-  height: 54%;
+  width: 60%;
+  height: 60%;
   background: repeating-conic-gradient(
     from 2deg,
-    rgba(120, 220, 255, 0.8) 0 1.1deg,
-    transparent 1.1deg 4.2deg
+    rgba(170, 240, 255, 0.95) 0 1.5deg,
+    transparent 1.5deg 4.6deg
   );
-  -webkit-mask: radial-gradient(circle, transparent 80%, #000 83% 94%, transparent 97%);
-  mask: radial-gradient(circle, transparent 80%, #000 83% 94%, transparent 97%);
+  filter: drop-shadow(0 0 8px rgba(80, 210, 255, 0.9));
+  -webkit-mask: radial-gradient(circle, transparent 70%, #000 74% 94%, transparent 98%);
+  mask: radial-gradient(circle, transparent 70%, #000 74% 94%, transparent 98%);
 }
 
 .ring.solid.inner {
-  width: 42%;
-  height: 42%;
-  border-width: 3px;
+  width: 46%;
+  height: 46%;
+  border-width: 4px;
 }
 
 .spin {
@@ -505,15 +509,15 @@ button {
 
 .core {
   position: relative;
-  width: 38%;
-  height: 38%;
+  width: 34%;
+  height: 34%;
   border-radius: 50%;
   background:
-    radial-gradient(circle, rgba(8, 16, 28, 0.2) 0 42%, rgba(80, 200, 255, 0.55) 62%, rgba(10, 30, 60, 0.15) 74%);
+    radial-gradient(circle, rgba(8, 18, 32, 0.15) 0 36%, rgba(120, 230, 255, 0.85) 58%, rgba(20, 80, 140, 0.2) 72%);
   box-shadow:
-    0 0 22px rgba(90, 220, 255, 0.95),
-    0 0 60px rgba(40, 130, 255, 0.7),
-    inset 0 0 18px rgba(180, 245, 255, 0.35);
+    0 0 28px rgba(140, 240, 255, 1),
+    0 0 70px rgba(40, 150, 255, 0.9),
+    inset 0 0 22px rgba(210, 250, 255, 0.55);
 }
 
 .core-ticks {
@@ -722,7 +726,7 @@ button {
 }
 
 .meter-ring {
-  width: 74%;
+  width: 82%;
   aspect-ratio: 1;
   border-radius: 50%;
   border: 3px solid rgba(170, 210, 230, 0.75);
@@ -797,22 +801,26 @@ button {
   max-height: calc(100% - 16px);
   aspect-ratio: 1;
   border-radius: 50%;
-  border: 2px solid rgba(160, 190, 205, 0.55);
+  border: 3px solid #d8fbff;
   background:
-    repeating-conic-gradient(from 0deg, rgba(180, 210, 220, 0.7) 0 2deg, transparent 2deg 30deg),
-    radial-gradient(circle, #101820, #070b10 68%);
+    repeating-conic-gradient(from 0deg, #c8f7ff 0 2.4deg, transparent 2.4deg 30deg),
+    radial-gradient(circle, #102033 0 62%, transparent 64%);
   position: relative;
-  box-shadow: inset 0 0 0 6px rgba(8, 12, 18, 0.85);
+  box-shadow:
+    0 0 16px rgba(80, 220, 255, 0.95),
+    inset 0 0 0 7px rgba(6, 12, 18, 0.92),
+    inset 0 0 14px rgba(80, 210, 255, 0.45);
 }
 
 .hand {
   position: absolute;
   left: 50%;
   bottom: 50%;
-  width: 2px;
-  background: #e7fbff;
+  width: 3px;
+  background: #f4fdff;
   transform-origin: bottom center;
   border-radius: 1px;
+  box-shadow: 0 0 6px rgba(160, 240, 255, 0.9);
 }
 
 .hand.hour {

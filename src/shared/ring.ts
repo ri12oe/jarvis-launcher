@@ -358,17 +358,17 @@ function ringsClear(outer: readonly SegmentSlot[], inner: readonly SegmentSlot[]
 /** Outer and inner plate rings. Twenty tiles fit at 1920 when both rings pack. */
 export function reactorSlots(frame: HudFrame): SegmentSlot[] {
   const counts = frame.reactor < 420 ? [8, 6] : [12, 10, 8, 6];
-  let width = Math.min(frame.segW, 100);
-  let height = Math.min(frame.segH, 28);
+  let width = Math.min(frame.segW, 92);
+  let height = Math.min(frame.segH, 24);
   for (let shrink = 0; shrink < 8; shrink++) {
     for (const count of counts) {
       const outer = tryRing(frame, count, frame.segRadius, width, height);
       if (!outer) continue;
-      const innerW = Math.max(28, width * 0.82);
-      const innerH = Math.max(14, height * 0.8);
+      const innerW = Math.max(28, width * 0.86);
+      const innerH = Math.max(14, height * 0.86);
       const minRadius = frame.reactor * 0.2 + Math.hypot(innerW, innerH) / 2 + 6;
-      for (let step = 0; step < 10; step++) {
-        const innerRadius = frame.segRadius * (0.8 - step * 0.035);
+      for (let step = 0; step < 8; step++) {
+        const innerRadius = frame.segRadius * (0.86 - step * 0.03);
         if (innerRadius < minRadius) break;
         const inner = tryRing(frame, count, innerRadius, innerW, innerH);
         if (inner && ringsClear(outer, inner)) return [...outer, ...inner];
@@ -583,11 +583,12 @@ export function chromeLayout(viewport: Viewport, options?: LayoutOptions & { pag
   const dayH = clamp(Math.round(width * 0.058), 48, 110);
   const calendar = box(width - frame.calendarW - 8, 2, frame.calendarW, dayH + 40);
   let analog: Aabb | undefined;
+  const roomy = width >= 1500 && height >= 900;
   if (!compact) {
-    const size = clamp(Math.round(Math.min(width, height) * 0.1), 110, 170);
-    analog = box(width - size - 12, calendar.bottom + 10, size, size + 18);
+    const size = roomy ? 168 : 124;
+    analog = box(width - size - 12, calendar.bottom + 10, size, size + 16);
   }
-  const disk = compact ? 64 : clamp(Math.round(width * 0.07), 88, 128);
+  const disk = compact ? 64 : roomy ? 104 : 84;
   let diskTop = analog ? analog.bottom + 12 : Math.max(frame.header + 8, calendar.bottom + 8);
   const ram = box(width - disk - 12, diskTop, disk, disk);
   const bin = box(width - disk - 12, ram.bottom + 10, disk, disk);
@@ -598,19 +599,19 @@ export function chromeLayout(viewport: Viewport, options?: LayoutOptions & { pag
     dial = box(width - size - 8, height - size - 4, size, size);
   }
   const rightEdge = dial ? dial.left - 8 : width - 8;
-  const gaugeW = compact ? 120 : clamp(Math.round(width * 0.14), 160, 230);
-  const gaugeH = Math.round(gaugeW * 0.56);
+  const gaugeW = compact ? 120 : roomy ? 200 : 156;
+  const gaugeH = Math.round(gaugeW * 0.62);
   const gaugeBottom = Math.min(height - frame.footer - 8, dial ? dial.top - 8 : height);
   const gaugeRight = width - 10;
   let gaugeLeft = gaugeRight - gaugeW;
   if (subtitle && gaugeLeft < subtitle.right + 8) gaugeLeft = subtitle.right + 8;
-  const gaugeTop = Math.min(gaugeBottom - gaugeH, Math.max(bin.bottom + 10, gaugeBottom - gaugeH));
-  const fittedH = Math.max(64, gaugeBottom - Math.max(gaugeTop, bin.bottom + 10));
+  const gaugeTop = Math.max(bin.bottom + 8, gaugeBottom - gaugeH);
+  const fittedH = Math.max(64, Math.min(gaugeH, gaugeBottom - gaugeTop));
   const gauges = [box(gaugeLeft, gaugeBottom - fittedH, Math.max(64, gaugeRight - gaugeLeft), fittedH)];
   if (!compact) {
-    const overlap = Math.round(gaugeW * 0.22);
+    const overlap = Math.round(gaugeW * 0.34);
     const left = Math.max(subtitle ? subtitle.right + 8 : 8, gaugeLeft - overlap);
-    if (left + 48 < gaugeLeft) gauges.unshift(box(left, gaugeBottom - fittedH, gaugeW, fittedH));
+    if (gaugeLeft - left > 24) gauges.unshift(box(left, gaugeBottom - fittedH, gaugeW, fittedH));
   }
   const footerTop = height - frame.footer + 8;
   const footerH = frame.footer - 16;
