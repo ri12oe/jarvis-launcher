@@ -244,7 +244,7 @@ function allowNavigation(url: string): boolean {
   }
 }
 
-function createWindow(): void {
+function createWindow(startHidden: boolean): void {
   mainWindow = new BrowserWindow({
     fullscreen: true,
     frame: false,
@@ -278,7 +278,8 @@ function createWindow(): void {
   else void mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
 
   mainWindow.once("ready-to-show", () => {
-    if (!session?.config.startHidden || !trayReady) showWindow();
+    const hidden = session?.config.startHidden ?? startHidden;
+    if (!hidden || !trayReady) showWindow();
   });
 }
 
@@ -351,9 +352,11 @@ if (!gotLock) {
   app.whenReady().then(async () => {
     app.setAppUserModelId("com.mario.jarvis-launcher");
     registerIpc();
-    await refreshSession();
-    createWindow();
+    // Paint before discovery. Get-StartApps can use its full timeout.
+    const startHidden = loadConfig(app.getPath("userData")).config.startHidden;
+    createWindow(startHidden);
     createTray();
+    await refreshSession();
   });
 
   app.on("before-quit", () => {

@@ -82,15 +82,22 @@ export function App() {
         cancel = true;
       };
     }
+    let pushed = false;
     const apply = (next: LauncherState) => {
       if (cancel) return;
       setState(next);
       setStatus("");
     };
-    void bridge.getState().then(apply).catch(() => {
+    const stop = bridge.onState((next) => {
+      pushed = true;
+      apply(next);
+    });
+    void bridge.getState().then((next) => {
+      if (pushed) return;
+      apply(next);
+    }).catch(() => {
       if (!cancel) setStatus("LINK LOST");
     });
-    const stop = bridge.onState(apply);
     return () => {
       cancel = true;
       stop();
