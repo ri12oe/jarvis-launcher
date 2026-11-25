@@ -76,8 +76,10 @@ function previewState(): LauncherState {
   const home = "/home/mario";
   const config = cloneDefaultConfig();
   const requested = Number(new URLSearchParams(window.location.search).get("tiles") ?? "0");
-  if (requested >= 24) {
-    config.extraTiles = Array.from({ length: 10 }, (_, index) => ({
+  const previewBase = PREVIEW_APPS.length + 6;
+  const extraCount = requested >= 24 ? 10 : Math.max(0, requested - previewBase);
+  if (extraCount > 0) {
+    config.extraTiles = Array.from({ length: extraCount }, (_, index) => ({
       id: `module${index + 1}`,
       label: `Module ${index + 1}`,
       path: `C:\\Tools\\module-${index + 1}.exe`,
@@ -325,18 +327,14 @@ export function App() {
   useEffect(() => {
     const node = subtitleRef.current;
     if (!node) return;
-    const reply = node.querySelector(".reply");
-    const heard = node.querySelector(".heard");
-    const target = reply ?? heard;
-    if (!(target instanceof HTMLElement)) {
+    const anchor = node.querySelector(".phase") ?? node.querySelector(".reply") ?? node.querySelector(".heard");
+    if (!(anchor instanceof HTMLElement)) {
       node.scrollTop = 0;
       return;
     }
-    const start = target.offsetTop - node.clientTop;
-    const line = 18;
-    const snapped = Math.round(Math.max(0, start) / line) * line;
-    const fits = target.offsetTop + target.offsetHeight <= node.clientHeight + 1;
-    node.scrollTop = fits ? 0 : snapped;
+    const pad = Number.parseFloat(getComputedStyle(node).paddingTop) || 0;
+    const delta = anchor.getBoundingClientRect().top - node.getBoundingClientRect().top - node.clientTop - pad;
+    node.scrollTop = Math.max(0, node.scrollTop + delta);
   }, [voice.phase, voice.heard, voice.reply]);
 
   useEffect(() => {

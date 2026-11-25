@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   boxesOverlap,
   layoutHud,
+  pageControlBoxes,
   placedTileBoxes,
   subtitlePanelBox,
   viewportAboveSubtitle,
@@ -35,9 +36,13 @@ const labels = [
   "Module 10",
 ];
 
+/** Fewest tiles on a full page. A short last page does not lower the minimum. */
 function tilesPerPage(layout: HudLayout): number {
-  const counts = Array.from({ length: layout.pageCount }, () => 0);
-  for (const segment of layout.segments) counts[segment.page] += 1;
+  if (layout.pageCount <= 1) return layout.segments.length;
+  const counts = Array.from({ length: layout.pageCount - 1 }, () => 0);
+  for (const segment of layout.segments) {
+    if (segment.page < counts.length) counts[segment.page] += 1;
+  }
   return Math.min(...counts);
 }
 
@@ -99,4 +104,60 @@ describe("voice subtitle panel", () => {
       }
     }
   });
+});
+
+describe("page controls", () => {
+  const viewports = [
+    { width: 853, height: 480 },
+    { width: 911, height: 512 },
+    { width: 1093, height: 614 },
+    { width: 1366, height: 768 },
+  ];
+
+  function named(count: number, long: boolean): Array<{ label: string }> {
+    return Array.from({ length: count }, (_, index) => ({
+      label: long
+        ? `${labels[index % labels.length]} Workspace Project Notes ${index + 1}`
+        : `${labels[index % labels.length]} ${index + 1}`,
+    }));
+  }
+
+  it("keeps the voice-off ring at 1093x614 for 36 and 38 tiles", () => {
+    const viewport = { width: 1093, height: 614 };
+    const counts = (count: number) => {
+      const layout = layoutHud(named(count, false), viewport);
+      const pages = Array.from({ length: layout.pageCount }, () => 0);
+      for (const segment of layout.segments) pages[segment.page] += 1;
+      return pages;
+    };
+    expect(counts(36)).toEqual([12, 12, 12]);
+    expect(counts(38)).toEqual([12, 12, 12, 2]);
+  });
+
+  it.each(viewports.map((viewport) => [viewport.width, viewport.height] as const))(
+    "does not cover a tile from 8 to 48 tiles at %ix%i",
+    (width, height) => {
+      const viewport = { width, height };
+      for (let count = 8; count <= 48; count++) {
+        for (const long of [false, true]) {
+          const tiles = named(count, long);
+          for (const voice of [false, true]) {
+            const stage = voice ? viewportAboveSubtitle(viewport) : viewport;
+            const layout = layoutHud(tiles, stage);
+            if (layout.pageCount < 2) continue;
+            for (let page = 0; page < layout.pageCount; page++) {
+              const controls = pageControlBoxes(layout.reactor[page] ?? 0, layout.pageCount);
+              for (const segment of layout.segments) {
+                if (segment.page !== page) continue;
+                for (const control of controls) {
+                  expect(boxesOverlap(segment.icon, control), `${count} voice ${voice} long ${long}`).toBe(false);
+                  expect(boxesOverlap(segment.label, control), `${count} voice ${voice} long ${long}`).toBe(false);
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+  );
 });
