@@ -12,14 +12,11 @@ export const SHELL_WINDOW_CLASSES: ReadonlySet<string> = new Set([
 const MIN_PLACE_WIDTH = 160;
 const MIN_PLACE_HEIGHT = 120;
 
-/** How long the one PowerShell helper polls for the new window. */
+/** How long the warm helper polls for the new window after a click. */
 export const LAUNCH_WINDOW_WATCH_MS = 4000;
 
-/**
- * An already-open match is eligible after this many looks with no new window,
- * even if it never becomes the foreground window.
- */
-export const EXISTING_MATCH_SAMPLES = 4;
+/** How long a click waits for a fresh before-list when the helper is still starting. */
+export const LAUNCH_BASELINE_WAIT_MS = 300;
 
 export interface WindowRect {
   x: number;
@@ -211,7 +208,8 @@ function withStub(target: LaunchTarget, exeName: string | undefined): LaunchTarg
 /**
  * The executable or Store id a tile is aiming at.
  * A folder has neither: only a window created by that click is eligible.
- * A shortcut, AppsFolder, or Update.exe-style launcher is a stub: the real window may use another exe.
+ * An unresolved shortcut, an AppsFolder launch, or an Update.exe-style name is a stub.
+ * A resolved shortcut uses the target executable, so an updater window is not eligible.
  */
 export function targetFromAction(
   action: LaunchAction,
@@ -235,7 +233,7 @@ export function targetFromAction(
     const resolved = readShortcut?.(action.path);
     if (resolved && /\.exe$/i.test(resolved)) {
       const exeName = windowBaseName(resolved);
-      return { exePath: resolved, exeName, stub: true };
+      return withStub({ exePath: resolved, exeName }, exeName);
     }
     return { stub: true };
   }
@@ -320,29 +318,21 @@ function newWindowAllowed(
   return exeAgrees(window, request.target);
 }
 
-function sawNewWindow(samples: readonly WindowSnapshot[], baseline: ReadonlySet<number>): boolean {
-  return samples.some((sample) => sample.windows.some((window) => isNewWindow(window, baseline)));
-}
-
 /**
- * An existing match is not taken on the first look.
- * It has to be the foreground window, or several looks must pass with nothing new.
- * explorer.exe never uses this path.
+ * An existing match is moved only when it is the foreground window.
+ * explorer.exe never uses this path: only a new Explorer window counts.
  */
 function existingMatchReady(request: PickRequest, baseline: ReadonlySet<number> | undefined): boolean {
   if (!baseline || isExplorerTarget(request.target) || !hasKnownTarget(request.target)) return false;
   const sample = request.samples[request.samples.length - 1];
   if (!sample) return false;
-  const matches = sample.windows.filter(
+  return sample.windows.some(
     (window) =>
+      window.hwnd === sample.foreground &&
       isPlaceableWindow(window, request.launcherHwnd, request.launcherPid) &&
       windowMatchesTarget(window, request.target) &&
       !isNewWindow(window, baseline),
   );
-  if (matches.length === 0) return false;
-  if (matches.some((window) => window.hwnd === sample.foreground)) return true;
-  if (sawNewWindow(request.samples, baseline)) return false;
-  return request.samples.length >= EXISTING_MATCH_SAMPLES;
 }
 
 /** Foreground wins. A single remaining window is used. Several with no foreground is not a guess. */
@@ -355,8 +345,8 @@ function chooseOne(matches: readonly ObservedWindow[], foreground: number): Obse
 }
 
 /**
- * A new window whose exe agrees with the tile, or an existing match that has
- * come to the foreground or sat alone through several looks.
+ * A new window whose exe agrees with the tile, or an existing match that is
+ * the foreground window.
  * A window that was already open and does not match is never moved.
  * explorer.exe is only moved when the window itself is new.
  */
@@ -433,7 +423,7 @@ export async function centerLaunchedWindow(options: CenterLaunchOptions): Promis
   } catch {
     return false;
   }
-  let baseline = options.baseline;
+  const baseline = options.baseline;
   const samples: WindowSnapshot[] = [];
   while (true) {
     let snap: WindowSnapshot | undefined;
@@ -443,10 +433,6 @@ export async function centerLaunchedWindow(options: CenterLaunchOptions): Promis
       return false;
     }
     if (!snap) return false;
-    if (baseline === undefined) {
-      baseline = snap.windows.map((window) => window.hwnd);
-      continue;
-    }
     samples.push(snap);
     const picked = pickLaunchedWindow({
       samples,

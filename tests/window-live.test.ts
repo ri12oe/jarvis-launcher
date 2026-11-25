@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { windowsPowershellPath } from "../src/discovery/start-apps";
-import { listTopLevelWindows, startWindowWatch } from "../src/main/window-snapshot";
+import { createWindowSession } from "../src/main/window-snapshot";
 
 const PROBE = `
 Add-Type -AssemblyName System.Windows.Forms
@@ -72,7 +72,10 @@ function startProbe(): Promise<{ pid: number; hwnd: number; stop: () => void }> 
 
 describe("live window list", () => {
   it.skipIf(process.platform !== "win32")("returns sane top-level windows on Windows", async () => {
-    const snap = await listTopLevelWindows();
+    const session = createWindowSession({ platform: process.platform, env: process.env });
+    session.start();
+    const snap = await session.sample(20_000);
+    session.stop();
     expect(snap).toBeDefined();
     if (!snap) return;
     expect(snap.foreground).toBeGreaterThanOrEqual(0);
@@ -94,7 +97,9 @@ describe("live window list", () => {
     "moves only a window this test created",
     async () => {
       const probe = await startProbe();
-      const watch = startWindowWatch({ platform: "win32", timeoutMs: 8_000 });
+      const session = createWindowSession({ platform: "win32", env: process.env });
+      session.start();
+      const watch = session.serve(8_000);
       const rect = { x: 160, y: 180, width: 500, height: 380 };
       try {
         let seen = false;
@@ -112,7 +117,7 @@ describe("live window list", () => {
 
         let found: { x: number; y: number; width: number; height: number } | undefined;
         for (let attempt = 0; attempt < 6; attempt += 1) {
-          const snap = await listTopLevelWindows();
+          const snap = await session.sample(2_000);
           const window = snap?.windows.find((item) => item.hwnd === probe.hwnd);
           if (
             window &&
@@ -129,6 +134,7 @@ describe("live window list", () => {
         expect(found).toBeDefined();
       } finally {
         watch.close();
+        session.stop();
         probe.stop();
       }
     },

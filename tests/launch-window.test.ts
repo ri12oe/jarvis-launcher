@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   centerLaunchedWindow,
   centeredWindowRect,
-  EXISTING_MATCH_SAMPLES,
   parseWindowSnapshot,
   pickLaunchedWindow,
   targetFromAction,
@@ -117,7 +116,7 @@ describe("window picking", () => {
     ).toBeUndefined();
   });
 
-  it("restores an already-open match only once it is in front, or after several quiet looks", () => {
+  it("restores an already-open match only when it is the foreground window", () => {
     const existing = app({
       hwnd: 1,
       pid: 80,
@@ -136,25 +135,38 @@ describe("window picking", () => {
       pickLaunchedWindow({
         ...request,
         baseline: [1],
+        samples: Array.from({ length: 6 }, () => behind),
+      }),
+    ).toBeUndefined();
+    expect(
+      pickLaunchedWindow({
+        ...request,
+        baseline: [1],
         samples: [sample(1, [existing])],
       })?.hwnd,
     ).toBe(1);
-    const quiet = Array.from({ length: EXISTING_MATCH_SAMPLES }, () => behind);
+  });
+
+  it("places a new Edge window that appears at look 6, not the old one", () => {
+    const existing = app({
+      hwnd: 1,
+      exe: "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+      title: "Edge",
+    });
+    const opened = app({
+      hwnd: 60,
+      exe: "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+      title: "Edge",
+    });
+    const quiet = sample(LAUNCHER_HWND, [existing]);
+    const samples = [...Array.from({ length: 5 }, () => quiet), sample(LAUNCHER_HWND, [existing, opened])];
     expect(
       pickLaunchedWindow({
         ...request,
         baseline: [1],
-        samples: quiet,
+        samples,
       })?.hwnd,
-    ).toBe(1);
-    const updater = app({ hwnd: 9, exe: "C:\\Program Files\\Edge\\updater.exe", title: "Update" });
-    expect(
-      pickLaunchedWindow({
-        ...request,
-        baseline: [1],
-        samples: [sample(9, [existing, updater]), behind, behind, behind],
-      }),
-    ).toBeUndefined();
+    ).toBe(60);
   });
 
   it("restores an already-open Store app when the AUMID matches", () => {
@@ -248,7 +260,7 @@ describe("window picking", () => {
         ...request,
         target,
         baseline: [4],
-        samples: Array.from({ length: EXISTING_MATCH_SAMPLES }, () => quiet),
+        samples: Array.from({ length: 6 }, () => quiet),
       }),
     ).toBeUndefined();
     const opened = app({
@@ -367,8 +379,22 @@ describe("launch target", () => {
       targetFromAction({ type: "openPath", path: "C:\\Start\\Cursor.lnk" }, (filePath) =>
         filePath.endsWith(".lnk") ? "C:\\Program Files\\Cursor\\Cursor.exe" : undefined,
       ),
-    ).toEqual({ exePath: "C:\\Program Files\\Cursor\\Cursor.exe", exeName: "Cursor.exe", stub: true });
+    ).toEqual({ exePath: "C:\\Program Files\\Cursor\\Cursor.exe", exeName: "Cursor.exe" });
     expect(targetFromAction({ type: "openPath", path: "C:\\Apps\\Update.exe" }).stub).toBe(true);
+    const claude = targetFromAction({ type: "openPath", path: "C:\\Start\\Claude.lnk" }, () => {
+      return "C:\\Program Files\\Claude\\claude.exe";
+    });
+    expect(claude).toEqual({ exePath: "C:\\Program Files\\Claude\\claude.exe", exeName: "claude.exe" });
+    const updater = app({ hwnd: 9, exe: "C:\\Program Files\\Claude\\updater.exe", title: "Update" });
+    expect(
+      pickLaunchedWindow({
+        launcherHwnd: LAUNCHER_HWND,
+        launcherPid: LAUNCHER_PID,
+        baseline: [],
+        target: claude,
+        samples: [sample(9, [updater])],
+      }),
+    ).toBeUndefined();
   });
 });
 
@@ -484,11 +510,11 @@ describe("centerLaunchedWindow", () => {
     expect(tools.reads()).toBe(2);
   });
 
-  it("uses the helper's first sample as the before list and still places the new window", async () => {
+  it("places a window that was not in the before list taken at the click", async () => {
     const oldNotepad = app({ hwnd: 2, exe: "C:\\Windows\\notepad.exe", title: "Notepad" });
     const edge = app({ hwnd: 40, exe: "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe", title: "Edge" });
     const tools = run([sample(2, [oldNotepad]), sample(40, [oldNotepad, edge])], {
-      baseline: undefined,
+      baseline: [2],
     });
     expect(await tools.promise).toBe(true);
     expect(tools.placed).toEqual([{ hwnd: 40, rect: centered }]);

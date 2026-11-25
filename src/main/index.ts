@@ -20,12 +20,17 @@ import { DEFAULT_HOTKEY } from "../shared/config";
 import { hotkeyRegistrationWarnings } from "../shared/hotkey";
 import { tileFallbackIcon, tileIconFile } from "../shared/icons";
 import { defaultEdgeCandidates, runLaunch, spawnDetached, windowsExplorerPath } from "../shared/launch";
-import { centerLaunchedWindow, LAUNCH_WINDOW_WATCH_MS, targetFromAction } from "../shared/launch-window";
+import {
+  centerLaunchedWindow,
+  LAUNCH_BASELINE_WAIT_MS,
+  LAUNCH_WINDOW_WATCH_MS,
+  targetFromAction,
+} from "../shared/launch-window";
 import { loginItemOptions } from "../shared/login-item";
 import { createRefreshGate, isMainFrameSender } from "../shared/refresh";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, JarvisConfig, LauncherState, LauncherTileView, ResolvedTile } from "../shared/types";
-import { startWindowWatch, type WindowWatch } from "./window-snapshot";
+import { createWindowSession, type WindowWatch } from "./window-snapshot";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -40,6 +45,7 @@ let refreshFailed = false;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let configWatchStarted = false;
 let placeSerial = 0;
+const placementHelper = createWindowSession({ platform: process.platform, env: process.env });
 let configFilePath = "";
 let session: { config: JarvisConfig; tiles: ResolvedTile[]; view: LauncherTileView[]; warnings: string[] } | null =
   null;
@@ -253,6 +259,7 @@ async function centerAfterLaunch(
   spawnedPid: number | undefined,
   watch: WindowWatch,
   serial: number,
+  baseline: readonly number[] | undefined,
 ): Promise<PlacementOutcome> {
   const win = mainWindow;
   const launchWindow = session?.config.launchWindow;
@@ -276,6 +283,7 @@ async function centerAfterLaunch(
       launcherHwnd,
       launcherPid: process.pid,
       spawnedPid,
+      baseline,
       target: targetFromAction(action, readShortcutTarget),
       // Physical pixels. The helper is per-monitor v2, so Windows does not scale these again.
       toScreenRect: (rect) => screen.dipToScreenRect(win, rect),
@@ -293,6 +301,7 @@ async function centerAfterLaunch(
 function showWindow(): void {
   const win = mainWindow;
   if (!win || win.isDestroyed()) return;
+  if (process.platform === "win32") placementHelper.start();
   win.show();
   win.setFullScreen(true);
   win.focus();
@@ -301,6 +310,7 @@ function showWindow(): void {
 function hideWindow(): void {
   const win = mainWindow;
   if (!win || win.isDestroyed()) return;
+  if (process.platform === "win32") placementHelper.stop();
   win.hide();
   if (!win.webContents.isDestroyed()) win.webContents.send("jarvis:hidden");
 }
@@ -411,24 +421,25 @@ function registerIpc(): void {
     if (!tile) return { ok: false, error: "Unknown tile" };
     const centering = process.platform === "win32" && current.config.launchWindow.mode === "centered";
     const serial = centering ? ++placeSerial : placeSerial;
-    const watch = centering
-      ? startWindowWatch({
-          platform: process.platform,
-          env: process.env,
-          timeoutMs: LAUNCH_WINDOW_WATCH_MS,
-        })
-      : undefined;
+    let baseline: number[] | undefined;
+    if (centering) {
+      const before = await placementHelper.sample(LAUNCH_BASELINE_WAIT_MS);
+      baseline = before?.windows.map((window) => window.hwnd);
+    }
     try {
       const spawnedPid = await execute(tile.action);
-      const outcome =
-        centering && watch ? await centerAfterLaunch(tile.action, spawnedPid, watch, serial) : "skipped";
-      if (outcome === "missed") hideWindow();
-      return { ok: true };
+      if (!centering) return { ok: true };
+      const watch = placementHelper.serve(LAUNCH_WINDOW_WATCH_MS);
+      try {
+        const outcome = await centerAfterLaunch(tile.action, spawnedPid, watch, serial, baseline);
+        if (outcome === "missed") hideWindow();
+        return { ok: true };
+      } finally {
+        watch.close();
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Launch failed";
       return { ok: false, error: message };
-    } finally {
-      watch?.close();
     }
   });
 
@@ -468,6 +479,7 @@ if (!gotLock) {
 
   app.on("before-quit", () => {
     quitting = true;
+    placementHelper.stop();
     if (refreshTimer) clearTimeout(refreshTimer);
     if (configFilePath) fs.unwatchFile(configFilePath);
     globalShortcut.unregisterAll();

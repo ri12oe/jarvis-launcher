@@ -1,9 +1,7 @@
-import { spawn } from "node:child_process";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 import { windowsPowershellPath } from "../discovery/start-apps";
 import {
   parseWindowSnapshot,
@@ -11,11 +9,10 @@ import {
   type WindowSnapshot,
 } from "../shared/launch-window";
 
-const execFileAsync = promisify(execFile);
-
 /**
- * One Windows PowerShell helper per launch. Add-Type runs once, then the
- * script polls until the deadline. It sets per-monitor v2 DPI awareness
+ * One Windows PowerShell helper for as long as Jarvis is visible.
+ * Add-Type runs once, at start. SAMPLE emits one list. SERVE polls until
+ * its deadline or a place file appears. It sets per-monitor v2 DPI awareness
  * before any GetWindowRect or SetWindowPos, so those calls use physical
  * pixels and Windows does not scale them a second time.
  * The C# is C# 5. It sits in a PowerShell single-quoted string, so it has
@@ -173,12 +170,16 @@ public static class JarvisWindows {
       PlaceW = width;
       PlaceH = height;
       PlaceRequested = true;
+      try { System.IO.File.Delete(path); } catch { }
       return true;
     } catch { return false; }
   }
   public static void EmitResult() {
     bool ok = false;
-    if (PlaceRequested) ok = Place(PlaceHwnd, PlaceX, PlaceY, PlaceW, PlaceH);
+    if (PlaceRequested) {
+      PlaceRequested = false;
+      ok = Place(PlaceHwnd, PlaceX, PlaceY, PlaceW, PlaceH);
+    }
     Console.WriteLine(ok ? "{\"placed\":true}" : "{\"placed\":false}");
     Console.Out.Flush();
   }
@@ -276,18 +277,6 @@ public static class JarvisWindows {
 '
 `;
 
-export interface WindowRunOptions {
-  encoding: "utf8";
-  windowsHide: boolean;
-  timeout: number;
-  maxBuffer: number;
-  shell: false;
-}
-
-export interface WindowRunner {
-  (file: string, args: string[], options: WindowRunOptions): Promise<{ stdout: string }>;
-}
-
 export interface PlacementProcess {
   pid?: number;
   stdout: NodeJS.EventEmitter;
@@ -302,23 +291,11 @@ export interface WindowWatch {
   close(): void;
 }
 
-const RUN_OPTIONS: WindowRunOptions = {
-  encoding: "utf8",
-  windowsHide: true,
-  timeout: 20_000,
-  maxBuffer: 4 * 1024 * 1024,
-  shell: false,
-};
-
 let watchSerial = 0;
 
 /** One line, so execFile can pass it as a single argument with no shell. */
 export function windowHelperScript(): string {
   return HELPER_SOURCE.replace(/\s+/g, " ").trim();
-}
-
-export function windowListCommand(): string {
-  return `${windowHelperScript()}; [JarvisWindows]::List()`;
 }
 
 function psLiteral(value: string): string | undefined {
@@ -327,41 +304,22 @@ function psLiteral(value: string): string | undefined {
 }
 
 /**
- * One process polls until `timeoutMs`. Node writes the chosen hwnd to `signalPath`;
- * the script reads that file and calls SetWindowPos. PowerShell is not started again.
+ * One long-lived process. Add-Type runs at start. SAMPLE emits one list.
+ * SERVE <ms> polls until that deadline or a place file appears.
  */
-export function windowServeCommand(timeoutMs: number, signalPath: string): string | undefined {
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) return undefined;
-  const quoted = psLiteral(signalPath);
-  if (!quoted) return undefined;
-  return `${windowHelperScript()}; $placeFile = ${quoted}; $deadline = (Get-Date).AddMilliseconds(${timeoutMs}); while ((Get-Date) -lt $deadline) { [JarvisWindows]::EmitList(); if ([JarvisWindows]::ReadPlace($placeFile)) { break }; Start-Sleep -Milliseconds 200 }; [JarvisWindows]::ReadPlace($placeFile) | Out-Null; [JarvisWindows]::EmitResult()`;
+export function windowSessionCommand(commandPath: string, placePath: string): string | undefined {
+  const command = psLiteral(commandPath);
+  const place = psLiteral(placePath);
+  if (!command || !place) return undefined;
+  return `${windowHelperScript()}; $cmdFile = ${command}; $placeFile = ${place}; while ($true) { if (-not (Test-Path -LiteralPath $cmdFile)) { Start-Sleep -Milliseconds 30; continue }; $text = ''; try { $fs = [System.IO.File]::Open($cmdFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None); $n = [int]$fs.Length; $buf = New-Object byte[] $n; [void]$fs.Read($buf, 0, $n); $text = [System.Text.Encoding]::UTF8.GetString($buf).Trim(); $fs.SetLength(0); $fs.Close() } catch { continue }; if ($text -eq '') { Start-Sleep -Milliseconds 30; continue }; if ($text -eq 'QUIT') { break }; if ($text -eq 'SAMPLE') { [JarvisWindows]::EmitList(); continue }; if ($text.StartsWith('SERVE ')) { $ms = 4000; try { $ms = [int]$text.Substring(6).Trim() } catch { $ms = 4000 }; if ($ms -lt 1) { continue }; $deadline = (Get-Date).AddMilliseconds($ms); while ((Get-Date) -lt $deadline) { [JarvisWindows]::EmitList(); if ([JarvisWindows]::ReadPlace($placeFile)) { break }; if (Test-Path -LiteralPath $cmdFile) { $peek = ''; try { $peek = [System.IO.File]::ReadAllText($cmdFile).Trim() } catch { $peek = '' }; if ($peek -eq 'QUIT') { break } }; Start-Sleep -Milliseconds 200 }; [JarvisWindows]::ReadPlace($placeFile) | Out-Null; [JarvisWindows]::EmitResult() } }`;
 }
 
 export function powershellArgs(command: string): string[] {
   return ["-NoProfile", "-NonInteractive", "-Command", command];
 }
 
-const runPowerShell: WindowRunner = async (file, args, options) => {
-  const { stdout } = await execFileAsync(file, args, options);
-  return { stdout: String(stdout) };
-};
-
 function defaultSpawn(file: string, args: string[]): PlacementProcess {
   return spawn(file, args, { shell: false, windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
-}
-
-export async function listTopLevelWindows(
-  platform: string = process.platform,
-  env: NodeJS.ProcessEnv = process.env,
-  run: WindowRunner = runPowerShell,
-): Promise<WindowSnapshot | undefined> {
-  if (platform !== "win32") return undefined;
-  try {
-    const { stdout } = await run(windowsPowershellPath(env.SystemRoot), powershellArgs(windowListCommand()), RUN_OPTIONS);
-    return parseWindowSnapshot(stdout);
-  } catch {
-    return undefined;
-  }
 }
 
 /** Kill powershell and the csc child it spawned for Add-Type. */
@@ -390,13 +348,13 @@ function killProcessTree(child: PlacementProcess): void {
   }
 }
 
-export interface WindowWatchOptions {
+export interface WindowSessionOptions {
   platform: string;
   env?: NodeJS.ProcessEnv;
-  timeoutMs: number;
   spawnImpl?: (file: string, args: string[]) => PlacementProcess;
-  signalPath?: string;
-  writeSignal?: (filePath: string, text: string) => void;
+  commandPath?: string;
+  placePath?: string;
+  writeFile?: (filePath: string, text: string) => void;
 }
 
 const idleWatch = (): WindowWatch => ({
@@ -405,117 +363,235 @@ const idleWatch = (): WindowWatch => ({
   close: () => undefined,
 });
 
-/** Poll inside one helper process. `place` tells that same process which hwnd to move. */
-export function startWindowWatch(options: WindowWatchOptions): WindowWatch {
-  if (options.platform !== "win32") return idleWatch();
-  const ownsFile = options.signalPath === undefined;
-  const signalPath =
-    options.signalPath ?? path.join(os.tmpdir(), `jarvis-place-${process.pid}-${++watchSerial}.txt`);
-  const command = windowServeCommand(options.timeoutMs, signalPath);
-  if (!command) return idleWatch();
-  const writeSignal =
-    options.writeSignal ??
+export interface WindowSession {
+  /** Compile once and wait for SAMPLE / SERVE commands. Safe to call again. */
+  start(): void;
+  /** Ask the process to exit. Kills the tree only if it is still running. */
+  stop(): void;
+  /** One fresh snapshot. Undefined if the helper has not produced one in time. */
+  sample(timeoutMs: number): Promise<WindowSnapshot | undefined>;
+  /** Poll and place on the same process. `close` does not kill it. */
+  serve(timeoutMs: number): WindowWatch;
+}
+
+/**
+ * One helper for as long as Jarvis is visible. Add-Type runs at start, not on each click.
+ */
+export function createWindowSession(options: WindowSessionOptions): WindowSession {
+  const disabled = options.platform !== "win32";
+  const ownsFiles = options.commandPath === undefined;
+  const commandPath =
+    options.commandPath ?? path.join(os.tmpdir(), `jarvis-cmd-${process.pid}-${++watchSerial}.txt`);
+  const placePath = options.placePath ?? path.join(os.tmpdir(), `jarvis-place-${process.pid}-${watchSerial}.txt`);
+  const writeFile =
+    options.writeFile ??
     ((filePath: string, text: string) => {
       fs.writeFileSync(filePath, text, "utf8");
     });
-  let child: PlacementProcess;
-  try {
-    const spawnImpl = options.spawnImpl ?? defaultSpawn;
-    child = spawnImpl(windowsPowershellPath(options.env?.SystemRoot), powershellArgs(command));
-  } catch {
-    return idleWatch();
-  }
-  const lines: string[] = [];
-  const waiters: Array<(line: string | undefined) => void> = [];
-  let buffer = "";
+  let child: PlacementProcess | undefined;
+  let generation = 0;
   let ended = false;
-  let closed = false;
-  let sawSample = false;
-  // Until the first sample, Add-Type may still be compiling. After that, the
-  // poll itself lasts timeoutMs, so the fallback is only a short grace.
-  let killTimer = setTimeout(() => killProcessTree(child), 12_000);
-  const armKill = (delayMs: number) => {
-    clearTimeout(killTimer);
-    killTimer = setTimeout(() => killProcessTree(child), delayMs);
+  let stopRequested = false;
+  let grace: ReturnType<typeof setTimeout> | undefined;
+  let buffer = "";
+  let ignoreSnapshot = false;
+  let serveDone = false;
+  let sampleWaiter: ((snap: WindowSnapshot | undefined) => void) | undefined;
+  let placeWaiter: ((ok: boolean) => void) | undefined;
+  const snapshots: WindowSnapshot[] = [];
+  const sampleReaders: Array<(snap: WindowSnapshot | undefined) => void> = [];
+
+  const writeCommand = (text: string) => {
+    let last: unknown;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try {
+        writeFile(commandPath, text);
+        return;
+      } catch (error) {
+        last = error;
+      }
+    }
+    throw last;
   };
 
-  const pushLine = (line: string | undefined) => {
-    const waiter = waiters.shift();
-    if (waiter) waiter(line);
-    else if (line !== undefined) lines.push(line);
+  const deliverSample = (snap: WindowSnapshot | undefined) => {
+    const waiter = sampleReaders.shift();
+    if (waiter) waiter(snap);
+    else if (snap) snapshots.push(snap);
   };
+
   const finish = () => {
     if (ended) return;
     ended = true;
-    clearTimeout(killTimer);
-    while (waiters.length > 0) pushLine(undefined);
+    if (grace) clearTimeout(grace);
+    sampleWaiter?.(undefined);
+    sampleWaiter = undefined;
+    placeWaiter?.(false);
+    placeWaiter = undefined;
+    while (sampleReaders.length > 0) deliverSample(undefined);
   };
+
+  const onSnapshot = (snap: WindowSnapshot) => {
+    if (ignoreSnapshot) {
+      ignoreSnapshot = false;
+      return;
+    }
+    if (sampleWaiter) {
+      const waiter = sampleWaiter;
+      sampleWaiter = undefined;
+      waiter(snap);
+      return;
+    }
+    deliverSample(snap);
+  };
+
+  const onLine = (line: string) => {
+    if (line.startsWith('{"placed":')) {
+      serveDone = true;
+      const ok = line.startsWith('{"placed":true');
+      const waiter = placeWaiter;
+      placeWaiter = undefined;
+      waiter?.(ok);
+      while (sampleReaders.length > 0) deliverSample(undefined);
+      return;
+    }
+    if (!line.startsWith('{"foreground"')) return;
+    const snap = parseWindowSnapshot(line);
+    if (snap) onSnapshot(snap);
+  };
+
   const takeBuffer = (chunk: Buffer | string) => {
     buffer += typeof chunk === "string" ? chunk : chunk.toString("utf8");
     let nl = buffer.indexOf("\n");
     while (nl >= 0) {
-      const line = buffer.slice(0, nl).replace(/\r$/, "").trim();
-      if (!sawSample && line.startsWith('{"foreground"')) {
-        sawSample = true;
-        armKill(options.timeoutMs + 1_500);
-      }
-      pushLine(line);
+      onLine(buffer.slice(0, nl).replace(/\r$/, "").trim());
       buffer = buffer.slice(nl + 1);
       nl = buffer.indexOf("\n");
     }
   };
-  child.stdout.on("data", takeBuffer);
-  child.on("error", () => finish());
-  child.on("close", () => {
-    if (buffer.trim()) pushLine(buffer.trim());
-    buffer = "";
-    finish();
-  });
-
-  const readLine = (): Promise<string | undefined> => {
-    const queued = lines.shift();
-    if (queued !== undefined) return Promise.resolve(queued);
-    if (ended) return Promise.resolve(undefined);
-    return new Promise((resolve) => waiters.push(resolve));
-  };
 
   return {
-    async nextSample() {
-      while (true) {
-        const line = await readLine();
-        if (line === undefined) return undefined;
-        if (!line.startsWith('{"foreground"')) continue;
-        const snap = parseWindowSnapshot(line);
-        if (snap) return snap;
-      }
-    },
-    async place(hwnd, rect) {
-      if (!Number.isSafeInteger(hwnd) || hwnd <= 0) return false;
-      if (![rect.x, rect.y, rect.width, rect.height].every((value) => Number.isSafeInteger(value))) return false;
-      if (rect.width <= 0 || rect.height <= 0) return false;
+    start() {
+      if (disabled) return;
+      if (child && !ended && !stopRequested) return;
+      if (grace) clearTimeout(grace);
+      if (child && !ended) killProcessTree(child);
+      const generationId = ++generation;
+      ended = false;
+      stopRequested = false;
+      buffer = "";
+      const command = windowSessionCommand(commandPath, placePath);
+      if (!command) return;
       try {
-        writeSignal(signalPath, `PLACE ${hwnd} ${rect.x} ${rect.y} ${rect.width} ${rect.height}`);
+        const spawnImpl = options.spawnImpl ?? defaultSpawn;
+        child = spawnImpl(windowsPowershellPath(options.env?.SystemRoot), powershellArgs(command));
       } catch {
-        return false;
+        child = undefined;
+        ended = true;
+        return;
       }
-      while (true) {
-        const line = await readLine();
-        if (line === undefined) return false;
-        if (line.startsWith('{"placed":true')) return true;
-        if (line.startsWith('{"placed":false')) return false;
-      }
+      const current = child;
+      current.stdout.on("data", (chunk) => {
+        if (generationId === generation) takeBuffer(chunk);
+      });
+      current.on("error", () => {
+        if (generationId === generation) finish();
+      });
+      current.on("close", () => {
+        if (generationId !== generation) return;
+        if (buffer.trim()) onLine(buffer.trim());
+        buffer = "";
+        finish();
+      });
     },
-    close() {
-      if (closed) return;
-      closed = true;
-      clearTimeout(killTimer);
-      killProcessTree(child);
-      if (!ownsFile) return;
+    stop() {
+      if (disabled) return;
+      if (!child || ended) return;
+      if (stopRequested) return;
+      stopRequested = true;
       try {
-        fs.rmSync(signalPath, { force: true });
+        writeCommand("QUIT");
       } catch {
-        // The signal file is only a hint to the helper.
+        // The process may already be gone.
       }
+      const current = child;
+      grace = setTimeout(() => {
+        if (!ended) killProcessTree(current);
+      }, 400);
+    },
+    sample(timeoutMs: number) {
+      if (disabled || !child || ended) return Promise.resolve(undefined);
+      try {
+        writeCommand("SAMPLE");
+      } catch {
+        return Promise.resolve(undefined);
+      }
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          if (sampleWaiter) {
+            sampleWaiter = undefined;
+            ignoreSnapshot = true;
+            resolve(undefined);
+          }
+        }, timeoutMs);
+        sampleWaiter = (snap) => {
+          clearTimeout(timer);
+          resolve(snap);
+        };
+      });
+    },
+    serve(timeoutMs: number) {
+      if (disabled || !child || ended || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) return idleWatch();
+      ignoreSnapshot = false;
+      serveDone = false;
+      snapshots.splice(0);
+      try {
+        if (ownsFiles) fs.rmSync(placePath, { force: true });
+      } catch {
+        // No previous place request.
+      }
+      try {
+        writeCommand(`SERVE ${timeoutMs}`);
+      } catch {
+        return idleWatch();
+      }
+      const deadlineAt = Date.now() + timeoutMs + 8_000;
+      return {
+        async nextSample() {
+          if (snapshots.length > 0) return snapshots.shift();
+          if (serveDone || ended) return undefined;
+          return new Promise((resolve) => {
+            const waiter = (snap: WindowSnapshot | undefined) => {
+              clearTimeout(timer);
+              resolve(snap);
+            };
+            const timer = setTimeout(() => {
+              const index = sampleReaders.indexOf(waiter);
+              if (index >= 0) sampleReaders.splice(index, 1);
+              serveDone = true;
+              resolve(undefined);
+            }, Math.max(0, deadlineAt - Date.now()));
+            sampleReaders.push(waiter);
+          });
+        },
+        async place(hwnd, rect) {
+          if (!Number.isSafeInteger(hwnd) || hwnd <= 0) return false;
+          if (![rect.x, rect.y, rect.width, rect.height].every((value) => Number.isSafeInteger(value))) return false;
+          if (rect.width <= 0 || rect.height <= 0) return false;
+          return new Promise((resolve) => {
+            placeWaiter = resolve;
+            try {
+              writeFile(placePath, `PLACE ${hwnd} ${rect.x} ${rect.y} ${rect.width} ${rect.height}`);
+            } catch {
+              if (placeWaiter === resolve) placeWaiter = undefined;
+              resolve(false);
+            }
+          });
+        },
+        close() {
+          // The helper stays up for the next click. Hiding Jarvis stops it.
+        },
+      };
     },
   };
 }
