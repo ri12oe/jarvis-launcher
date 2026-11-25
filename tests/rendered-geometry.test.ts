@@ -124,13 +124,20 @@ describe("rendered geometry", () => {
             .trim(),
           full: (node.getAttribute("aria-label") ?? "").replace(/^microsoft\s+/i, "").trim(),
         }));
+        const stem = (text: string) => text.replace(/…/g, "").replace(/\s+/g, " ").trim();
+        const collides = (a: string, b: string) => {
+          const left = a.replace(/\s+/g, " ").trim();
+          const right = b.replace(/\s+/g, " ").trim();
+          const leftStem = stem(left);
+          const rightStem = stem(right);
+          if (!leftStem || !rightStem) return false;
+          if (leftStem === rightStem) return true;
+          if (left.endsWith("…") && leftStem.length < rightStem.length && rightStem.startsWith(leftStem)) return true;
+          if (right.endsWith("…") && rightStem.length < leftStem.length && leftStem.startsWith(rightStem)) return true;
+          return false;
+        };
         const dupes = plates.flatMap((plate, index) =>
-          plates.slice(index + 1).flatMap((other) => {
-            const left = plate.shown.replace(/…/g, "").replace(/\s+/g, " ").trim();
-            const right = other.shown.replace(/…/g, "").replace(/\s+/g, " ").trim();
-            if (!left || !right) return [];
-            return left === right || left.startsWith(right) || right.startsWith(left) ? [`${plate.shown} ~ ${other.shown}`] : [];
-          }),
+          plates.slice(index + 1).flatMap((other) => (collides(plate.shown, other.shown) ? [`${plate.shown} ~ ${other.shown}`] : [])),
         );
         const unreadable = plates.flatMap((plate) => {
           const text = plate.shown.replace(/…/g, "").replace(/\s+/g, " ").trim();

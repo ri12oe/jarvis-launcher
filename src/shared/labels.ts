@@ -95,19 +95,29 @@ export function renderedLabel(lines: readonly string[]): string {
 }
 
 function hasToken(word: string): boolean {
-  return /[A-Z0-9]/.test(word);
+  return /[\p{L}\p{N}]/u.test(word);
 }
 
 function stemOf(text: string): string {
   return text.replace(/…/g, "").replace(/\s+/g, " ").trim();
 }
 
-/** True when the reader cannot tell the two labels apart, including a cut-off prefix. */
+/**
+ * True when two plates read as the same name. A full name is not a collision
+ * just because it starts with another full name: Word and WordPad stay apart.
+ * A cut-off plate (one that still ends in …) collides when its remaining text
+ * is a prefix of the other.
+ */
 export function labelsCollide(a: string, b: string): boolean {
-  const left = stemOf(a);
-  const right = stemOf(b);
-  if (!left || !right) return false;
-  return left === right || left.startsWith(right) || right.startsWith(left);
+  const left = a.replace(/\s+/g, " ").trim();
+  const right = b.replace(/\s+/g, " ").trim();
+  const leftStem = stemOf(left);
+  const rightStem = stemOf(right);
+  if (!leftStem || !rightStem) return false;
+  if (leftStem === rightStem) return true;
+  if (left.endsWith("…") && leftStem.length < rightStem.length && rightStem.startsWith(leftStem)) return true;
+  if (right.endsWith("…") && rightStem.length < leftStem.length && leftStem.startsWith(rightStem)) return true;
+  return false;
 }
 
 /** Font size that lets the longest word fit the plate. Shared by the HUD and the tests. */
@@ -155,7 +165,7 @@ function showsToken(lines: readonly string[], token: string): boolean {
   return stemOf(renderedLabel(lines)).split(" ").includes(token);
 }
 
-/** Drop leading words until `token` is actually visible. */
+/** Drop leading words until `token` is visible and the plate no longer collides. */
 function showToken(
   label: string,
   token: string,
@@ -163,18 +173,20 @@ function showToken(
   fontPx: number,
   maxLines: number,
   measure: MeasureWidth,
+  avoid: readonly string[],
 ): string[] {
   const words = wordsOf(label).filter(hasToken);
-  let fallback = labelLines(token, width, fontPx, maxLines, measure);
+  let showing: string[] | null = null;
   for (let drop = 0; drop <= words.length; drop++) {
     const rest = words.slice(drop);
     const seq = rest.includes(token) ? rest : [...rest, token];
     if (seq.length === 0) continue;
     const lines = labelLines(seq.join(" "), width, fontPx, maxLines, measure);
-    if (showsToken(lines, token)) return lines;
-    fallback = lines;
+    if (!showsToken(lines, token)) continue;
+    showing ??= lines;
+    if (!avoid.some((text) => labelsCollide(renderedLabel(lines), text))) return lines;
   }
-  return fallback;
+  return showing ?? labelLines(token, width, fontPx, maxLines, measure);
 }
 
 function collisionGroups(texts: readonly string[]): number[][] {
@@ -196,30 +208,36 @@ function collisionGroups(texts: readonly string[]): number[][] {
   return [...groups.values()].filter((group) => group.length > 1);
 }
 
-const FRESH = ["ALT", "ALSO", "COPY", "EXTRA", "OTHER", "MORE", "NEXT", "PLUS", "MARK", "NOTE"];
-
-function takeFresh(used: Set<string>): string {
-  for (const word of FRESH) {
-    if (!used.has(word)) {
-      used.add(word);
-      return word;
-    }
+function withIndex(
+  label: string,
+  width: number,
+  fontPx: number,
+  maxLines: number,
+  measure: MeasureWidth,
+  avoid: readonly string[],
+): string[] {
+  const words = wordsOf(label).filter(hasToken);
+  const own = new Set(words.filter((word) => /^\d+$/.test(word)));
+  const clashes = (lines: string[]) => avoid.some((text) => labelsCollide(renderedLabel(lines), text));
+  for (let n = 2; n < 100; n++) {
+    const suffix = String(n);
+    if (own.has(suffix)) continue;
+    const lines = labelLines([...words, suffix].join(" "), width, fontPx, maxLines, measure);
+    if (showsToken(lines, suffix) && !clashes(lines)) return lines;
   }
-  for (let n = 2; n < 80; n++) {
-    const word = `ALT${n}`;
-    if (!used.has(word)) {
-      used.add(word);
-      return word;
-    }
+  for (let n = 2; n < 100; n++) {
+    const suffix = String(n);
+    if (own.has(suffix)) continue;
+    const lines = showToken(label, suffix, width, fontPx, maxLines, measure, avoid);
+    if (showsToken(lines, suffix) && !clashes(lines)) return lines;
   }
-  const word = `ALT${used.size}`;
-  used.add(word);
-  return word;
+  return labelLines([...words, "2"].join(" "), width, fontPx, maxLines, measure);
 }
 
 /**
- * Visible lines for every tile. Two labels collide when the reader sees the
- * same text, or one is only a cut-off prefix of the other.
+ * Visible lines for every tile. Equal rendered names collide, and so does a
+ * plate that was cut off with … when the remaining text is a prefix of another.
+ * Duplicates get a numeric suffix that is not already a name in the set.
  */
 export function plateTexts(
   entries: readonly { label: string; width: number; fontPx?: number; maxLines?: number }[],
@@ -229,26 +247,20 @@ export function plateTexts(
     const spec = specOf(entry);
     return labelLines(entry.label, spec.width, spec.fontPx, spec.maxLines, measure);
   });
-  const used = new Set<string>();
-  for (const entry of entries) {
-    for (const word of wordsOf(entry.label)) if (hasToken(word)) used.add(word);
-  }
   for (let round = 0; round < 8; round++) {
     const groups = collisionGroups(lines.map(renderedLabel));
     if (groups.length === 0) break;
     let changed = false;
     for (const indexes of groups) {
-      indexes.forEach((index) => {
+      indexes.forEach((index, nth) => {
         const others = indexes.filter((other) => other !== index).map((other) => entries[other].label);
+        const avoid = lines.flatMap((line, other) => (other === index ? [] : [renderedLabel(line)]));
         const { width, fontPx, maxLines } = specOf(entries[index]);
-        let token = distinguisher(entries[index].label, others) ?? takeFresh(used);
-        let next = showToken(entries[index].label, token, width, fontPx, maxLines, measure);
-        const siblings = indexes
-          .filter((other) => other !== index)
-          .map((other) => renderedLabel(lines[other]));
-        if (siblings.some((text) => labelsCollide(renderedLabel(next), text))) {
-          token = takeFresh(used);
-          next = showToken(entries[index].label, token, width, fontPx, maxLines, measure);
+        const token = distinguisher(entries[index].label, others);
+        let next = token ? showToken(entries[index].label, token, width, fontPx, maxLines, measure, avoid) : lines[index];
+        if (avoid.some((text) => labelsCollide(renderedLabel(next), text))) {
+          if (!token && nth === 0) return;
+          next = withIndex(entries[index].label, width, fontPx, maxLines, measure, avoid);
         }
         if (renderedLabel(next) !== renderedLabel(lines[index])) {
           lines[index] = next;

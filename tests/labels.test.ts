@@ -102,6 +102,31 @@ describe("plate labels", () => {
     expect(text.includes("…")).toBe(true);
   });
 
+  it("keeps CJK and Cyrillic duplicates readable", () => {
+    const shown = plateTexts([
+      { label: "微信", width: 80, fontPx: 12 },
+      { label: "微信", width: 80, fontPx: 12 },
+      { label: "Привет Мир", width: 140, fontPx: 12 },
+      { label: "Привет Мир 2", width: 140, fontPx: 12 },
+    ]).map(renderedLabel);
+    expect(shown[0]).toBe("微信");
+    expect(shown[1]).toBe("微信 2");
+    expect(shown[2]).toBe("ПРИВЕТ МИР");
+    expect(shown[3]).toBe("ПРИВЕТ МИР 2");
+  });
+
+  it("does not invent words for names that only share a prefix", () => {
+    const shown = plateTexts([
+      { label: "Word", width: 160, fontPx: 12 },
+      { label: "WordPad", width: 160, fontPx: 12 },
+      { label: "OBS", width: 160, fontPx: 12 },
+      { label: "Obsidian", width: 160, fontPx: 12 },
+      { label: "Microsoft Store", width: 160, fontPx: 12 },
+      { label: "Store 2", width: 160, fontPx: 12 },
+    ]).map(renderedLabel);
+    expect(shown).toEqual(["WORD", "WORDPAD", "OBS", "OBSIDIAN", "STORE", "STORE 2"]);
+  });
+
   it("does not use a dash as a distinguisher", () => {
     const shown = renderedLabel(plateTexts([{ label: "Visual Studio Code - Insiders", width: 70, fontPx: 10 }])[0]);
     expect(shown.endsWith("-")).toBe(false);
@@ -179,7 +204,24 @@ const SWEEP = [
   "Perplexity",
   "Ollama",
   "LM Studio",
+  "微信",
+  "微信",
+  "Привет Мир",
+  "Привет Мир 2",
+  "WordPad",
+  "OBS",
+  "Obsidian",
+  "Store 2",
 ];
+
+function strayWords(label: string, shown: string): string[] {
+  const source = displayLabel(label).toUpperCase().split(/\s+/).filter(Boolean);
+  const rendered = shown.replace(/…/g, " ").split(/\s+/).filter(Boolean);
+  const last = rendered[rendered.length - 1];
+  const indexSuffix = Boolean(last && /^\d+$/.test(last) && !source.some((src) => src === last || src.startsWith(last)));
+  const body = indexSuffix ? rendered.slice(0, -1) : rendered;
+  return body.filter((word) => !source.some((src) => src === word || src.startsWith(word)));
+}
 
 function plateFit(place: RingPlacement, label: string) {
   return labelFit(label, place.zone, place.width ?? 40, place.height ?? 36);
@@ -208,6 +250,8 @@ describe("rendered label sweep", () => {
       shown.slice(index + 1).flatMap((other) => (labelsCollide(text, other) ? [`${text} ~ ${other}`] : [])),
     );
     expect(hits, hits.join(" | ")).toEqual([]);
+    const stray = texts.flatMap((lines, index) => strayWords(entries[index].label, renderedLabel(lines)).map((word) => `${entries[index].label}: ${word}`));
+    expect(stray, stray.join(" | ")).toEqual([]);
     texts.forEach((lines, index) => {
       for (const line of lines) {
         expect(estimateWidth(line, entries[index].fontPx), `${entries[index].label}: ${line}`).toBeLessThanOrEqual(
