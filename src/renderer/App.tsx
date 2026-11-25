@@ -1,51 +1,47 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { cloneDefaultConfig, DEFAULT_HOTKEY } from "../shared/config";
 import {
   clampIndex,
   clearLaunchStatus,
-  filterTiles,
   footerHint,
   launchStatusText,
-  nextVisibleTile,
   statusAfterPublish,
+  tileMatches,
   type GridKey,
-  type TilePoint,
 } from "../shared/grid";
 import { tileFallbackIcon } from "../shared/icons";
 import { windowsExplorerPath } from "../shared/launch";
 import { acceptRefreshClick, refreshControlLabel } from "../shared/refresh";
+import { nextRingTile, placeTiles, type RingPlacement } from "../shared/ring";
 import { composeTiles } from "../shared/tiles";
-import type { LauncherState, LauncherTileView, TileKind } from "../shared/types";
+import type { DiscoveredApp, LauncherState, LauncherTileView } from "../shared/types";
 
 const FILTER_LIMIT = 32;
-
-function formatHotkey(hotkey: string): string {
-  const names: Record<string, string> = {
-    CommandOrControl: "CTRL",
-    Command: "CMD",
-    Cmd: "CMD",
-    Control: "CTRL",
-    Ctrl: "CTRL",
-    Alt: "ALT",
-    Option: "ALT",
-    AltGr: "ALT",
-    Shift: "SHIFT",
-    Super: "SUPER",
-    Meta: "META",
-  };
-  return hotkey
-    .split("+")
-    .map((part) => names[part] ?? part.toUpperCase())
-    .join("  +  ");
-}
 
 function formatClock(date: Date): string {
   return date.toLocaleTimeString("en-GB", { hour12: false });
 }
 
+function formatDate(date: Date): string {
+  return date
+    .toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+    .toUpperCase();
+}
+
+function firstMatchIndex(tiles: readonly { label: string }[], query: string): number {
+  const index = tiles.findIndex((tile) => tileMatches(tile.label, query));
+  return index < 0 ? 0 : index;
+}
+
 function previewState(): LauncherState {
   const home = "/home/mario";
-  const tiles = composeTiles(cloneDefaultConfig(), [], {
+  const discovered: DiscoveredApp[] = [
+    { id: "chatgpt", label: "ChatGPT", source: "store", launchPath: "chatgpt", launchKind: "store" },
+    { id: "claude", label: "Claude", source: "store", launchPath: "claude", launchKind: "store" },
+    { id: "cursor", label: "Cursor", source: "store", launchPath: "cursor", launchKind: "store" },
+    { id: "grok", label: "Grok", source: "store", launchPath: "grok", launchKind: "store" },
+  ];
+  const tiles = composeTiles(cloneDefaultConfig(), discovered, {
     platform: "linux",
     edgeExecutables: [],
     explorerPath: windowsExplorerPath(),
@@ -71,21 +67,28 @@ function previewState(): LauncherState {
   };
 }
 
-const KIND_LABEL: Record<TileKind, string> = {
-  app: "APP",
-  folder: "FOLDER",
-  system: "SYSTEM",
-};
-
 function isGridKey(key: string): key is GridKey {
   return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown";
 }
 
-function tilePoints(list: HTMLElement | null): TilePoint[] {
-  return [...(list?.children ?? [])].map((node) => {
-    const rect = (node as HTMLElement).getBoundingClientRect();
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-  });
+function slotStyle(place: RingPlacement): CSSProperties {
+  return { "--x": place.x, "--y": place.y } as CSSProperties;
+}
+
+/** Decorative reactor. The center mark is reserved for a future voice indicator. */
+function Reactor() {
+  return (
+    <div className="reactor" aria-hidden="true">
+      <div className="ticks" />
+      <div className="ring ring-a" />
+      <div className="ring ring-b" />
+      <div className="arc arc-a" />
+      <div className="arc arc-b" />
+      <div className="core">
+        <div className="voice" data-voice="standby" />
+      </div>
+    </div>
+  );
 }
 
 export function App() {
@@ -100,8 +103,9 @@ export function App() {
   const focusFiltered = useRef(false);
   const queryRef = useRef("");
   const activeRef = useRef(0);
-  const visibleRef = useRef<LauncherTileView[]>([]);
-  const listRef = useRef<HTMLUListElement | null>(null);
+  const tilesRef = useRef<LauncherTileView[]>([]);
+  const placementsRef = useRef<RingPlacement[]>([]);
+  const selectableRef = useRef<boolean[]>([]);
   const tileRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const launchRef = useRef<(id: string) => Promise<void>>(async () => {});
 
@@ -158,6 +162,14 @@ export function App() {
     const dismissLaunch = () => {
       setStatus((current) => clearLaunchStatus(current));
     };
+    const applyQuery = (next: string) => {
+      const index = firstMatchIndex(tilesRef.current, next);
+      queryRef.current = next;
+      activeRef.current = index;
+      focusFiltered.current = true;
+      setQuery(next);
+      setActiveIndex(index);
+    };
     const onKey = (event: KeyboardEvent) => {
       if (event.isComposing) return;
       if (event.key === "Escape") {
@@ -177,33 +189,27 @@ export function App() {
       if (event.key === "Backspace") {
         event.preventDefault();
         dismissLaunch();
-        const next = queryRef.current.slice(0, -1);
-        queryRef.current = next;
-        activeRef.current = 0;
-        focusFiltered.current = true;
-        setQuery(next);
-        setActiveIndex(0);
+        applyQuery(queryRef.current.slice(0, -1));
         return;
       }
 
       if (isGridKey(event.key)) {
         event.preventDefault();
         dismissLaunch();
-        const visible = visibleRef.current;
-        const points = tilePoints(listRef.current);
-        const current = clampIndex(activeRef.current, visible.length);
-        const next = nextVisibleTile(current, points, event.key);
+        const next = nextRingTile(activeRef.current, placementsRef.current, event.key, selectableRef.current);
+        if (next < 0) return;
         activeRef.current = next;
-        setActiveIndex(next < 0 ? 0 : next);
-        if (next >= 0) tileRefs.current[next]?.focus();
+        setActiveIndex(next);
+        tileRefs.current[next]?.focus();
         return;
       }
 
       if (event.key === "Enter") {
         const target = event.target;
         if (target instanceof HTMLElement && target.closest("button")) return;
-        const visible = visibleRef.current;
-        const tile = visible[clampIndex(activeRef.current, visible.length)];
+        const index = activeRef.current;
+        if (!selectableRef.current[index]) return;
+        const tile = tilesRef.current[index];
         if (!tile) return;
         event.preventDefault();
         void launchRef.current(tile.id);
@@ -214,12 +220,7 @@ export function App() {
       if (event.key === " " && event.target instanceof HTMLElement && event.target.closest("button")) return;
       event.preventDefault();
       dismissLaunch();
-      const next = (queryRef.current + event.key).slice(0, FILTER_LIMIT);
-      queryRef.current = next;
-      activeRef.current = 0;
-      focusFiltered.current = true;
-      setQuery(next);
-      setActiveIndex(0);
+      applyQuery((queryRef.current + event.key).slice(0, FILTER_LIMIT));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -228,15 +229,25 @@ export function App() {
   useEffect(() => {
     if (!focusFiltered.current) return;
     focusFiltered.current = false;
-    tileRefs.current[0]?.focus();
+    const index = activeRef.current;
+    if (!selectableRef.current[index]) return;
+    tileRefs.current[index]?.focus();
   }, [query]);
 
   useEffect(() => {
-    const count = filterTiles(state?.tiles ?? [], query).length;
-    if (count > 0 && activeIndex >= count) {
-      const next = count - 1;
+    const list = state?.tiles ?? [];
+    if (list.length === 0) return;
+    const index = clampIndex(activeIndex, list.length);
+    if (!tileMatches(list[index]?.label ?? "", query)) {
+      const next = list.findIndex((tile) => tileMatches(tile.label, query));
+      if (next < 0 || next === activeIndex) return;
       activeRef.current = next;
       setActiveIndex(next);
+      return;
+    }
+    if (index !== activeIndex) {
+      activeRef.current = index;
+      setActiveIndex(index);
     }
   }, [state, query, activeIndex]);
 
@@ -269,12 +280,18 @@ export function App() {
       });
   };
 
-  const hotkey = formatHotkey(state?.hotkey ?? DEFAULT_HOTKEY);
   const tiles = state?.tiles ?? [];
-  const visible = filterTiles(tiles, query);
-  visibleRef.current = visible;
-  const focusedIndex = clampIndex(activeIndex, visible.length);
-  if (activeRef.current >= visible.length) activeRef.current = focusedIndex;
+  const placements = placeTiles(tiles);
+  const selectable = tiles.map((tile) => tileMatches(tile.label, query));
+  tilesRef.current = tiles;
+  placementsRef.current = placements;
+  selectableRef.current = selectable;
+  const focusedIndex = selectable.includes(true)
+    ? selectable[activeIndex]
+      ? activeIndex
+      : selectable.indexOf(true)
+    : -1;
+  if (focusedIndex >= 0 && !selectable[activeRef.current]) activeRef.current = focusedIndex;
   tileRefs.current = [];
   const warnings = state?.warnings ?? [];
   const hint = footerHint({
@@ -285,63 +302,87 @@ export function App() {
     query,
     warning: warnings[0] ?? "",
   });
+  const busy = hint === "SCANNING" || hint === "REFRESHING";
+  const filtering = query.trim().length > 0;
+  const innerRadius = placements.reduce((min, place) => Math.min(min, place.radius), 0);
+  const coreScale = innerRadius > 0 ? innerRadius * 1.2 : 1.2;
+  const orbits: Array<{ ring: 0 | 1; radius: number }> = [];
+  for (const place of placements) {
+    if (!orbits.some((orbit) => orbit.ring === place.ring)) orbits.push({ ring: place.ring, radius: place.radius });
+  }
 
   return (
     <div className="screen">
-      <div className="hud" aria-hidden="true">
-        <div className="ring ring-a" />
-        <div className="ring ring-b" />
-        <div className="ring ring-c" />
-        <div className="arc arc-a" />
-        <div className="arc arc-b" />
-        <div className="core" />
-      </div>
       <div className="beam" aria-hidden="true" />
       <div className="scanlines" aria-hidden="true" />
 
-      <header className="top">
-        <div>
-          <p className="mark">JARVIS</p>
-          <p className="hint">OVERLAY  ·  {hotkey}</p>
-        </div>
-        <time dateTime={now.toISOString()}>{formatClock(now)}</time>
-      </header>
+      <aside className="side">
+        <p className="mark">JARVIS</p>
+        <time dateTime={now.toISOString()}>
+          <span className="clock">{formatClock(now)}</span>
+          <span className="date">{formatDate(now)}</span>
+        </time>
+      </aside>
 
-      <main className="stage">
-        <ul className="tiles" ref={listRef}>
-          {visible.map((tile, index) => (
-            <li key={tile.id}>
-              <button
-                type="button"
-                ref={(node) => {
-                  tileRefs.current[index] = node;
-                }}
-                className={pressed === tile.id ? "tile pressed" : "tile"}
-                data-kind={tile.kind}
-                tabIndex={visible.length > 0 && index === focusedIndex ? 0 : -1}
-                onFocus={() => {
-                  activeRef.current = index;
-                  setActiveIndex(index);
-                }}
-                onClick={() => void launch(tile.id)}
-              >
-                <span className="kind">
-                  {tile.icon ? (
-                    <span className="icon-ring">
-                      <img className="icon" alt="" src={tile.icon} />
-                    </span>
-                  ) : null}
-                  {KIND_LABEL[tile.kind]}
-                </span>
-                <span className="label">{tile.label}</span>
-              </button>
-            </li>
-          ))}
+      <main className="stage" style={{ "--core": coreScale } as CSSProperties}>
+        {orbits.map((orbit) => (
+          <div
+            key={orbit.ring}
+            className={orbit.ring === 0 ? "orbit orbit-inner" : "orbit orbit-outer"}
+            style={{ "--d": orbit.radius * 2 } as CSSProperties}
+            aria-hidden="true"
+          />
+        ))}
+        <Reactor />
+        <ul className="segments" aria-label="Programs">
+          {tiles.map((tile, index) => {
+            const place = placements[index];
+            if (!place) return null;
+            const matched = selectable[index] === true;
+            const dim = filtering && !matched;
+            const active = index === focusedIndex;
+            return (
+              <li key={tile.id} className="slot" style={slotStyle(place)}>
+                <button
+                  type="button"
+                  ref={(node) => {
+                    tileRefs.current[index] = node;
+                  }}
+                  className={["tile", dim ? "dim" : "", filtering && matched ? "lit" : "", active ? "active" : "", pressed === tile.id ? "pressed" : ""]
+                    .filter(Boolean)
+                    .join(" ")}
+                  data-kind={tile.kind}
+                  data-side={place.side}
+                  aria-disabled={dim || undefined}
+                  tabIndex={active ? 0 : -1}
+                  onFocus={() => {
+                    activeRef.current = index;
+                    setActiveIndex(index);
+                  }}
+                  onClick={() => {
+                    if (!tileMatches(tile.label, query)) return;
+                    void launch(tile.id);
+                  }}
+                >
+                  <span className="icon-ring">
+                    {tile.icon ? (
+                      <img className="icon" alt="" draggable={false} src={tile.icon} />
+                    ) : (
+                      <span className={`glyph glyph-${tile.kind}`} />
+                    )}
+                  </span>
+                  <span className="label">{tile.label}</span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       </main>
 
       <footer className="bottom">
-        <p className="hint">{hint}</p>
+        <p className={busy ? "hint busy" : "hint"} aria-live="polite">
+          {hint}
+        </p>
         <div className="commands">
           <button
             type="button"
@@ -360,7 +401,7 @@ export function App() {
       <div className="boot" aria-hidden="true">
         <p className="boot-kicker">UPLINK</p>
         <p className="boot-title">JARVIS</p>
-        <p className="boot-line line-a">SENSORS</p>
+        <p className="boot-line line-a">REACTOR</p>
         <p className="boot-line line-b">ONLINE</p>
       </div>
     </div>

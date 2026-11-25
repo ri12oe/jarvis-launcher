@@ -6,10 +6,16 @@ export interface TilePoint {
   y: number;
 }
 
-export function filterTiles<T extends { label: string }>(tiles: readonly T[], query: string): T[] {
+/** True when a label should stay bright for this filter. An empty query matches everything. */
+export function tileMatches(label: string, query: string): boolean {
   const needle = query.trim().toLowerCase();
-  if (!needle) return tiles.slice();
-  return tiles.filter((tile) => tile.label.toLowerCase().includes(needle));
+  if (!needle) return true;
+  return label.toLowerCase().includes(needle);
+}
+
+export function filterTiles<T extends { label: string }>(tiles: readonly T[], query: string): T[] {
+  if (!query.trim()) return tiles.slice();
+  return tiles.filter((tile) => tileMatches(tile.label, query));
 }
 
 /** Keeps the focused index on a tile that is still in the list. */
