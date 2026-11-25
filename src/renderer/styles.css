@@ -171,6 +171,13 @@ time {
   letter-spacing: 0.22em;
 }
 
+.bottom .hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .stage {
   position: relative;
   z-index: 2;
@@ -208,7 +215,7 @@ time {
   border: 1px solid rgba(92, 246, 255, 0.38);
   box-shadow: 0 0 16px rgba(59, 123, 255, 0.16);
   width: 100%;
-  min-height: 78px;
+  min-height: 96px;
   padding: 12px 12px;
   display: flex;
   flex-direction: column;
@@ -240,9 +247,14 @@ time {
 }
 
 .icon {
-  width: 14px;
-  height: 14px;
+  width: 40px;
+  height: 40px;
   flex: 0 0 auto;
+  border-radius: 50%;
+  border: 1px solid rgba(92, 246, 255, 0.8);
+  box-shadow: 0 0 8px rgba(92, 246, 255, 0.28);
+  object-fit: contain;
+  background: rgba(3, 10, 18, 0.72);
 }
 
 .label {
@@ -257,10 +269,11 @@ time {
 .commands {
   display: flex;
   align-items: flex-end;
+  flex: 0 0 auto;
   gap: 28px;
 }
 
-.quit {
+.command {
   appearance: none;
   background: transparent;
   color: var(--muted);
@@ -270,15 +283,21 @@ time {
   padding: 0;
 }
 
-.quit:hover,
-.quit:focus-visible {
+.command:hover {
   color: var(--cyan);
-  outline: none;
 }
 
-.quit.refreshing,
-.quit.refreshing:hover,
-.quit.refreshing:focus-visible {
+.command:focus-visible {
+  color: var(--cyan);
+  outline: none;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 5px;
+}
+
+.command.refreshing,
+.command.refreshing:hover,
+.command.refreshing:focus-visible {
   color: var(--cyan);
   cursor: default;
 }

@@ -20,7 +20,9 @@ npm run dev
 
 That starts the renderer, compiles the Electron main process, and opens the launcher. The default hotkey is **Ctrl+Alt+J** (`CommandOrControl+Alt+J` in the config). Press it again, or Esc, to hide the window. The process keeps running so the hotkey still works. Quit from the tray icon or the QUIT control.
 
-The tray menu is Show, Hide, Refresh, and Quit. The footer REFRESH control runs that same reload. A second click does nothing while a reload is already running, and the control reads REFRESHING until it finishes. Opening the window uses the list already in memory. Saving `config.json` re-reads it too.
+Arrow keys move through the tiles. Enter launches the focused tile. Typing filters the grid by name, and the footer shows that text (`FILTER  EDGE`). Backspace edits it. Esc hides the window.
+
+The tray menu is Show, Hide, Refresh, and Quit. The footer REFRESH control runs that same reload. A second click does nothing while a reload is already running, and the control reads REFRESHING until it finishes. The first scan, and any later scan that is not a button click, shows SCANNING in the footer until the list is ready. A reload that throws shows REFRESH FAILED and leaves the previous list in place. Opening the window uses the list already in memory. Saving `config.json` re-reads it too.
 
 `npm test` runs the unit tests. `npm run typecheck` typechecks the main process and the renderer.
 
@@ -118,7 +120,20 @@ Fixed tiles:
 | Desktop, Documents, Downloads, Pictures | Opens that folder |
 | Pinned folder | Opens the path from the config |
 
-A tile shows the file icon when the platform can read one. A Store app has no file to read, and Microsoft Edge uses a small placeholder when `msedge.exe` is not in the usual install folders.
+A tile shows a larger file icon inside a thin cyan ring when the platform can read one. A Store app has no logo a normal account can read (`Get-StartApps` does not return a path, and the package files live under `WindowsApps`), so it keeps the placeholder. Microsoft Edge uses that same placeholder when `msedge.exe` is not in the usual install folders.
+
+## Windows smoke test
+
+Check both `JarvisLauncher-Setup.exe` and `JarvisLauncher-portable.exe` where it applies:
+
+- ChatGPT or Copilot is listed when it is installed, and a click opens it
+- File Explorer opens
+- Microsoft Edge opens
+- Desktop, Documents, Downloads, and Pictures open those folders
+- Ctrl+Alt+J shows and hides the window
+- Autostart works for the NSIS install and the portable exe (`openAtLogin`, or a shortcut in the Startup folder)
+- REFRESH reloads the list. The footer reads SCANNING during the first scan, and REFRESH FAILED if a reload throws
+- Arrow keys move across the tiles, Enter launches the focused tile, Esc hides the window, and typing filters the grid
 
 ## Tests
 

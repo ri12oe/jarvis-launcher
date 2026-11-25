@@ -40,7 +40,7 @@ HKEY_CURRENT_USER\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Phot
 `;
 
 describe("shortcut scan", () => {
-  it("reads .lnk names from both start-menu roots and skips symlinks", () => {
+  it("reads .lnk names from both start-menu roots and skips symlinks", async () => {
     const root = makeTemp();
     const programData = path.join(root, "ProgramData");
     const appData = path.join(root, "AppData");
@@ -57,7 +57,7 @@ describe("shortcut scan", () => {
     fs.writeFileSync(path.join(linked, "Grok.lnk"), "");
     fs.symlinkSync(linked, path.join(user, "linked"), "dir");
 
-    const shortcuts = scanShortcuts([common, user], { maxDepth: 8 });
+    const shortcuts = await scanShortcuts([common, user], { maxDepth: 8 });
     expect(shortcuts.map((item) => item.name).sort()).toEqual(["ChatGPT", "Claude", "LM Studio"]);
   });
 

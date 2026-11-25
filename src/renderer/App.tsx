@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { cloneDefaultConfig, DEFAULT_HOTKEY } from "../shared/config";
+import { columnCountFromOffsets, filterTiles, footerHint, nextGridIndex, type GridKey } from "../shared/grid";
 import { tileFallbackIcon } from "../shared/icons";
 import { windowsExplorerPath } from "../shared/launch";
 import { acceptRefreshClick, refreshControlLabel } from "../shared/refresh";
 import { composeTiles } from "../shared/tiles";
-import type { LauncherState, TileKind } from "../shared/types";
+import type { LauncherState, LauncherTileView, TileKind } from "../shared/types";
+
+const FILTER_LIMIT = 32;
 
 function formatHotkey(hotkey: string): string {
   const names: Record<string, string> = {
@@ -53,6 +56,8 @@ function previewState(): LauncherState {
         : { id: tile.id, label: tile.label, kind: tile.kind };
     }),
     warnings: [],
+    scanning: false,
+    refreshFailed: false,
   };
 }
 
@@ -62,13 +67,26 @@ const KIND_LABEL: Record<TileKind, string> = {
   system: "SYSTEM",
 };
 
+function isGridKey(key: string): key is GridKey {
+  return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown";
+}
+
 export function App() {
   const [state, setState] = useState<LauncherState | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [status, setStatus] = useState("");
   const [pressed, setPressed] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
   const refreshingRef = useRef(false);
+  const focusFiltered = useRef(false);
+  const queryRef = useRef("");
+  const activeRef = useRef(0);
+  const visibleRef = useRef<LauncherTileView[]>([]);
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const tileRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const launchRef = useRef<(id: string) => Promise<void>>(async () => {});
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
@@ -89,18 +107,25 @@ export function App() {
     const apply = (next: LauncherState) => {
       if (cancel) return;
       setState(next);
-      setStatus("");
+      setStatus((current) => {
+        if (current === "LAUNCH FAILED") return current;
+        if (current === "REFRESH FAILED" && next.refreshFailed) return current;
+        return "";
+      });
     };
     const stop = bridge.onState((next) => {
       pushed = true;
       apply(next);
     });
-    void bridge.getState().then((next) => {
-      if (pushed) return;
-      apply(next);
-    }).catch(() => {
-      if (!cancel) setStatus("LINK LOST");
-    });
+    void bridge
+      .getState()
+      .then((next) => {
+        if (pushed) return;
+        apply(next);
+      })
+      .catch(() => {
+        if (!cancel) setStatus("LINK LOST");
+      });
     return () => {
       cancel = true;
       stop();
@@ -109,11 +134,66 @@ export function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") window.jarvis?.hide();
+      if (event.isComposing) return;
+      if (event.key === "Escape") {
+        queryRef.current = "";
+        setQuery("");
+        window.jarvis?.hide();
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+      if (event.key === "Backspace") {
+        event.preventDefault();
+        const next = queryRef.current.slice(0, -1);
+        queryRef.current = next;
+        activeRef.current = 0;
+        focusFiltered.current = true;
+        setQuery(next);
+        setActiveIndex(0);
+        return;
+      }
+
+      if (isGridKey(event.key)) {
+        event.preventDefault();
+        const visible = visibleRef.current;
+        const offsets = [...(listRef.current?.children ?? [])].map((node) => (node as HTMLElement).offsetTop);
+        const columns = columnCountFromOffsets(offsets);
+        const next = nextGridIndex(activeRef.current, visible.length, columns, event.key);
+        activeRef.current = next;
+        setActiveIndex(next);
+        if (next >= 0) tileRefs.current[next]?.focus();
+        return;
+      }
+
+      if (event.key === "Enter") {
+        const target = event.target;
+        if (target instanceof HTMLElement && target.closest("button")) return;
+        const tile = visibleRef.current[activeRef.current] ?? visibleRef.current[0];
+        if (!tile) return;
+        event.preventDefault();
+        void launchRef.current(tile.id);
+        return;
+      }
+
+      if (event.key.length !== 1) return;
+      event.preventDefault();
+      const next = (queryRef.current + event.key).slice(0, FILTER_LIMIT);
+      queryRef.current = next;
+      activeRef.current = 0;
+      focusFiltered.current = true;
+      setQuery(next);
+      setActiveIndex(0);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  useEffect(() => {
+    if (!focusFiltered.current) return;
+    focusFiltered.current = false;
+    tileRefs.current[0]?.focus();
+  }, [query]);
 
   const launch = async (id: string) => {
     setPressed(id);
@@ -127,6 +207,7 @@ export function App() {
     }
     bridge.hide();
   };
+  launchRef.current = launch;
 
   const refresh = () => {
     if (!acceptRefreshClick(refreshingRef.current)) return;
@@ -134,15 +215,31 @@ export function App() {
     if (!bridge) return;
     refreshingRef.current = true;
     setRefreshing(true);
-    void bridge.refresh().finally(() => {
-      refreshingRef.current = false;
-      setRefreshing(false);
-    });
+    void bridge
+      .refresh()
+      .catch(() => {
+        setStatus((current) => current || "REFRESH FAILED");
+      })
+      .finally(() => {
+        refreshingRef.current = false;
+        setRefreshing(false);
+      });
   };
 
   const hotkey = formatHotkey(state?.hotkey ?? DEFAULT_HOTKEY);
   const tiles = state?.tiles ?? [];
+  const visible = filterTiles(tiles, query);
+  visibleRef.current = visible;
+  tileRefs.current = [];
   const warnings = state?.warnings ?? [];
+  const hint = footerHint({
+    status,
+    refreshing,
+    scanning: state?.scanning ?? Boolean(window.jarvis),
+    refreshFailed: state?.refreshFailed ?? false,
+    query,
+    warning: warnings[0] ?? "",
+  });
 
   return (
     <div className="screen">
@@ -166,13 +263,21 @@ export function App() {
       </header>
 
       <main className="stage">
-        <ul className="tiles">
-          {tiles.map((tile) => (
+        <ul className="tiles" ref={listRef}>
+          {visible.map((tile, index) => (
             <li key={tile.id}>
               <button
                 type="button"
+                ref={(node) => {
+                  tileRefs.current[index] = node;
+                }}
                 className={pressed === tile.id ? "tile pressed" : "tile"}
                 data-kind={tile.kind}
+                tabIndex={index === activeIndex ? 0 : -1}
+                onFocus={() => {
+                  activeRef.current = index;
+                  setActiveIndex(index);
+                }}
                 onClick={() => void launch(tile.id)}
               >
                 <span className="kind">
@@ -187,19 +292,17 @@ export function App() {
       </main>
 
       <footer className="bottom">
-        <p className="hint">
-          {refreshing ? "REFRESHING" : status || (warnings.length > 0 ? warnings[0] : "SELECT A SYSTEM")}
-        </p>
+        <p className="hint">{hint}</p>
         <div className="commands">
           <button
             type="button"
-            className={refreshing ? "quit refreshing" : "quit"}
+            className={refreshing ? "command refreshing" : "command"}
             aria-busy={refreshing}
             onClick={refresh}
           >
             {refreshControlLabel(refreshing)}
           </button>
-          <button type="button" className="quit" onClick={() => window.jarvis?.quit()}>
+          <button type="button" className="command" onClick={() => window.jarvis?.quit()}>
             QUIT
           </button>
         </div>

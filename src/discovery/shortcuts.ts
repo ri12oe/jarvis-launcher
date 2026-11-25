@@ -16,27 +16,36 @@ function shortcutName(filePath: string): string {
   return path.basename(filePath, path.extname(filePath));
 }
 
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+}
+
 /**
  * Read `.lnk` files under the given roots. Symlinks are not followed.
  * Missing roots are skipped. This only reads the directory tree.
+ * Each directory read yields so a large Start Menu cannot freeze the HUD or the hotkey.
+ * `readTarget` stays on the caller: `shell.readShortcutLink` is a main-process API.
  */
-export function scanShortcuts(roots: readonly string[], options: ScanOptions = {}): ShortcutRecord[] {
+export async function scanShortcuts(roots: readonly string[], options: ScanOptions = {}): Promise<ShortcutRecord[]> {
   const maxDepth = options.maxDepth ?? 8;
   const found: ShortcutRecord[] = [];
 
-  const walk = (dir: string, depth: number) => {
+  const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > maxDepth) return;
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
     } catch {
       return;
     }
     for (const entry of entries) {
+      await yieldToEventLoop();
       if (entry.isSymbolicLink()) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        walk(full, depth + 1);
+        await walk(full, depth + 1);
         continue;
       }
       if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".lnk")) continue;
@@ -54,7 +63,7 @@ export function scanShortcuts(roots: readonly string[], options: ScanOptions = {
 
   for (const root of roots) {
     if (!root) continue;
-    walk(root, 0);
+    await walk(root, 0);
   }
   return found;
 }

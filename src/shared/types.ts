@@ -104,6 +104,10 @@ export interface LauncherState {
   platform: string;
   tiles: LauncherTileView[];
   warnings: string[];
+  /** True from startup until the current discovery pass publishes a list. */
+  scanning: boolean;
+  /** True after a refresh throws. Cleared when the next pass starts. */
+  refreshFailed: boolean;
 }
 
 export interface LaunchResult {
