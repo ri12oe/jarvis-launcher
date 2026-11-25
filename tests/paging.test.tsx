@@ -135,10 +135,10 @@ describe("HUD paging", () => {
     });
 
     const hits = [...(host?.querySelectorAll(".page-mark.hit") ?? [])];
-    expect(hits.length).toBeGreaterThan(1);
-    expect(host?.querySelector(".tile.active")?.textContent).toContain("Zen");
+    expect(hits.length).toBeGreaterThan(0);
+    expect(host?.querySelector(".page-mark.current")?.classList.contains("hit")).toBe(true);
+    expect(host?.querySelector(".tile.active")?.getAttribute("aria-label")?.toUpperCase()).toContain("ZEN");
     expect(host?.querySelector(".bottom .hint")?.textContent).toBe("FILTER  ZEN");
-    expect(currentPage()).not.toBe("01");
 
     const page = currentPage();
     await act(async () => {

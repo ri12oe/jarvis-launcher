@@ -1,30 +1,32 @@
-import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
+import type { Aabb } from "../shared/ring";
+import { formatClockParts, formatHudDate, useNow } from "./hud/time";
 
-function formatClock(date: Date): string {
-  return date.toLocaleTimeString("en-GB", { hour12: false });
+function boxStyle(box: Aabb): CSSProperties {
+  return {
+    left: box.left,
+    top: box.top,
+    width: box.right - box.left,
+    height: box.bottom - box.top,
+  };
 }
 
-function formatDate(date: Date): string {
-  return date
-    .toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
-    .toUpperCase();
-}
-
-/** Clock and date. Its one-second tick does not re-render the ring. */
-export function Clock() {
-  const [now, setNow] = useState(() => new Date());
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
+/** Digital clock with a dim reflection. One-second ticks stay in this component. */
+export function Clock({ box }: { box: Aabb }) {
+  const now = useNow();
+  const parts = formatClockParts(now);
+  const face = `${parts.hh}:${parts.mm}`;
   return (
-    <aside className="side">
-      <p className="mark">JARVIS</p>
-      <time dateTime={now.toISOString()}>
-        <span className="clock">{formatClock(now)}</span>
-        <span className="date">{formatDate(now)}</span>
+    <aside className="clock-block" style={boxStyle(box)}>
+      <p className="clock-date">{formatHudDate(now)}</p>
+      <time className="clock-face" dateTime={now.toISOString()}>
+        <span className="clock-digits">
+          {face}
+          <span className="ampm">{parts.ap}</span>
+        </span>
+        <span className="clock-reflect" aria-hidden="true">
+          {face}
+        </span>
       </time>
     </aside>
   );

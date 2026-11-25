@@ -1,6 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Clock } from "./Clock";
-import { measureHudLabel } from "./measure";
+import { AnalogClock } from "./hud/AnalogClock";
+import { Calendar } from "./hud/Calendar";
+import { Emblem } from "./hud/Emblem";
+import { Gauge } from "./hud/Gauge";
+import { LevelBar } from "./hud/LevelBar";
+import { MediaStrip } from "./hud/MediaStrip";
+import { ReactorFace } from "./hud/ReactorFace";
+import { RoundMeter } from "./hud/RoundMeter";
+import { SearchPill } from "./hud/SearchPill";
+import { SystemButtons } from "./hud/SystemButtons";
+import { Uptime } from "./hud/Uptime";
+import { Weather } from "./hud/Weather";
+import { Wifi } from "./hud/Wifi";
+import { measureHudLabel, measurePlateWidth } from "./measure";
 import { cloneDefaultConfig, DEFAULT_HOTKEY } from "../shared/config";
 import {
   clampIndex,
@@ -18,20 +31,26 @@ import { tileFallbackIcon } from "../shared/icons";
 import { windowsExplorerPath } from "../shared/launch";
 import { acceptRefreshClick, refreshControlLabel } from "../shared/refresh";
 import {
+  chromeLayout,
   layoutHud,
   stepHud,
-  viewportAboveSubtitle,
+  subtitlePanelBox,
+  type Aabb,
+  type HudFrame,
   type HudKey,
   type HudLayout,
   type RingPlacement,
   type Viewport,
 } from "../shared/ring";
+import { displayLabel, plateTexts } from "../shared/labels";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, LauncherState, LauncherTileView, VoicePhase, VoiceSnapshot } from "../shared/types";
 import { voiceControlLabel } from "../shared/voice-state";
 import { startMicrophone } from "./mic";
+import { NowProvider } from "./hud/time";
 
 const FILTER_LIMIT = 32;
+const EMPTY_TILES: LauncherTileView[] = [];
 
 const PREVIEW_APPS: DiscoveredApp[] = [
   ["chatgpt", "ChatGPT"],
@@ -75,10 +94,19 @@ function firstMatchIndex(tiles: readonly { label: string }[], query: string): nu
 function previewState(): LauncherState {
   const home = "/home/mario";
   const config = cloneDefaultConfig();
-  const requested = Number(new URLSearchParams(window.location.search).get("tiles") ?? "0");
+  const params = new URLSearchParams(window.location.search);
+  const named = params.get("labels");
+  const requested = Number(params.get("tiles") ?? "0");
   const previewBase = PREVIEW_APPS.length + 6;
-  const extraCount = requested >= 24 ? 10 : Math.max(0, requested - previewBase);
-  if (extraCount > 0) {
+  const extraCount = named ? 0 : requested >= 24 ? 10 : Math.max(0, requested - previewBase);
+  if (named) {
+    config.extraTiles = named.split("|").filter(Boolean).map((label, index) => ({
+      id: `named${index}`,
+      label,
+      path: `C:\\Tools\\named-${index}.exe`,
+      kind: "app" as const,
+    }));
+  } else if (extraCount > 0) {
     config.extraTiles = Array.from({ length: extraCount }, (_, index) => ({
       id: `module${index + 1}`,
       label: `Module ${index + 1}`,
@@ -152,25 +180,70 @@ function isGridKey(key: string): key is GridKey {
   return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown";
 }
 
-function slotStyle(place: RingPlacement): CSSProperties {
-  return { "--x": `${place.x}px`, "--y": `${place.y}px` } as CSSProperties;
+function frameStyle(frame: HudFrame): CSSProperties {
+  return {
+    "--header": `${frame.header}px`,
+    "--footer": `${frame.footer}px`,
+    "--rail": `${frame.railW}px`,
+    "--side": `${frame.sideW}px`,
+    "--cal": `${frame.calendarW}px`,
+    "--emblem": `${frame.emblemW}px`,
+    "--system": `${frame.systemW}px`,
+    "--reactor": `${frame.reactor}px`,
+    "--rx": `${frame.cx}px`,
+    "--ry": `${frame.cy}px`,
+    "--clock-w": `${Math.max(1, frame.clock.right - frame.clock.left)}px`,
+    "--level-t": `${frame.level.top}px`,
+    "--level-h": `${Math.max(1, frame.level.bottom - frame.level.top)}px`,
+    "--wifi-t": `${frame.wifi.top}px`,
+    "--wifi-h": `${Math.max(1, frame.wifi.bottom - frame.wifi.top)}px`,
+  } as CSSProperties;
 }
 
-/** Decorative reactor. Idle keeps the static standby mark. The other phases are the voice states. */
-function Reactor({ size, phase }: { size: number; phase: VoicePhase }) {
-  const mark = phase === "idle" ? "standby" : phase;
-  return (
-    <div className="reactor" style={{ width: size, height: size }} aria-hidden="true">
-      <div className="ticks" />
-      <div className="ring ring-a" />
-      <div className="ring ring-b" />
-      <div className="arc arc-a" />
-      <div className="arc arc-b" />
-      <div className="core">
-        <div className="voice" data-voice={mark} />
-      </div>
-    </div>
-  );
+function absBox(box: Aabb): CSSProperties {
+  return {
+    position: "absolute",
+    left: box.left,
+    top: box.top,
+    width: box.right - box.left,
+    height: box.bottom - box.top,
+    right: "auto",
+    bottom: "auto",
+  };
+}
+
+function plateWidth(place: RingPlacement): number {
+  if (place.zone === "segment") return Math.max(48, (place.width ?? 80) - 12);
+  if (place.zone === "tab") return Math.max(24, place.width ?? 40);
+  return Math.max(40, (place.width ?? 40) - 34);
+}
+
+function fittedFont(place: RingPlacement, label: string): number {
+  const width = plateWidth(place);
+  const words = displayLabel(label).toUpperCase().split(/\s+/).filter(Boolean);
+  const longest = words.reduce((best, word) => (word.length > best.length ? word : best), words[0] ?? "");
+  let px = place.zone === "segment" ? Math.min(13, Math.max(10, (place.height ?? 36) * 0.28)) : 12;
+  const min = place.zone === "tab" ? 7 : 9;
+  while (px > min && measurePlateWidth(longest, px) > width - 4) px -= 0.5;
+  return px;
+}
+
+function tileStyle(place: RingPlacement): CSSProperties {
+  if (place.zone === "segment") {
+    return {
+      left: place.x,
+      top: place.y,
+      width: place.width,
+      height: place.height,
+      transform: `translate(-50%, -50%) rotate(${place.rotation ?? 0}deg)`,
+    };
+  }
+  return {
+    left: place.icon.left,
+    top: place.icon.top,
+    width: place.width,
+    height: place.height,
+  };
 }
 
 export function App() {
@@ -193,16 +266,7 @@ export function App() {
   const pageRef = useRef(0);
   const tilesRef = useRef<LauncherTileView[]>([]);
   const placementsRef = useRef<RingPlacement[]>([]);
-  const layoutRef = useRef<HudLayout>({
-    segments: [],
-    pageCount: 1,
-    reactor: [96],
-    icon: 44,
-    gap: 8,
-    labelFont: 12,
-    labelLine: 18,
-    labelMax: 176,
-  });
+  const layoutRef = useRef<HudLayout | null>(null);
   const pageCountRef = useRef(1);
   const selectableRef = useRef<boolean[]>([]);
   const tileRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -352,7 +416,7 @@ export function App() {
       const segment = placementsRef.current.find((place) => place.index === index);
       queryRef.current = next;
       activeRef.current = index;
-      if (segment) {
+      if (segment && !segment.pinned) {
         pageRef.current = segment.page;
         setPage(segment.page);
       }
@@ -393,8 +457,10 @@ export function App() {
       if (isGridKey(event.key)) {
         event.preventDefault();
         dismissLaunch();
+        const currentLayout = layoutRef.current;
+        if (!currentLayout) return;
         const next = stepHud(
-          layoutRef.current,
+          currentLayout,
           { index: activeRef.current, page: pageRef.current },
           event.key,
           selectableRef.current,
@@ -497,16 +563,35 @@ export function App() {
       });
   };
 
-  const tiles = state?.tiles ?? [];
+  const tiles = state?.tiles ?? EMPTY_TILES;
   const showSubtitle = voice.phase !== "idle" || voice.heard.length > 0 || voice.reply.length > 0;
-  // Reserve the panel the whole time voice is on, so a turn does not resize the ring.
+  // Reserve the panel the whole time voice is on, so a turn does not resize the reactor.
   const voiceOn = voice.hasKey && voice.enabled;
-  const layoutViewport = voiceOn ? viewportAboveSubtitle(viewport) : viewport;
   const layout = useMemo(
-    () => layoutHud(tiles, layoutViewport, measureHudLabel),
-    [tiles, layoutViewport.width, layoutViewport.height],
+    () => layoutHud(tiles, viewport, measureHudLabel, { subtitle: voiceOn }),
+    [tiles, viewport.width, viewport.height, voiceOn],
   );
   layoutRef.current = layout;
+  const plateCopy = useMemo(() => {
+    const lines = new Array<string[]>(tiles.length);
+    const fonts = new Array<number>(tiles.length).fill(11);
+    const entries = layout.segments.map((place) => {
+      const label = tiles[place.index]?.label ?? "";
+      const fontPx = fittedFont(place, label);
+      fonts[place.index] = fontPx;
+      return {
+        label,
+        width: plateWidth(place),
+        fontPx,
+        maxLines: place.zone === "tab" ? 1 : 2,
+      };
+    });
+    const texts = plateTexts(entries, measurePlateWidth);
+    layout.segments.forEach((place, index) => {
+      lines[place.index] = texts[index] ?? [];
+    });
+    return { lines, fonts };
+  }, [layout, tiles]);
   const selectable = tiles.map((tile) => tileMatches(tile.label, query));
   const pageCount = layout.pageCount;
   const safePage = Math.min(page, Math.max(0, pageCount - 1));
@@ -536,12 +621,9 @@ export function App() {
   const busy = hint === "SCANNING" || hint === "REFRESHING";
   const warn = isLaunchStatus(hint) || isVoiceStatus(hint);
   const filtering = query.trim().length > 0;
-  const visible = layout.segments.filter((place) => place.page === safePage);
-  const reactor = layout.reactor[safePage] ?? 96;
-  const orbits: Array<{ ring: number; radius: number }> = [];
-  for (const place of visible) {
-    if (!orbits.some((orbit) => orbit.ring === place.ring)) orbits.push({ ring: place.ring, radius: place.radius });
-  }
+  const visible = layout.segments.filter((place) => place.pinned || place.page === safePage);
+  const panel = voiceOn ? subtitlePanelBox(viewport) : null;
+  const chrome = chromeLayout(viewport, { subtitle: voiceOn, pages: layout.pageCount });
 
   const changePage = (key: HudKey, focusTile: boolean) => {
     const next = stepHud(
@@ -567,117 +649,137 @@ export function App() {
   }, [page, safePage]);
 
   useEffect(() => {
-    const segment = layout.segments[activeIndex];
-    if (segment && segment.page !== safePage) setPage(segment.page);
+    const segment = layout.segments.find((place) => place.index === activeIndex);
+    if (segment && !segment.pinned && segment.page !== safePage) setPage(segment.page);
   }, [activeIndex, layout.segments, safePage]);
 
   return (
-    <div className="screen">
-      <div className="beam" aria-hidden="true" />
-      <div className="scanlines" aria-hidden="true" />
+    <NowProvider>
+    <div
+      className="screen"
+      data-density={chrome.compact ? "compact" : "full"}
+      data-power={chrome.iconPower ? "icons" : "labels"}
+      style={frameStyle(layout.frame)}
+    >
+      <Emblem />
+      <SystemButtons />
+      <Calendar style={absBox(chrome.calendar)} />
+      <Clock box={layout.frame.clock} />
+      <LevelBar />
+      <Wifi style={absBox(chrome.wifi)} />
+      <div className="corner-arcs" aria-hidden="true" />
+      {chrome.dial ? <div className="corner-dial" aria-hidden="true" style={absBox(chrome.dial)} /> : null}
+      <ReactorFace
+        frame={layout.frame}
+        phase={voice.phase}
+        used={new Set(visible.filter((place) => place.zone === "segment").map((place) => place.slot))}
+      />
+      <div className="right-stack">
+        <Weather />
+      </div>
+      <RoundMeter name="RAM" style={absBox(chrome.ram)} />
+      <RoundMeter name="BIN" style={absBox(chrome.bin)} />
+      {chrome.gauges.map((gauge, index) => (
+        <Gauge key={index} style={absBox(gauge)} readout={index === chrome.gauges.length - 1} />
+      ))}
+      {chrome.analog ? <AnalogClock style={absBox(chrome.analog)} /> : null}
 
-      <Clock />
-
-      <main
-        className="stage"
-        style={
-          {
-            "--icon": `${layout.icon / 2}px`,
-            "--hud-icon": `${layout.icon}px`,
-            "--hud-gap": `${layout.gap}px`,
-            "--hud-label": `${layout.labelFont}px`,
-            "--hud-line": `${layout.labelLine}px`,
-            "--hud-label-max": `${layout.labelMax}px`,
-          } as CSSProperties
-        }
-      >
-        {orbits.map((orbit) => (
-          <div
-            key={orbit.ring}
-            className="orbit-anchor"
-            style={{ width: orbit.radius * 2, height: orbit.radius * 2 }}
-            aria-hidden="true"
+      {pageCount > 1 && chrome.pager.length > 0 ? (
+        <div
+          className="pager"
+          style={{
+            left: chrome.pager[0].left,
+            top: chrome.pager[0].top,
+            width: chrome.pager[chrome.pager.length - 1].right - chrome.pager[0].left,
+            height: chrome.pager[0].bottom - chrome.pager[0].top,
+            transform: "none",
+          }}
+        >
+          <button
+            type="button"
+            className="arc-btn arc-prev"
+            aria-label="Previous page"
+            onClick={(event) => {
+              changePage("PageUp", false);
+              event.currentTarget.focus();
+            }}
           >
-            <div
-              className={orbit.ring === 0 ? "orbit" : "orbit orbit-outer"}
-              style={orbit.ring > 1 ? { animationDuration: "110s" } : undefined}
-            />
-          </div>
-        ))}
-        <Reactor key={reactor} size={reactor} phase={voice.phase} />
-        {pageCount > 1 ? (
-          <div className="pager" style={{ "--reactor": `${reactor}px` } as CSSProperties}>
-            <button
-              type="button"
-              className="arc-btn arc-prev"
-              aria-label="Previous page"
-              onClick={(event) => {
-                changePage("PageUp", false);
-                event.currentTarget.focus();
-              }}
-            >
-              ‹
-            </button>
-            <p className="page-readout">
-              {Array.from({ length: pageCount }, (_, index) => {
-                const hit = filtering && layout.segments.some((place) => place.page === index && selectable[place.index]);
-                const miss = filtering && !hit;
-                return (
-                  <span
-                    key={index}
-                    className={["page-mark", index === safePage ? "current" : "", hit ? "hit" : "", miss ? "miss" : ""]
-                      .filter(Boolean)
-                      .join(" ")}
-                    aria-current={index === safePage ? "page" : undefined}
-                  >
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                );
-              })}
-            </p>
-            <button
-              type="button"
-              className="arc-btn arc-next"
-              aria-label="Next page"
-              onClick={(event) => {
-                changePage("PageDown", false);
-                event.currentTarget.focus();
-              }}
-            >
-              ›
-            </button>
-          </div>
-        ) : null}
-        <ul className="segments" aria-label="Programs">
-          {visible.map((place) => {
-            const tile = tiles[place.index];
-            if (!tile) return null;
-            const matched = selectable[place.index] === true;
-            const dim = filtering && !matched;
-            const active = place.index === focusedIndex;
-            return (
-              <li key={tile.id} className="slot" style={slotStyle(place)}>
-                <button
-                  type="button"
-                  ref={(node) => {
-                    tileRefs.current[place.index] = node;
-                  }}
-                  className={["tile", dim ? "dim" : "", filtering && matched ? "lit" : "", active ? "active" : "", pressed === tile.id ? "pressed" : ""]
+            ‹
+          </button>
+          <p className="page-readout">
+            {Array.from({ length: pageCount }, (_, index) => {
+              const hit =
+                filtering &&
+                layout.segments.some((place) => selectable[place.index] && (place.pinned || place.page === index));
+              const miss = filtering && !hit;
+              return (
+                <span
+                  key={index}
+                  className={["page-mark", index === safePage ? "current" : "", hit ? "hit" : "", miss ? "miss" : ""]
                     .filter(Boolean)
                     .join(" ")}
-                  data-kind={tile.kind}
-                  data-side={place.side}
-                  aria-disabled={dim || undefined}
-                  tabIndex={active ? 0 : -1}
-                  onFocus={() => {
-                    activeRef.current = place.index;
-                    setActiveIndex(place.index);
-                  }}
-                  onClick={() => {
-                    if (!tileMatches(tile.label, query)) return;
-                    void launch(tile.id);
-                  }}
+                  aria-current={index === safePage ? "page" : undefined}
                 >
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+              );
+            })}
+          </p>
+          <button
+            type="button"
+            className="arc-btn arc-next"
+            aria-label="Next page"
+            onClick={(event) => {
+              changePage("PageDown", false);
+              event.currentTarget.focus();
+            }}
+          >
+            ›
+          </button>
+        </div>
+      ) : null}
+
+      <ul className="segments" aria-label="Programs">
+        {visible.map((place) => {
+          const tile = tiles[place.index];
+          if (!tile) return null;
+          const matched = selectable[place.index] === true;
+          const dim = filtering && !matched;
+          const active = place.index === focusedIndex;
+          return (
+            <li key={tile.id}>
+              <button
+                type="button"
+                ref={(node) => {
+                  tileRefs.current[place.index] = node;
+                }}
+                className={[
+                  "tile",
+                  `tile-${place.zone ?? "segment"}`,
+                  dim ? "dim" : "",
+                  filtering && matched ? "lit" : "",
+                  active ? "active" : "",
+                  pressed === tile.id ? "pressed" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                style={{ ...tileStyle(place), fontSize: plateCopy.fonts[place.index] }}
+                data-kind={tile.kind}
+                data-zone={place.zone}
+                data-side={place.side}
+                aria-label={tile.label}
+                aria-disabled={dim || undefined}
+                tabIndex={active ? 0 : -1}
+                onFocus={() => {
+                  activeRef.current = place.index;
+                  setActiveIndex(place.index);
+                }}
+                onClick={() => {
+                  if (!tileMatches(tile.label, query)) return;
+                  void launch(tile.id);
+                }}
+              >
+                {place.zone === "segment" ? null : (
                   <span className="icon-ring">
                     {tile.icon ? (
                       <img className="icon" alt="" draggable={false} src={tile.icon} />
@@ -685,18 +787,30 @@ export function App() {
                       <span className={`glyph glyph-${tile.kind}`} />
                     )}
                   </span>
-                  <span className="label" title={place.ellipsis ? tile.label : undefined}>
-                    {tile.label}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </main>
+                )}
+                <span className="label" title={tile.label}>
+                  {(plateCopy.lines[place.index] ?? [tile.label]).map((line, lineIndex) => (
+                    <span key={lineIndex} className="label-line">
+                      {line}
+                    </span>
+                  ))}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
 
-      {voiceOn ? (
-        <div className="subtitle-slot">
+      {panel ? (
+        <div
+          className="subtitle-slot"
+          style={{
+            left: panel.left,
+            top: panel.top,
+            width: panel.right - panel.left,
+            height: panel.bottom - panel.top,
+          }}
+        >
           {showSubtitle ? (
             <p className="subtitle" ref={subtitleRef} aria-live="polite">
               {PHASE_LABEL[voice.phase] ? <span className="phase">{PHASE_LABEL[voice.phase]}</span> : null}
@@ -708,10 +822,14 @@ export function App() {
       ) : null}
 
       <footer className="bottom">
-        <p className={["hint", busy ? "busy" : "", warn ? "warn" : ""].filter(Boolean).join(" ")} aria-live="polite">
+        <p
+          className={["hint", busy ? "busy" : "", warn ? "warn" : ""].filter(Boolean).join(" ")}
+          style={absBox(chrome.hint)}
+          aria-live="polite"
+        >
           {hint}
         </p>
-        <div className="commands">
+        <div className="commands" style={absBox(chrome.commands)}>
           <button
             type="button"
             className="command"
@@ -733,6 +851,9 @@ export function App() {
             QUIT
           </button>
         </div>
+        <SearchPill style={absBox(chrome.search)} />
+        <MediaStrip style={absBox(chrome.media)} />
+        <Uptime style={absBox(chrome.uptime)} />
       </footer>
 
       <div className="boot" aria-hidden="true">
@@ -742,5 +863,6 @@ export function App() {
         <p className="boot-line line-b">ONLINE</p>
       </div>
     </div>
+    </NowProvider>
   );
 }
