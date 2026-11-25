@@ -32,6 +32,51 @@ export const MAX_RINGS = 3;
 const MIN_INNER = 136;
 
 const FOOTER_BLOCK = 72;
+
+/** Matches `.subtitle` max-height. The panel scrolls past this. */
+export const SUBTITLE_MAX = 72;
+
+/** Gap between the ring stage and the subtitle panel. Matches the subtitle margin. */
+export const SUBTITLE_GAP = 8;
+
+/** Height taken from the window while the subtitle panel is visible. */
+export function subtitleReserve(): number {
+  return SUBTITLE_MAX + SUBTITLE_GAP;
+}
+
+/** Ring layout height while the subtitle panel is on screen. */
+export function viewportAboveSubtitle(viewport: Viewport): Viewport {
+  return { width: viewport.width, height: Math.max(240, viewport.height - subtitleReserve()) };
+}
+
+/**
+ * The voice subtitle, in window coordinates. It is centered under the ring
+ * and above the footer. `viewport` is the full window.
+ */
+export function subtitlePanelBox(viewport: Viewport): Aabb {
+  const layout = viewportAboveSubtitle(viewport);
+  const stageH = Math.max(160, layout.height - FOOTER_BLOCK);
+  const width = Math.min(760, Math.max(160, viewport.width - 48));
+  const left = (viewport.width - width) / 2;
+  const top = stageH + SUBTITLE_GAP;
+  return { left, top, right: left + width, bottom: top + SUBTITLE_MAX };
+}
+
+/** Icon and label boxes for every placed tile, in the same window coordinates as the subtitle. */
+export function placedTileBoxes(layout: HudLayout, layoutViewport: Viewport): Aabb[] {
+  const stageH = Math.max(160, layoutViewport.height - FOOTER_BLOCK);
+  const cx = layoutViewport.width / 2;
+  const cy = stageH / 2;
+  const boxes: Aabb[] = [];
+  for (const segment of layout.segments) {
+    boxes.push(shiftBox(segment.icon, cx, cy), shiftBox(segment.label, cx, cy));
+  }
+  return boxes;
+}
+
+function shiftBox(box: Aabb, dx: number, dy: number): Aabb {
+  return { left: box.left + dx, top: box.top + dy, right: box.right + dx, bottom: box.bottom + dy };
+}
 const SEARCH_STEPS = 22;
 
 export type LabelSide = "top" | "right" | "bottom" | "left";

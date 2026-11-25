@@ -44,7 +44,7 @@ The tray menu is Show, Hide, Refresh, and Quit. The footer REFRESH control runs 
 
 ## Voice
 
-Jarvis can listen for "hey jarvis" and answer out loud. The wake word runs on your PC. Audio is sent to xAI only after that phrase, for that one utterance, and the reply text is sent back for speech. The API key stays in the Electron main process. It is never written into the window, the renderer bundle, or the log.
+Jarvis can listen for "hey jarvis" and answer out loud. While voice is on, the microphone stays open and the wake word is detected on this PC, including when the window is hidden. That always-on audio is not uploaded. After the wake word, one utterance is sent to xAI for speech-to-text. The chat request also sends the tile labels and the last 8 messages and replies. The spoken reply is synthesized by xAI from the reply text. The API key stays in the Electron main process. It is never written into the window, the renderer bundle, or the log.
 
 Set the key for your Windows user, then open a new terminal so the app can see it:
 
@@ -52,7 +52,7 @@ Set the key for your Windows user, then open a new terminal so the app can see i
 setx XAI_API_KEY "your-key-here"
 ```
 
-`setx` does not put the key in this repo. Do not paste it into `config.json`. To read a different variable, set `voice.apiKeyEnv` to that variable's name. The value is still read from the environment.
+`setx` does not put the key in this repo. Do not paste it into `config.json`. `voice.apiKeyEnv` can name `XAI_API_KEY` or another variable that starts with `XAI_`. Anything else is ignored. The value is still read from the environment.
 
 With a key present, voice starts on. The footer reads `VOICE ON`. Click it to save `voice.enabled` as `false` (`VOICE OFF`) or `true`. With no key, the footer reads `VOICE: NO KEY` and the app keeps running. A failure stays in the footer as `VOICE FAILED` plus a short reason, the same way a bad launch stays as `LAUNCH FAILED`. The reason never includes the key.
 
@@ -61,10 +61,10 @@ Say "hey jarvis". The window shows if it was hidden, and the reactor marks liste
 - `open <name>` matches a tile label, including a fuzzy name, and launches it through the same path as a click, including the centered window on Windows
 - `hide` hides the window
 - `refresh` reloads the tile list
-- `stop` or `cancel` ends the turn without calling Grok. Saying "hey jarvis" again while a reply is playing cuts it off and listens again
+- `stop` or `cancel` ends the turn without calling Grok. Saying "hey jarvis" or "stop" while a reply is still being written cuts that request off. Saying "hey jarvis" again while a reply is playing listens again
 - anything else is a short chat with Grok, and Jarvis speaks the answer
 
-The subtitle under the reactor shows what was heard and the reply. Grok may also ask to open a tile. Only a tile id that is on screen is accepted.
+What was heard and the reply sit in a panel centered under the ring, above the footer. A long reply scrolls inside that panel. Grok may also ask to open a tile. Only a tile id that is on screen is accepted.
 
 Optional `voice` fields in `config.json`:
 
@@ -79,7 +79,7 @@ Optional `voice` fields in `config.json`:
 
 `model` is the chat model for `POST /v1/chat/completions`. `voiceId` is a built-in text-to-speech voice such as `eve`, `ara`, `leo`, `rex`, or `sal`. `sttModel` is the speech-to-text model. Leave `enabled` out to turn voice on when a key is present.
 
-The microphone permission is granted only for this app's own window, and only for `media`. The wake-word models under `assets/wake` are openWakeWord ONNX files and stay on the machine.
+The microphone permission is granted only for this app's own window, and only for `media`. The wake-word files under `assets/wake` are openWakeWord pre-trained models (CC BY-NC-SA 4.0, David Scripka). The openWakeWord code is Apache-2.0. The models are not, and they stay on the machine. See `assets/wake/NOTICE`.
 
 On Linux or macOS the window still opens, with Microsoft Edge, File Explorer, and the standard folder tiles. Scanning Start Menu `.lnk` files, packaged apps, and the uninstall registry happens only on Windows, so those systems will not list installed AI apps.
 

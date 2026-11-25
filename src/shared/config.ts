@@ -296,13 +296,24 @@ export function parseConfig(input: unknown): ParsedConfig {
 }
 
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
+/** Only the xAI key variable, or another variable whose name starts with XAI_. */
+export function isAllowedKeyEnv(name: string): boolean {
+  return /^XAI_[A-Za-z0-9_]+$/.test(name);
+}
 
 function readToken(value: unknown, fallback: string, warnings: string[], label: string, pattern: RegExp): string {
   if (value === undefined) return fallback;
   if (typeof value === "string" && pattern.test(value.trim())) return value.trim();
   warnings.push(`${label} is invalid; using ${fallback}`);
   return fallback;
+}
+
+function readKeyEnv(value: unknown, warnings: string[]): string {
+  if (value === undefined) return DEFAULT_API_KEY_ENV;
+  if (typeof value === "string" && isAllowedKeyEnv(value.trim())) return value.trim();
+  warnings.push(`voice.apiKeyEnv must be XAI_API_KEY or start with XAI_; using ${DEFAULT_API_KEY_ENV}`);
+  return DEFAULT_API_KEY_ENV;
 }
 
 function readVoice(value: unknown, warnings: string[]): VoiceConfig {
@@ -312,7 +323,7 @@ function readVoice(value: unknown, warnings: string[]): VoiceConfig {
     return { ...DEFAULT_VOICE };
   }
   const voice: VoiceConfig = {
-    apiKeyEnv: readToken(value.apiKeyEnv, DEFAULT_VOICE.apiKeyEnv, warnings, "voice.apiKeyEnv", ENV_NAME),
+    apiKeyEnv: readKeyEnv(value.apiKeyEnv, warnings),
     model: readToken(value.model, DEFAULT_VOICE.model, warnings, "voice.model", TOKEN),
     voiceId: readToken(value.voiceId, DEFAULT_VOICE.voiceId, warnings, "voice.voiceId", TOKEN).toLowerCase(),
     sttModel: readToken(value.sttModel, DEFAULT_VOICE.sttModel, warnings, "voice.sttModel", TOKEN),

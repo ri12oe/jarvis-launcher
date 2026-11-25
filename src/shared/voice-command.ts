@@ -142,6 +142,17 @@ export function parseVoiceCommand(transcript: string, tiles: readonly VoiceTile[
   return { type: "chat", text: transcript.trim() };
 }
 
+/**
+ * A pending Grok reply can be cut off by the wake phrase or by stop/cancel.
+ * Other speech is left alone so a half-heard sentence does not start a second chat.
+ */
+export function chatInterrupt(transcript: string): "wake" | "stop" | undefined {
+  const speech = normalizeSpeech(transcript);
+  if (speech === "hey jarvis") return "wake";
+  if (actionForTranscript(transcript, []).type === "stop") return "stop";
+  return undefined;
+}
+
 export function actionForTranscript(transcript: string, tiles: readonly VoiceTile[]): VoiceAction {
   const command = parseVoiceCommand(transcript, tiles);
   if (command.type === "open") {

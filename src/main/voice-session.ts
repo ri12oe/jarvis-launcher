@@ -8,7 +8,7 @@ import {
   VOICE_SAMPLE_RATE,
   type EndpointState,
 } from "../shared/voice-audio";
-import { actionForTranscript, type VoiceTile } from "../shared/voice-command";
+import { actionForTranscript, chatInterrupt, type VoiceTile } from "../shared/voice-command";
 import {
   acceptsCloudAudio,
   createWakeGate,
@@ -22,6 +22,7 @@ import {
   appendChatHistory,
   completeChat,
   jarvisSystemPrompt,
+  redactSecret,
   synthesizeSpeech,
   transcribeWav,
   type ChatMessage,
@@ -61,6 +62,7 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
   let hud: VoiceHud = initialVoiceHud();
   let gate: WakeGate = createWakeGate();
   let endpoint: EndpointState = createEndpoint();
+  let barge: EndpointState = createEndpoint();
   let engine: WakeWord | undefined;
   let loading = false;
   let engineFailed = false;
@@ -153,6 +155,7 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
     generation += 1;
     refreshAbort();
     endpoint = createEndpoint();
+    barge = createEndpoint();
     error = "";
     launchError = "";
     hud = reduceVoice(initialVoiceHud(), { type: "wake" });
@@ -168,10 +171,12 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
         return;
       }
       const score = await engine.push(chunk);
-      if (score === undefined) return;
-      const stepped = stepWakeGate(gate, score, Date.now());
-      gate = stepped.gate;
-      if (stepped.hit) onWake();
+      if (score !== undefined) {
+        const stepped = stepWakeGate(gate, score, Date.now());
+        gate = stepped.gate;
+        if (stepped.hit) onWake();
+      }
+      if (hud.phase === "thinking") watchForInterrupt(chunk);
     } catch {
       engine = undefined;
       engineFailed = true;
@@ -194,8 +199,51 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       return;
     }
     hud = reduceVoice(hud, { type: "working" });
+    barge = createEndpoint();
     publish();
-    await transcribeAndAct(gen, takeSamples(endpoint));
+    // The pump must keep reading audio so "hey jarvis" or "stop" can abort this request.
+    void transcribeAndAct(gen, takeSamples(endpoint));
+  }
+
+  function watchForInterrupt(chunk: Int16Array): void {
+    const stepped = stepEndpoint(barge, chunk, VOICE_SAMPLE_RATE);
+    barge = stepped.state;
+    if (!stepped.done) return;
+    const samples = takeSamples(stepped.state);
+    const speech = stepped.speech;
+    barge = createEndpoint();
+    if (speech) void interruptFromSpeech(samples);
+  }
+
+  async function interruptFromSpeech(samples: Int16Array): Promise<void> {
+    const gen = generation;
+    if (hud.phase !== "thinking") return;
+    const voice = host.voice();
+    const key = readVoiceApiKey(host.env(), voice.apiKeyEnv);
+    if (!key) return;
+    let transcript = "";
+    try {
+      transcript = await transcribeWav({
+        apiKey: key,
+        model: voice.sttModel,
+        wav: encodeWavPcm16(samples, VOICE_SAMPLE_RATE),
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch {
+      return;
+    }
+    if (!alive(gen) || hud.phase !== "thinking") return;
+    const kind = chatInterrupt(transcript);
+    if (kind === "wake") {
+      onWake();
+      return;
+    }
+    if (kind === "stop") {
+      generation += 1;
+      refreshAbort();
+      hud = reduceVoice(hud, { type: "stop" });
+      publish();
+    }
   }
 
   async function transcribeAndAct(gen: number, samples: Int16Array): Promise<void> {
@@ -244,7 +292,7 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
     if (action.type === "open") {
       void host.launch(action.tileId).then((result) => {
         if (!alive(gen) || result.ok) return;
-        launchError = publicText(result.error) || "Launch failed";
+        launchError = publicText(result.error, key) || "Launch failed";
         publish();
       });
       await say(gen, action.say);
@@ -273,7 +321,7 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
         if (tile) {
           void host.launch(tile.id).then((launched) => {
             if (!alive(gen) || launched.ok) return;
-            launchError = publicText(launched.error) || "Launch failed";
+            launchError = publicText(launched.error, key) || "Launch failed";
             publish();
           });
         }
@@ -401,6 +449,7 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
   };
 }
 
-function publicText(value: string | undefined): string {
-  return (value ?? "").replace(/\s+/g, " ").trim().slice(0, 140);
+function publicText(value: string | undefined, secret: string): string {
+  const cleaned = redactSecret((value ?? "").replace(/\s+/g, " ").trim(), secret);
+  return cleaned.slice(0, 140);
 }

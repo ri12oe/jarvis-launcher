@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   actionForTranscript,
+  chatInterrupt,
   matchTile,
   normalizeSpeech,
   parseVoiceCommand,
@@ -63,6 +64,10 @@ describe("voice commands", () => {
       text: "open the flux capacitor",
     });
     expect(actionForTranscript("   ", tiles)).toEqual({ type: "ignore" });
+    expect(chatInterrupt("hey jarvis")).toBe("wake");
+    expect(chatInterrupt("Stop.")).toBe("stop");
+    expect(chatInterrupt("cancel")).toBe("stop");
+    expect(chatInterrupt("what's the weather")).toBeUndefined();
     expect(actionForTranscript("open projects", tiles)).toEqual({
       type: "open",
       tileId: "projects",

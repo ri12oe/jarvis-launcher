@@ -22,8 +22,9 @@ export interface WakeWord {
 
 /**
  * On-device "hey jarvis" detector.
- * The ONNX models are the openWakeWord v0.5.1 preprocessor plus hey_jarvis_v0.1
- * (Apache-2.0, https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1).
+ * The ONNX files are openWakeWord v0.5.1 pre-trained models
+ * (CC BY-NC-SA 4.0, https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1).
+ * The project code is Apache-2.0. The models are not.
  * Audio is 16 kHz mono PCM. Nothing here leaves the machine.
  */
 export async function createWakeWord(dir: string): Promise<WakeWord> {

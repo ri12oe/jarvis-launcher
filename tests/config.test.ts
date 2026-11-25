@@ -4,6 +4,7 @@ import {
   DEFAULT_CHAT_MODEL,
   DEFAULT_HOTKEY,
   DEFAULT_STT_MODEL,
+  isAllowedKeyEnv,
   isValidHotkey,
   parseConfig,
   parseConfigText,
@@ -115,16 +116,21 @@ describe("config parsing", () => {
     });
     expect(parseConfig({}).config.voice.enabled).toBeUndefined();
     const turnedOff = parseConfig({
-      voice: { enabled: false, model: "grok-4", voiceId: "REX", apiKeyEnv: "JARVIS_KEY", sttModel: "grok-voice-transcribe-2.0" },
+      voice: { enabled: false, model: "grok-4", voiceId: "REX", apiKeyEnv: "XAI_CUSTOM", sttModel: "grok-voice-transcribe-2.0" },
     });
     expect(turnedOff.warnings).toEqual([]);
     expect(turnedOff.config.voice).toEqual({
       enabled: false,
-      apiKeyEnv: "JARVIS_KEY",
+      apiKeyEnv: "XAI_CUSTOM",
       model: "grok-4",
       voiceId: "rex",
       sttModel: DEFAULT_STT_MODEL,
     });
+    expect(isAllowedKeyEnv("XAI_API_KEY")).toBe(true);
+    expect(isAllowedKeyEnv("JARVIS_KEY")).toBe(false);
+    const foreign = parseConfig({ voice: { apiKeyEnv: "JARVIS_KEY" } });
+    expect(foreign.config.voice.apiKeyEnv).toBe("XAI_API_KEY");
+    expect(foreign.warnings.join(" ")).toMatch(/XAI_/);
     const broken = parseConfig({ voice: { enabled: "yes", model: "not a model", apiKeyEnv: "1KEY", voiceId: "" } });
     expect(broken.config.voice.enabled).toBeUndefined();
     expect(broken.config.voice.model).toBe(DEFAULT_CHAT_MODEL);

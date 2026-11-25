@@ -9,5 +9,14 @@ These ONNX files are from the v0.5.1 release
 - melspectrogram.onnx
 - embedding_model.onnx
 
-They are licensed under the Apache License, Version 2.0.
-The license text is at http://www.apache.org/licenses/LICENSE-2.0
+openWakeWord's code is Apache-2.0. These pre-trained models are not.
+The project licenses every included pre-trained model under
+Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+(CC BY-NC-SA 4.0):
+
+https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+See the License section of https://github.com/dscripka/openWakeWord
+The embedding model is a reimplementation of Google's speech embedding
+(the original TFHub module is Apache-2.0). The file shipped here is the
+openWakeWord release model and follows that project's CC BY-NC-SA 4.0 terms.

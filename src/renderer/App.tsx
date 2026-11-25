@@ -17,7 +17,15 @@ import {
 import { tileFallbackIcon } from "../shared/icons";
 import { windowsExplorerPath } from "../shared/launch";
 import { acceptRefreshClick, refreshControlLabel } from "../shared/refresh";
-import { layoutHud, stepHud, type HudKey, type HudLayout, type RingPlacement, type Viewport } from "../shared/ring";
+import {
+  layoutHud,
+  stepHud,
+  viewportAboveSubtitle,
+  type HudKey,
+  type HudLayout,
+  type RingPlacement,
+  type Viewport,
+} from "../shared/ring";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, LauncherState, LauncherTileView, VoicePhase, VoiceSnapshot } from "../shared/types";
 import { voiceControlLabel } from "../shared/voice-state";
@@ -66,7 +74,17 @@ function firstMatchIndex(tiles: readonly { label: string }[], query: string): nu
 
 function previewState(): LauncherState {
   const home = "/home/mario";
-  const tiles = composeTiles(cloneDefaultConfig(), PREVIEW_APPS, {
+  const config = cloneDefaultConfig();
+  const requested = Number(new URLSearchParams(window.location.search).get("tiles") ?? "0");
+  if (requested >= 24) {
+    config.extraTiles = Array.from({ length: 10 }, (_, index) => ({
+      id: `module${index + 1}`,
+      label: `Module ${index + 1}`,
+      path: `C:\\Tools\\module-${index + 1}.exe`,
+      kind: "app" as const,
+    }));
+  }
+  const tiles = composeTiles(config, PREVIEW_APPS, {
     platform: "linux",
     edgeExecutables: [],
     explorerPath: windowsExplorerPath(),
@@ -455,9 +473,11 @@ export function App() {
   };
 
   const tiles = state?.tiles ?? [];
+  const showSubtitle = voice.phase !== "idle" || voice.heard.length > 0 || voice.reply.length > 0;
+  const layoutViewport = showSubtitle ? viewportAboveSubtitle(viewport) : viewport;
   const layout = useMemo(
-    () => layoutHud(tiles, viewport, measureHudLabel),
-    [tiles, viewport, page],
+    () => layoutHud(tiles, layoutViewport, measureHudLabel),
+    [tiles, layoutViewport.width, layoutViewport.height],
   );
   layoutRef.current = layout;
   const selectable = tiles.map((tile) => tileMatches(tile.label, query));
@@ -634,14 +654,15 @@ export function App() {
             );
           })}
         </ul>
-        {voice.phase !== "idle" || voice.heard || voice.reply ? (
-          <p className="subtitle" style={{ "--reactor": `${reactor}px` } as CSSProperties} aria-live="polite">
-            {PHASE_LABEL[voice.phase] ? <span className="phase">{PHASE_LABEL[voice.phase]}</span> : null}
-            {voice.heard ? <span className="heard">{voice.heard}</span> : null}
-            {voice.reply ? <span className="reply">{voice.reply}</span> : null}
-          </p>
-        ) : null}
       </main>
+
+      {showSubtitle ? (
+        <p className="subtitle" aria-live="polite">
+          {PHASE_LABEL[voice.phase] ? <span className="phase">{PHASE_LABEL[voice.phase]}</span> : null}
+          {voice.heard ? <span className="heard">{voice.heard}</span> : null}
+          {voice.reply ? <span className="reply">{voice.reply}</span> : null}
+        </p>
+      ) : null}
 
       <footer className="bottom">
         <p className={["hint", busy ? "busy" : "", warn ? "warn" : ""].filter(Boolean).join(" ")} aria-live="polite">
