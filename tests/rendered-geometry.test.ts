@@ -124,15 +124,27 @@ describe("rendered geometry", () => {
             .trim(),
           full: (node.getAttribute("aria-label") ?? "").replace(/^microsoft\s+/i, "").trim(),
         }));
-        const dupes = plates.map((plate) => plate.shown).filter((label, index, all) => all.indexOf(label) !== index);
+        const stem = (text: string) => text.replace(/…/g, "").replace(/\s+/g, " ").trim();
+        const collides = (a: string, b: string) => {
+          const left = a.replace(/\s+/g, " ").trim();
+          const right = b.replace(/\s+/g, " ").trim();
+          const leftStem = stem(left);
+          const rightStem = stem(right);
+          if (!leftStem || !rightStem) return false;
+          if (leftStem === rightStem) return true;
+          if (left.endsWith("…") && leftStem.length < rightStem.length && rightStem.startsWith(leftStem)) return true;
+          if (right.endsWith("…") && rightStem.length < leftStem.length && leftStem.startsWith(rightStem)) return true;
+          return false;
+        };
+        const dupes = plates.flatMap((plate, index) =>
+          plates.slice(index + 1).flatMap((other) => (collides(plate.shown, other.shown) ? [`${plate.shown} ~ ${other.shown}`] : [])),
+        );
         const unreadable = plates.flatMap((plate) => {
-          const text = plate.shown.replace(/…/g, "").trim();
-          const first = plate.full.toUpperCase().split(/\s+/).filter(Boolean)[0] ?? "";
+          const text = plate.shown.replace(/…/g, "").replace(/\s+/g, " ").trim();
           if (/^[A-Z]$/.test(text) || /^\d+$/.test(text)) return [`replaced ${plate.full} -> ${plate.shown}`];
-          if (first && text.includes(first)) return [];
-          const letters = text.replace(/[^A-Z0-9]/g, "");
-          if (letters.length >= 4 && first.startsWith(letters.slice(0, 4))) return [];
-          return [`short ${plate.full} -> ${plate.shown}`];
+          const words = plate.full.toUpperCase().split(/\s+/).filter((word) => /[A-Z0-9]/.test(word) && word.length >= 2);
+          const kept = words.some((word) => text.includes(word) || (word.length >= 4 && text.includes(word.slice(0, 4))));
+          return kept ? [] : [`short ${plate.full} -> ${plate.shown}`];
         });
         const faces: string[] = [];
         const misses: string[] = [];

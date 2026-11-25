@@ -503,7 +503,8 @@ export function layoutHud<T extends LayoutTile>(
       break;
     }
   }
-  const tabFit = fitCount(groups.tab.length, frame.tabs, 4, 46, "row");
+  const tabMin = viewport.width < 1200 ? 92 : 46;
+  const tabFit = fitCount(groups.tab.length, frame.tabs, 4, tabMin, "row");
   const railShown = groups.rail.slice(0, railFit);
   const tabShown = groups.tab.slice(0, tabFit);
   const queued = [...groups.segment, ...groups.rail.slice(railFit), ...groups.tab.slice(tabFit)];

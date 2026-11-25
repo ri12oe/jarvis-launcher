@@ -42,7 +42,7 @@ import {
   type RingPlacement,
   type Viewport,
 } from "../shared/ring";
-import { displayLabel, plateTexts } from "../shared/labels";
+import { labelFit, plateTexts } from "../shared/labels";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, LauncherState, LauncherTileView, VoicePhase, VoiceSnapshot } from "../shared/types";
 import { voiceControlLabel } from "../shared/voice-state";
@@ -212,20 +212,8 @@ function absBox(box: Aabb): CSSProperties {
   };
 }
 
-function plateWidth(place: RingPlacement): number {
-  if (place.zone === "segment") return Math.max(48, (place.width ?? 80) - 12);
-  if (place.zone === "tab") return Math.max(24, place.width ?? 40);
-  return Math.max(40, (place.width ?? 40) - 34);
-}
-
-function fittedFont(place: RingPlacement, label: string): number {
-  const width = plateWidth(place);
-  const words = displayLabel(label).toUpperCase().split(/\s+/).filter(Boolean);
-  const longest = words.reduce((best, word) => (word.length > best.length ? word : best), words[0] ?? "");
-  let px = place.zone === "segment" ? Math.min(13, Math.max(10, (place.height ?? 36) * 0.28)) : 12;
-  const min = place.zone === "tab" ? 7 : 9;
-  while (px > min && measurePlateWidth(longest, px) > width - 4) px -= 0.5;
-  return px;
+function fitted(place: RingPlacement, label: string) {
+  return labelFit(label, place.zone, place.width ?? 40, place.height ?? 36, measurePlateWidth);
 }
 
 function tileStyle(place: RingPlacement): CSSProperties {
@@ -577,14 +565,9 @@ export function App() {
     const fonts = new Array<number>(tiles.length).fill(11);
     const entries = layout.segments.map((place) => {
       const label = tiles[place.index]?.label ?? "";
-      const fontPx = fittedFont(place, label);
-      fonts[place.index] = fontPx;
-      return {
-        label,
-        width: plateWidth(place),
-        fontPx,
-        maxLines: place.zone === "tab" ? 1 : 2,
-      };
+      const fit = fitted(place, label);
+      fonts[place.index] = fit.fontPx;
+      return { label, ...fit };
     });
     const texts = plateTexts(entries, measurePlateWidth);
     layout.segments.forEach((place, index) => {
