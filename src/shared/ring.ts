@@ -427,6 +427,26 @@ function tryCounts(
   return { radii: finalRadii, groups, reach: reachOf(finalSegments) };
 }
 
+/**
+ * One tile on its own page, inside `bounds`.
+ * A full ring at the usual inner radius can stick out of a short window.
+ * Shrinking the radius, then ignoring the clock, still beats drawing it off screen.
+ */
+function placeOneInside(metrics: LabelMetrics, bounds: Aabb, obstacles: readonly Aabb[]): Built {
+  const withClock = placeSlice([metrics], bounds, obstacles);
+  if (withClock) return withClock;
+  const clear = placeSlice([metrics], bounds, []);
+  if (clear) return clear;
+  let best: Built | null = null;
+  for (let radius = 0; radius <= MIN_INNER; radius += 2) {
+    const segments = buildAt([[metrics]], [radius]);
+    if (!layoutFits(segments, bounds, [])) continue;
+    best = { radii: [radius], groups: [[metrics]], reach: reachOf(segments) };
+  }
+  if (best) return best;
+  return { radii: [0], groups: [[metrics]], reach: 0 };
+}
+
 function placeSlice(items: readonly LabelMetrics[], bounds: Aabb, obstacles: readonly Aabb[]): Built | null {
   let best: Built | null = null;
   const ringLimit = Math.min(MAX_RINGS, items.length);
@@ -475,7 +495,9 @@ function materialize(built: Built, page: number, indexBase: number): RingPlaceme
 export function reactorDiameter(segments: readonly RingPlacement[]): number {
   const inner = segments.reduce((min, segment) => Math.min(min, segment.radius), Number.POSITIVE_INFINITY);
   if (!Number.isFinite(inner)) return 96;
-  return Math.max(72, Math.min(inner * 0.7, inner - 88));
+  const sized = Math.max(72, Math.min(inner * 0.7, Math.max(0, inner - 88)));
+  // A radius that escaped the stage must not inflate the core.
+  return Math.min(sized, 480);
 }
 
 /**
@@ -510,8 +532,9 @@ export function layoutHud<T extends { label: string }>(
     }
     const placed = placeSlice(metrics.slice(start, start + best), bounds, obstacles);
     if (!placed) {
-      const open = placeSlice(metrics.slice(start, start + 1), { left: -4000, top: -4000, right: 4000, bottom: 4000 }, []);
-      pages.push(materialize(open ?? { radii: [MIN_INNER], groups: [metrics.slice(start, start + 1)], reach: 0 }, pages.length, start));
+      // One tile did not fit the grown ring. Keep it inside the stage instead of
+      // laying it out in an unbounded box, which pushes the reactor and the tile off screen.
+      pages.push(materialize(placeOneInside(metrics[start], bounds, obstacles), pages.length, start));
       start += 1;
       continue;
     }

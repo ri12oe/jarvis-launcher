@@ -277,6 +277,7 @@ export function App() {
     };
   }, [voice.capture]);
 
+  const subtitleRef = useRef<HTMLParagraphElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   const phaseRef = useRef(voice.phase);
@@ -312,6 +313,12 @@ export function App() {
       void element.play().catch(finish);
     });
   }, []);
+  useEffect(() => {
+    const node = subtitleRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [voice.phase, voice.heard, voice.reply]);
+
   useEffect(() => {
     const previous = phaseRef.current;
     phaseRef.current = voice.phase;
@@ -474,7 +481,9 @@ export function App() {
 
   const tiles = state?.tiles ?? [];
   const showSubtitle = voice.phase !== "idle" || voice.heard.length > 0 || voice.reply.length > 0;
-  const layoutViewport = showSubtitle ? viewportAboveSubtitle(viewport) : viewport;
+  // Reserve the panel the whole time voice is on, so a turn does not resize the ring.
+  const voiceOn = voice.hasKey && voice.enabled;
+  const layoutViewport = voiceOn ? viewportAboveSubtitle(viewport) : viewport;
   const layout = useMemo(
     () => layoutHud(tiles, layoutViewport, measureHudLabel),
     [tiles, layoutViewport.width, layoutViewport.height],
@@ -656,12 +665,16 @@ export function App() {
         </ul>
       </main>
 
-      {showSubtitle ? (
-        <p className="subtitle" aria-live="polite">
-          {PHASE_LABEL[voice.phase] ? <span className="phase">{PHASE_LABEL[voice.phase]}</span> : null}
-          {voice.heard ? <span className="heard">{voice.heard}</span> : null}
-          {voice.reply ? <span className="reply">{voice.reply}</span> : null}
-        </p>
+      {voiceOn ? (
+        <div className="subtitle-slot">
+          {showSubtitle ? (
+            <p className="subtitle" ref={subtitleRef} aria-live="polite">
+              {PHASE_LABEL[voice.phase] ? <span className="phase">{PHASE_LABEL[voice.phase]}</span> : null}
+              {voice.heard ? <span className="heard">{voice.heard}</span> : null}
+              {voice.reply ? <span className="reply">{voice.reply}</span> : null}
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       <footer className="bottom">

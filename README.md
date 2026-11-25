@@ -61,7 +61,7 @@ Say "hey jarvis". The window shows if it was hidden, and the reactor marks liste
 - `open <name>` matches a tile label, including a fuzzy name, and launches it through the same path as a click, including the centered window on Windows
 - `hide` hides the window
 - `refresh` reloads the tile list
-- `stop` or `cancel` ends the turn without calling Grok. Saying "hey jarvis" or "stop" while a reply is still being written cuts that request off. Saying "hey jarvis" again while a reply is playing listens again
+- `stop` or `cancel`, said in the utterance after the wake word, ends the turn without calling Grok. Saying "hey jarvis" again, including while a reply is still being written or played, is heard on this PC and starts a new listen. That second phrase is not uploaded by itself
 - anything else is a short chat with Grok, and Jarvis speaks the answer
 
 What was heard and the reply sit in a panel centered under the ring, above the footer. A long reply scrolls inside that panel. Grok may also ask to open a tile. Only a tile id that is on screen is accepted.

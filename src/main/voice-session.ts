@@ -8,7 +8,7 @@ import {
   VOICE_SAMPLE_RATE,
   type EndpointState,
 } from "../shared/voice-audio";
-import { actionForTranscript, chatInterrupt, type VoiceTile } from "../shared/voice-command";
+import { actionForTranscript, type VoiceTile } from "../shared/voice-command";
 import {
   acceptsCloudAudio,
   createWakeGate,
@@ -62,7 +62,6 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
   let hud: VoiceHud = initialVoiceHud();
   let gate: WakeGate = createWakeGate();
   let endpoint: EndpointState = createEndpoint();
-  let barge: EndpointState = createEndpoint();
   let engine: WakeWord | undefined;
   let loading = false;
   let engineFailed = false;
@@ -155,7 +154,6 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
     generation += 1;
     refreshAbort();
     endpoint = createEndpoint();
-    barge = createEndpoint();
     error = "";
     launchError = "";
     hud = reduceVoice(initialVoiceHud(), { type: "wake" });
@@ -176,7 +174,6 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
         gate = stepped.gate;
         if (stepped.hit) onWake();
       }
-      if (hud.phase === "thinking") watchForInterrupt(chunk);
     } catch {
       engine = undefined;
       engineFailed = true;
@@ -199,51 +196,10 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       return;
     }
     hud = reduceVoice(hud, { type: "working" });
-    barge = createEndpoint();
     publish();
-    // The pump must keep reading audio so "hey jarvis" or "stop" can abort this request.
+    // Keep reading the mic so the on-device wake word can abort this request.
+    // Speech during thinking is not uploaded.
     void transcribeAndAct(gen, takeSamples(endpoint));
-  }
-
-  function watchForInterrupt(chunk: Int16Array): void {
-    const stepped = stepEndpoint(barge, chunk, VOICE_SAMPLE_RATE);
-    barge = stepped.state;
-    if (!stepped.done) return;
-    const samples = takeSamples(stepped.state);
-    const speech = stepped.speech;
-    barge = createEndpoint();
-    if (speech) void interruptFromSpeech(samples);
-  }
-
-  async function interruptFromSpeech(samples: Int16Array): Promise<void> {
-    const gen = generation;
-    if (hud.phase !== "thinking") return;
-    const voice = host.voice();
-    const key = readVoiceApiKey(host.env(), voice.apiKeyEnv);
-    if (!key) return;
-    let transcript = "";
-    try {
-      transcript = await transcribeWav({
-        apiKey: key,
-        model: voice.sttModel,
-        wav: encodeWavPcm16(samples, VOICE_SAMPLE_RATE),
-        signal: AbortSignal.timeout(15000),
-      });
-    } catch {
-      return;
-    }
-    if (!alive(gen) || hud.phase !== "thinking") return;
-    const kind = chatInterrupt(transcript);
-    if (kind === "wake") {
-      onWake();
-      return;
-    }
-    if (kind === "stop") {
-      generation += 1;
-      refreshAbort();
-      hud = reduceVoice(hud, { type: "stop" });
-      publish();
-    }
   }
 
   async function transcribeAndAct(gen: number, samples: Int16Array): Promise<void> {
