@@ -1,3 +1,5 @@
+import type { LaunchAction } from "./types";
+
 /** Desktop shell windows. Resizing these would touch the shell, not the app that was launched. */
 export const SHELL_WINDOW_CLASSES: ReadonlySet<string> = new Set([
   "Progman",
@@ -6,16 +8,12 @@ export const SHELL_WINDOW_CLASSES: ReadonlySet<string> = new Set([
   "Shell_SecondaryTrayWnd",
 ]);
 
+/** Minimum logical size. Physical pixels from a DPI-aware snapshot are scaled back to this. */
 const MIN_PLACE_WIDTH = 160;
 const MIN_PLACE_HEIGHT = 120;
 
-/** How many snapshots to take before giving up on a window. */
-export const LAUNCH_WINDOW_POLL_ATTEMPTS = 6;
-
-/** With a spawned pid, wait this many misses before trusting a new foreground window. */
-export const LAUNCH_WINDOW_FOREGROUND_ATTEMPT = 2;
-
-const POLL_GAP_MS = 250;
+/** How long the one PowerShell helper polls for the new window. */
+export const LAUNCH_WINDOW_WATCH_MS = 4000;
 
 export interface WindowRect {
   x: number;
@@ -31,9 +29,18 @@ export interface ObservedWindow {
   ancestors: number[];
   className: string;
   title: string;
+  /** Full image path, when the process could be opened. */
+  exe: string;
+  /** Packaged app id, when the process has one. */
+  aumid: string;
+  /** Physical pixels. Compared as DIP using `dpi`. */
   width: number;
   height: number;
+  /** GetDpiForWindow. 96 means the physical size is already the logical size. */
+  dpi: number;
   iconic: boolean;
+  /** GetWindow(GW_OWNER) is set. Popups and dialogs owned by another window. */
+  owned: boolean;
 }
 
 export interface WindowSnapshot {
@@ -41,13 +48,24 @@ export interface WindowSnapshot {
   windows: ObservedWindow[];
 }
 
+/** What the tile is trying to open. An existing window must match this or be left alone. */
+export interface LaunchTarget {
+  exePath?: string;
+  exeName?: string;
+  aumid?: string;
+}
+
 export interface PickRequest {
   samples: readonly WindowSnapshot[];
   launcherHwnd: number;
   launcherPid?: number;
   spawnedPid?: number;
-  /** Store apps and Edge often have no new process. Used after a pid match misses. */
-  allowForegroundFallback: boolean;
+  /**
+   * Hwnds that existed before the launch.
+   * Omit when that snapshot failed: nothing is treated as new.
+   */
+  baseline?: readonly number[];
+  target?: LaunchTarget;
 }
 
 export interface CenterLaunchOptions {
@@ -59,11 +77,13 @@ export interface CenterLaunchOptions {
   launcherHwnd: number;
   launcherPid?: number;
   spawnedPid?: number;
-  /** DIP rect to physical pixels. Omitted in tests. */
+  baseline?: readonly number[];
+  target?: LaunchTarget;
+  /** DIP rect to physical pixels. The helper is per-monitor DPI aware, so it must not be scaled again. */
   toScreenRect?: (rect: WindowRect) => WindowRect;
-  listWindows: () => Promise<WindowSnapshot | undefined>;
+  /** Undefined when the watch has ended. */
+  nextSample: () => Promise<WindowSnapshot | undefined>;
   placeWindow: (hwnd: number, rect: WindowRect) => Promise<boolean>;
-  sleep?: (ms: number) => Promise<void>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -94,6 +114,7 @@ function readWindow(value: unknown): ObservedWindow | undefined {
   const pid = readInt(value.pid);
   const width = readInt(value.width);
   const height = readInt(value.height);
+  const dpi = readInt(value.dpi);
   if (hwnd === undefined || hwnd <= 0 || pid === undefined || pid <= 0) return undefined;
   if (width === undefined || height === undefined || typeof value.className !== "string") return undefined;
   return {
@@ -102,20 +123,35 @@ function readWindow(value: unknown): ObservedWindow | undefined {
     ancestors: readAncestors(value.ancestors, pid),
     className: value.className,
     title: typeof value.title === "string" ? value.title : "",
+    exe: typeof value.exe === "string" ? value.exe : "",
+    aumid: typeof value.aumid === "string" ? value.aumid : "",
     width,
     height,
+    dpi: dpi !== undefined && dpi >= 96 ? dpi : 96,
     iconic: value.iconic === true,
+    owned: value.owned === true,
   };
+}
+
+function parseJson(text: string): unknown {
+  const trimmed = text.replace(/^\uFEFF/, "").trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start < 0 || end <= start) return undefined;
+    try {
+      return JSON.parse(trimmed.slice(start, end + 1));
+    } catch {
+      return undefined;
+    }
+  }
 }
 
 /** Parse one PowerShell snapshot. A broken payload is ignored. */
 export function parseWindowSnapshot(text: string): WindowSnapshot | undefined {
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    return undefined;
-  }
+  const value = parseJson(text);
   if (!isRecord(value) || !Array.isArray(value.windows)) return undefined;
   const foreground = readInt(value.foreground);
   const windows: ObservedWindow[] = [];
@@ -126,9 +162,66 @@ export function parseWindowSnapshot(text: string): WindowSnapshot | undefined {
   return { foreground: foreground && foreground > 0 ? foreground : 0, windows };
 }
 
+export function windowBaseName(filePath: string): string {
+  const trimmed = filePath.trim().replace(/[\\/]+$/g, "");
+  const parts = trimmed.split(/[\\/]/);
+  return parts[parts.length - 1] ?? "";
+}
+
+function normalizePath(filePath: string): string {
+  return filePath.trim().replace(/\//g, "\\").replace(/\\+$/g, "").toLowerCase();
+}
+
+/** True when this window is the app the tile asked for. */
+export function windowMatchesTarget(window: ObservedWindow, target: LaunchTarget | undefined): boolean {
+  if (!target) return false;
+  if (target.aumid && window.aumid && window.aumid.toLowerCase() === target.aumid.toLowerCase()) return true;
+  if (target.exePath && window.exe && normalizePath(window.exe) === normalizePath(target.exePath)) return true;
+  if (target.exeName && window.exe && windowBaseName(window.exe).toLowerCase() === target.exeName.toLowerCase()) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * The executable or Store id a tile is aiming at.
+ * A folder has neither: only a window created by that click is eligible.
+ */
+export function targetFromAction(
+  action: LaunchAction,
+  readShortcut?: (filePath: string) => string | undefined,
+): LaunchTarget {
+  if (action.type === "openExternal") {
+    if (action.url.toLowerCase().startsWith("microsoft-edge:")) return { exeName: "msedge.exe" };
+    return {};
+  }
+  if (action.type === "spawn") {
+    const folderArg = action.args.find((arg) => arg.toLowerCase().startsWith("shell:appsfolder\\"));
+    if (folderArg) {
+      const aumid = folderArg.slice(folderArg.indexOf("\\") + 1).trim();
+      return aumid ? { aumid } : {};
+    }
+    const exeName = windowBaseName(action.command);
+    if (/\.exe$/i.test(exeName)) return { exePath: action.command, exeName };
+    return {};
+  }
+  if (/\.lnk$/i.test(action.path)) {
+    const resolved = readShortcut?.(action.path);
+    if (resolved && /\.exe$/i.test(resolved)) return { exePath: resolved, exeName: windowBaseName(resolved) };
+    return {};
+  }
+  if (/\.exe$/i.test(action.path)) return { exePath: action.path, exeName: windowBaseName(action.path) };
+  return {};
+}
+
+function dipExtent(pixels: number, dpi: number): number {
+  const scale = dpi >= 96 ? dpi / 96 : 1;
+  return pixels / scale;
+}
+
 /**
  * A window the launcher is allowed to move.
- * The shell classes stay out even when they are the foreground window.
+ * Sizes are physical pixels. The 160 by 120 minimum is in DIP.
  */
 export function isPlaceableWindow(
   window: ObservedWindow,
@@ -136,9 +229,13 @@ export function isPlaceableWindow(
   launcherPid?: number,
 ): boolean {
   if (window.hwnd === launcherHwnd) return false;
+  if (window.owned) return false;
   if (launcherPid !== undefined && window.pid === launcherPid) return false;
   if (!window.className || SHELL_WINDOW_CLASSES.has(window.className)) return false;
-  if (!window.iconic && (window.width < MIN_PLACE_WIDTH || window.height < MIN_PLACE_HEIGHT)) return false;
+  if (!window.iconic) {
+    if (dipExtent(window.width, window.dpi) < MIN_PLACE_WIDTH) return false;
+    if (dipExtent(window.height, window.dpi) < MIN_PLACE_HEIGHT) return false;
+  }
   return true;
 }
 
@@ -146,45 +243,53 @@ function belongsToSpawn(window: ObservedWindow, spawnedPid: number): boolean {
   return window.pid === spawnedPid || window.ancestors.includes(spawnedPid);
 }
 
-function pickByPid(samples: readonly WindowSnapshot[], request: PickRequest): ObservedWindow | undefined {
-  const spawnedPid = request.spawnedPid;
-  if (spawnedPid === undefined || spawnedPid <= 0) return undefined;
-  for (let index = samples.length - 1; index >= 0; index--) {
-    const sample = samples[index];
-    const matches = sample.windows.filter(
-      (window) =>
-        isPlaceableWindow(window, request.launcherHwnd, request.launcherPid) &&
-        belongsToSpawn(window, spawnedPid),
-    );
-    if (matches.length === 0) continue;
-    return matches.find((window) => window.hwnd === sample.foreground) ?? matches[0];
-  }
-  return undefined;
+function isNewWindow(window: ObservedWindow, baseline: ReadonlySet<number> | undefined): boolean {
+  if (!baseline) return false;
+  return !baseline.has(window.hwnd);
 }
 
-function pickByForeground(samples: readonly WindowSnapshot[], request: PickRequest): ObservedWindow | undefined {
-  for (let index = samples.length - 1; index >= 0; index--) {
-    const sample = samples[index];
-    if (!sample.foreground || sample.foreground === request.launcherHwnd) continue;
-    const found = sample.windows.find(
-      (window) =>
-        window.hwnd === sample.foreground &&
-        isPlaceableWindow(window, request.launcherHwnd, request.launcherPid),
-    );
-    if (found) return found;
-  }
+function isAllowed(
+  window: ObservedWindow,
+  request: PickRequest,
+  baseline: ReadonlySet<number> | undefined,
+): boolean {
+  if (!isPlaceableWindow(window, request.launcherHwnd, request.launcherPid)) return false;
+  if (request.spawnedPid && request.spawnedPid > 0 && belongsToSpawn(window, request.spawnedPid)) return true;
+  if (isNewWindow(window, baseline)) return true;
+  return windowMatchesTarget(window, request.target);
+}
+
+/** Foreground wins. A single remaining window is used. Several with no foreground is not a guess. */
+function chooseOne(matches: readonly ObservedWindow[], foreground: number): ObservedWindow | undefined {
+  if (matches.length === 0) return undefined;
+  const focused = matches.find((window) => window.hwnd === foreground);
+  if (focused) return focused;
+  if (matches.length === 1) return matches[0];
   return undefined;
 }
 
 /**
- * Prefer a top-level window owned by the spawned process (or one of its parents).
- * Otherwise the foreground window that showed up and is not the launcher.
+ * A new window, or an existing one whose exe or AUMID matches the tile.
+ * A window that was already open and does not match is never moved.
  */
 export function pickLaunchedWindow(request: PickRequest): ObservedWindow | undefined {
-  const byPid = pickByPid(request.samples, request);
-  if (byPid) return byPid;
-  if (!request.allowForegroundFallback) return undefined;
-  return pickByForeground(request.samples, request);
+  const sample = request.samples[request.samples.length - 1];
+  if (!sample) return undefined;
+  const baseline = request.baseline ? new Set(request.baseline) : undefined;
+  const allowed = sample.windows.filter((window) => isAllowed(window, request, baseline));
+  const spawnedPid = request.spawnedPid;
+  if (spawnedPid && spawnedPid > 0) {
+    const byPid = allowed.filter((window) => belongsToSpawn(window, spawnedPid));
+    if (byPid.length > 0) return chooseOne(byPid, sample.foreground);
+  }
+  const fresh = allowed.filter((window) => isNewWindow(window, baseline));
+  if (fresh.length > 1 && !fresh.some((window) => window.hwnd === sample.foreground)) return undefined;
+  const chosenFresh = chooseOne(fresh, sample.foreground);
+  if (chosenFresh) return chosenFresh;
+  const existing = allowed.filter(
+    (window) => windowMatchesTarget(window, request.target) && !isNewWindow(window, baseline),
+  );
+  return chooseOne(existing, sample.foreground);
 }
 
 function sized(available: number, pct: number): number {
@@ -223,15 +328,9 @@ function roundRect(rect: WindowRect): WindowRect {
   };
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
 /**
- * Find the new window and move it. Returns false when there is nothing to move.
- * Failures stay quiet: the app has already launched.
+ * Move the launched window. Returns false when nothing qualified or the move failed.
+ * The caller hides Jarvis on false so the launcher does not stay on top of the app.
  */
 export async function centerLaunchedWindow(options: CenterLaunchOptions): Promise<boolean> {
   if (options.platform !== "win32" || options.mode !== "centered") return false;
@@ -244,30 +343,28 @@ export async function centerLaunchedWindow(options: CenterLaunchOptions): Promis
     return false;
   }
   const samples: WindowSnapshot[] = [];
-  const sleep = options.sleep ?? delay;
-  const spawnedPid = options.spawnedPid !== undefined && options.spawnedPid > 0 ? options.spawnedPid : undefined;
-  for (let attempt = 0; attempt < LAUNCH_WINDOW_POLL_ATTEMPTS; attempt++) {
+  while (true) {
+    let snap: WindowSnapshot | undefined;
     try {
-      const snap = await options.listWindows();
-      if (snap) samples.push(snap);
+      snap = await options.nextSample();
     } catch {
-      // The next poll is the retry. A dead snapshot is not a launch failure.
+      return false;
     }
+    if (!snap) return false;
+    samples.push(snap);
     const picked = pickLaunchedWindow({
       samples,
       launcherHwnd: options.launcherHwnd,
       launcherPid: options.launcherPid,
-      spawnedPid,
-      allowForegroundFallback: spawnedPid === undefined || attempt >= LAUNCH_WINDOW_FOREGROUND_ATTEMPT,
+      spawnedPid: options.spawnedPid,
+      baseline: options.baseline,
+      target: options.target,
     });
-    if (picked && picked.hwnd !== options.launcherHwnd) {
-      try {
-        return await options.placeWindow(picked.hwnd, target);
-      } catch {
-        return false;
-      }
+    if (!picked || picked.hwnd === options.launcherHwnd) continue;
+    try {
+      return await options.placeWindow(picked.hwnd, target);
+    } catch {
+      return false;
     }
-    if (attempt < LAUNCH_WINDOW_POLL_ATTEMPTS - 1) await sleep(POLL_GAP_MS);
   }
-  return false;
 }

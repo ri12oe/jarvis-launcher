@@ -20,12 +20,12 @@ import { DEFAULT_HOTKEY } from "../shared/config";
 import { hotkeyRegistrationWarnings } from "../shared/hotkey";
 import { tileFallbackIcon, tileIconFile } from "../shared/icons";
 import { defaultEdgeCandidates, runLaunch, spawnDetached, windowsExplorerPath } from "../shared/launch";
-import { centerLaunchedWindow } from "../shared/launch-window";
+import { centerLaunchedWindow, LAUNCH_WINDOW_WATCH_MS, targetFromAction } from "../shared/launch-window";
 import { loginItemOptions } from "../shared/login-item";
 import { createRefreshGate, isMainFrameSender } from "../shared/refresh";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, JarvisConfig, LauncherState, LauncherTileView, ResolvedTile } from "../shared/types";
-import { listTopLevelWindows, placeTopLevelWindow } from "./window-snapshot";
+import { listTopLevelWindows, startWindowWatch } from "./window-snapshot";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -240,48 +240,67 @@ function browserHwnd(win: BrowserWindow): number | undefined {
   }
 }
 
-/** Move the new window in front of Jarvis. A miss is ignored; the app is already open. */
-function centerAfterLaunch(spawnedPid: number | undefined): void {
+type PlacementOutcome = "placed" | "missed" | "skipped" | "cancelled";
+
+/**
+ * Move the new window in front of Jarvis.
+ * `missed` means the caller should hide Jarvis so it does not cover the app.
+ */
+async function centerAfterLaunch(
+  action: ResolvedTile["action"],
+  spawnedPid: number | undefined,
+  baseline: readonly number[] | undefined,
+): Promise<PlacementOutcome> {
   const win = mainWindow;
   const launchWindow = session?.config.launchWindow;
-  if (!win || win.isDestroyed() || !launchWindow) return;
-  if (process.platform !== "win32" || launchWindow.mode !== "centered") return;
-  win.setAlwaysOnTop(false);
+  if (!win || win.isDestroyed() || !launchWindow) return "skipped";
+  if (process.platform !== "win32" || launchWindow.mode !== "centered") return "skipped";
   const launcherHwnd = browserHwnd(win);
-  if (!launcherHwnd) return;
+  if (!launcherHwnd) return "missed";
   let workArea: Electron.Rectangle;
   try {
     workArea = screen.getDisplayMatching(win.getBounds()).workArea;
   } catch {
-    return;
+    return "missed";
   }
-  const platform = process.platform;
-  const env = process.env;
   const serial = ++placeSerial;
-  void centerLaunchedWindow({
-    platform,
-    mode: launchWindow.mode,
-    widthPct: launchWindow.widthPct,
-    heightPct: launchWindow.heightPct,
-    workArea,
-    launcherHwnd,
-    launcherPid: process.pid,
-    spawnedPid,
-    toScreenRect: (rect) => screen.dipToScreenRect(win, rect),
-    listWindows: () => (serial === placeSerial ? listTopLevelWindows(platform, env) : Promise.resolve(undefined)),
-    placeWindow: (hwnd, rect) =>
-      serial === placeSerial ? placeTopLevelWindow(platform, env, hwnd, rect) : Promise.resolve(false),
-  }).catch(() => undefined);
+  const watch = startWindowWatch({
+    platform: process.platform,
+    env: process.env,
+    timeoutMs: LAUNCH_WINDOW_WATCH_MS,
+  });
+  try {
+    const placed = await centerLaunchedWindow({
+      platform: process.platform,
+      mode: launchWindow.mode,
+      widthPct: launchWindow.widthPct,
+      heightPct: launchWindow.heightPct,
+      workArea,
+      launcherHwnd,
+      launcherPid: process.pid,
+      spawnedPid,
+      baseline,
+      target: targetFromAction(action, readShortcutTarget),
+      // Physical pixels. The helper is per-monitor v2, so Windows does not scale these again.
+      toScreenRect: (rect) => screen.dipToScreenRect(win, rect),
+      nextSample: () => (serial === placeSerial ? watch.nextSample() : Promise.resolve(undefined)),
+      placeWindow: (hwnd, rect) => (serial === placeSerial ? watch.place(hwnd, rect) : Promise.resolve(false)),
+    });
+    if (serial !== placeSerial) return "cancelled";
+    return placed ? "placed" : "missed";
+  } catch {
+    if (serial !== placeSerial) return "cancelled";
+    return "missed";
+  } finally {
+    watch.close();
+  }
 }
 
 function showWindow(): void {
   const win = mainWindow;
   if (!win || win.isDestroyed()) return;
-  // Full screen, but not topmost, so a launched app can sit in front of Jarvis.
-  win.setAlwaysOnTop(false);
   win.show();
   win.setFullScreen(true);
-  win.setAlwaysOnTop(false);
   win.focus();
 }
 
@@ -392,11 +411,20 @@ function registerIpc(): void {
     if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
     if (!session) await refreshGate.requestRefresh();
     if (typeof tileId !== "string") return { ok: false, error: "Unknown tile" };
-    const tile = session?.tiles.find((item) => item.id === tileId);
+    const current = session;
+    if (!current) return { ok: false, error: "Unknown tile" };
+    const tile = current.tiles.find((item) => item.id === tileId);
     if (!tile) return { ok: false, error: "Unknown tile" };
     try {
+      const centering = process.platform === "win32" && current.config.launchWindow.mode === "centered";
+      let baseline: number[] | undefined;
+      if (centering) {
+        const before = await listTopLevelWindows(process.platform, process.env);
+        baseline = before ? before.windows.map((window) => window.hwnd) : undefined;
+      }
       const spawnedPid = await execute(tile.action);
-      centerAfterLaunch(spawnedPid);
+      const outcome = centering ? await centerAfterLaunch(tile.action, spawnedPid, baseline) : "skipped";
+      if (outcome === "missed") hideWindow();
       return { ok: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Launch failed";

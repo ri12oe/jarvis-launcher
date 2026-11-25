@@ -2,10 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   centerLaunchedWindow,
   centeredWindowRect,
-  LAUNCH_WINDOW_FOREGROUND_ATTEMPT,
-  LAUNCH_WINDOW_POLL_ATTEMPTS,
   parseWindowSnapshot,
   pickLaunchedWindow,
+  targetFromAction,
   type ObservedWindow,
   type WindowRect,
   type WindowSnapshot,
@@ -17,14 +16,18 @@ const LAUNCHER_PID = 10;
 function app(partial: Partial<ObservedWindow> & Pick<ObservedWindow, "hwnd">): ObservedWindow {
   const pid = partial.pid ?? 20;
   return {
-    pid,
-    ancestors: [pid],
     className: "Chrome_WidgetWin_1",
     title: "Notes",
+    exe: "",
+    aumid: "",
     width: 900,
     height: 700,
+    dpi: 96,
     iconic: false,
+    owned: false,
     ...partial,
+    pid,
+    ancestors: partial.ancestors ?? [pid],
   };
 }
 
@@ -73,103 +76,196 @@ describe("centered window rect", () => {
 });
 
 describe("window picking", () => {
+  const edge = { exeName: "msedge.exe", exePath: "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe" };
   const request = {
     launcherHwnd: LAUNCHER_HWND,
     launcherPid: LAUNCHER_PID,
-    allowForegroundFallback: true,
+    baseline: [1],
+    target: edge,
   };
 
-  it("prefers the spawned pid over a different foreground window", () => {
-    const launched = app({ hwnd: 30, pid: 50, ancestors: [50, LAUNCHER_PID], title: "Cursor" });
-    const other = app({ hwnd: 40, pid: 77, title: "Mail" });
+  it("moves a window that was not open before the launch", () => {
+    const launched = app({
+      hwnd: 30,
+      pid: 80,
+      exe: edge.exePath,
+      title: "Edge",
+    });
     const picked = pickLaunchedWindow({
       ...request,
-      spawnedPid: 50,
-      samples: [sample(40, [other, launched])],
+      samples: [sample(30, [launched])],
     });
     expect(picked?.hwnd).toBe(30);
   });
 
-  it("follows a child process of the spawn", () => {
-    const child = app({ hwnd: 31, pid: 80, ancestors: [80, 60, 50], title: "Cursor" });
-    const picked = pickLaunchedWindow({
-      ...request,
-      spawnedPid: 50,
-      allowForegroundFallback: false,
-      samples: [sample(LAUNCHER_HWND, [child])],
+  it("leaves an unrelated window that was already open", () => {
+    const notepad = app({
+      hwnd: 1,
+      pid: 40,
+      exe: "C:\\Windows\\notepad.exe",
+      title: "Notepad",
     });
-    expect(picked?.hwnd).toBe(31);
-  });
-
-  it("picks the foreground window when one pid owns several", () => {
-    const back = app({ hwnd: 32, pid: 50, ancestors: [50], title: "Back" });
-    const front = app({ hwnd: 33, pid: 51, ancestors: [51, 50], title: "Front" });
-    const picked = pickLaunchedWindow({
-      ...request,
-      spawnedPid: 50,
-      samples: [sample(33, [back, front])],
-    });
-    expect(picked?.hwnd).toBe(33);
-  });
-
-  it("uses the new foreground window when there is no spawned pid", () => {
-    const explorer = app({
-      hwnd: 70,
-      pid: 900,
-      ancestors: [900, 4],
-      className: "CabinetWClass",
-      title: "Documents",
-    });
-    const picked = pickLaunchedWindow({
-      ...request,
-      samples: [sample(LAUNCHER_HWND, []), sample(70, [explorer])],
-    });
-    expect(picked).toMatchObject({ hwnd: 70, className: "CabinetWClass" });
-  });
-
-  it("waits for a foreground fallback until the caller allows it", () => {
-    const explorer = app({ hwnd: 70, pid: 900, className: "CabinetWClass", title: "Documents" });
-    const samples = [sample(70, [explorer])];
     expect(
       pickLaunchedWindow({
         ...request,
-        spawnedPid: 4242,
-        allowForegroundFallback: false,
-        samples,
+        baseline: [1],
+        samples: [sample(1, [notepad])],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("restores an already-open window when its exe matches the tile", () => {
+    const existing = app({
+      hwnd: 1,
+      pid: 80,
+      exe: "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
+      title: "Edge",
+    });
+    expect(
+      pickLaunchedWindow({
+        ...request,
+        baseline: [1],
+        samples: [sample(LAUNCHER_HWND, [existing])],
+      })?.hwnd,
+    ).toBe(1);
+  });
+
+  it("restores an already-open Store app when the AUMID matches", () => {
+    const copilot = app({
+      hwnd: 7,
+      pid: 90,
+      aumid: "Microsoft.Copilot_8wekyb3d8bbwe!App",
+      title: "Copilot",
+    });
+    expect(
+      pickLaunchedWindow({
+        ...request,
+        target: { aumid: "Microsoft.Copilot_8wekyb3d8bbwe!App" },
+        baseline: [7],
+        samples: [sample(7, [copilot])],
+      })?.hwnd,
+    ).toBe(7);
+  });
+
+  it("follows a child of the spawned pid", () => {
+    const child = app({ hwnd: 31, pid: 80, ancestors: [80, 60, 50], title: "Cursor" });
+    expect(
+      pickLaunchedWindow({
+        ...request,
+        spawnedPid: 50,
+        baseline: [],
+        samples: [sample(LAUNCHER_HWND, [child])],
+      })?.hwnd,
+    ).toBe(31);
+  });
+
+  it("does not guess when several pid windows qualify and none is foreground", () => {
+    const splash = app({ hwnd: 32, pid: 50, ancestors: [50], title: "Splash" });
+    const main = app({ hwnd: 33, pid: 51, ancestors: [51, 50], title: "App" });
+    expect(
+      pickLaunchedWindow({
+        ...request,
+        spawnedPid: 50,
+        baseline: [],
+        samples: [sample(LAUNCHER_HWND, [splash, main])],
       }),
     ).toBeUndefined();
     expect(
       pickLaunchedWindow({
         ...request,
-        spawnedPid: 4242,
-        allowForegroundFallback: true,
-        samples,
+        spawnedPid: 50,
+        baseline: [],
+        samples: [sample(33, [splash, main])],
+      })?.hwnd,
+    ).toBe(33);
+  });
+
+  it("uses the only new Explorer window for a folder", () => {
+    const oldExplorer = app({
+      hwnd: 4,
+      pid: 900,
+      className: "CabinetWClass",
+      exe: "C:\\Windows\\explorer.exe",
+      title: "Documents",
+    });
+    const opened = app({
+      hwnd: 70,
+      pid: 900,
+      className: "CabinetWClass",
+      exe: "C:\\Windows\\explorer.exe",
+      title: "Downloads",
+    });
+    expect(
+      pickLaunchedWindow({
+        launcherHwnd: LAUNCHER_HWND,
+        launcherPid: LAUNCHER_PID,
+        baseline: [4],
+        target: {},
+        samples: [sample(4, [oldExplorer, opened])],
       })?.hwnd,
     ).toBe(70);
   });
 
-  it("does not pick the launcher, a tiny popup, or the desktop shell", () => {
-    const launcher = app({ hwnd: LAUNCHER_HWND, pid: LAUNCHER_PID, title: "Jarvis" });
-    const otherLauncher = app({ hwnd: 101, pid: LAUNCHER_PID, title: "Jarvis" });
-    const tiny = app({ hwnd: 8, pid: 3, width: 100, height: 40, title: "Popup" });
+  it("does not treat every window as new when the before-snapshot failed", () => {
+    const notepad = app({ hwnd: 5, pid: 40, exe: "C:\\Windows\\notepad.exe", title: "Notepad" });
+    expect(
+      pickLaunchedWindow({
+        ...request,
+        baseline: undefined,
+        samples: [sample(5, [notepad])],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("skips owned popups, shell windows, and windows that are small in DIP", () => {
+    const owned = app({ hwnd: 8, owned: true, title: "Dialog" });
+    const tinyDpi = app({ hwnd: 9, width: 200, height: 150, dpi: 192, title: "Popup" });
     const shells = ["Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"].map((className, index) =>
       app({ hwnd: 200 + index, pid: 4, className, title: className, width: 1920, height: 1080 }),
     );
-    for (const foreground of [launcher, otherLauncher, tiny, ...shells]) {
+    for (const foreground of [owned, tinyDpi, ...shells]) {
       expect(
         pickLaunchedWindow({
           ...request,
+          baseline: [],
           samples: [sample(foreground.hwnd, [foreground])],
         }),
       ).toBeUndefined();
     }
+    const largeEnough = app({ hwnd: 11, width: 400, height: 300, dpi: 192, title: "Edge" });
+    expect(
+      pickLaunchedWindow({
+        ...request,
+        baseline: [],
+        samples: [sample(11, [largeEnough])],
+      })?.hwnd,
+    ).toBe(11);
   });
+});
 
-  it("accepts a minimized window and still refuses an empty class", () => {
-    const iconic = app({ hwnd: 90, pid: 44, width: 40, height: 30, iconic: true, title: "Edge" });
-    expect(pickLaunchedWindow({ ...request, samples: [sample(90, [iconic])] })?.hwnd).toBe(90);
-    const blank = app({ hwnd: 91, pid: 45, className: "" });
-    expect(pickLaunchedWindow({ ...request, samples: [sample(91, [blank])] })).toBeUndefined();
+describe("launch target", () => {
+  it("reads an exe, an Edge protocol, a Store id, and a shortcut target", () => {
+    expect(targetFromAction({ type: "openPath", path: "C:\\Program Files\\Edge\\msedge.exe" })).toEqual({
+      exePath: "C:\\Program Files\\Edge\\msedge.exe",
+      exeName: "msedge.exe",
+    });
+    expect(targetFromAction({ type: "openPath", path: "C:\\Users\\Mario\\Desktop" })).toEqual({});
+    expect(targetFromAction({ type: "openExternal", url: "microsoft-edge:" })).toEqual({ exeName: "msedge.exe" });
+    expect(
+      targetFromAction({
+        type: "spawn",
+        command: "C:\\Windows\\explorer.exe",
+        args: ["shell:AppsFolder\\Microsoft.Copilot_8wekyb3d8bbwe!App"],
+      }),
+    ).toEqual({ aumid: "Microsoft.Copilot_8wekyb3d8bbwe!App" });
+    expect(
+      targetFromAction({ type: "spawn", command: "C:\\Windows\\explorer.exe", args: [] }),
+    ).toEqual({ exePath: "C:\\Windows\\explorer.exe", exeName: "explorer.exe" });
+    expect(
+      targetFromAction({ type: "openPath", path: "C:\\Start\\Cursor.lnk" }, (filePath) =>
+        filePath.endsWith(".lnk") ? "C:\\Program Files\\Cursor\\Cursor.exe" : undefined,
+      ),
+    ).toEqual({ exePath: "C:\\Program Files\\Cursor\\Cursor.exe", exeName: "Cursor.exe" });
   });
 });
 
@@ -185,29 +281,35 @@ describe("window snapshot parsing", () => {
             ancestors: [9, 4],
             className: "CabinetWClass",
             title: "Docs",
+            exe: "C:\\Windows\\explorer.exe",
+            aumid: "",
             width: 800,
             height: 600,
+            dpi: 120,
             iconic: false,
+            owned: false,
           },
           { hwnd: "no" },
         ],
       }),
     );
-    expect(parsed).toEqual({
-      foreground: 50,
-      windows: [
-        {
-          hwnd: 50,
-          pid: 9,
-          ancestors: [9, 4],
-          className: "CabinetWClass",
-          title: "Docs",
-          width: 800,
-          height: 600,
-          iconic: false,
-        },
-      ],
-    });
+    expect(parsed?.windows).toEqual([
+      {
+        hwnd: 50,
+        pid: 9,
+        ancestors: [9, 4],
+        className: "CabinetWClass",
+        title: "Docs",
+        exe: "C:\\Windows\\explorer.exe",
+        aumid: "",
+        width: 800,
+        height: 600,
+        dpi: 120,
+        iconic: false,
+        owned: false,
+      },
+    ]);
+    expect(parsed?.foreground).toBe(50);
   });
 
   it("returns nothing for a payload that is not a snapshot", () => {
@@ -222,101 +324,68 @@ describe("centerLaunchedWindow", () => {
   const workArea: WindowRect = { x: 0, y: 0, width: 1920, height: 1080 };
   const centered = { x: 288, y: 162, width: 1344, height: 756 };
 
-  function harness(listWindows: () => Promise<WindowSnapshot | undefined>) {
+  function run(snaps: WindowSnapshot[], extra: Partial<Parameters<typeof centerLaunchedWindow>[0]> = {}) {
     const placed: Array<{ hwnd: number; rect: WindowRect }> = [];
-    let lists = 0;
-    const run = (extra: Partial<Parameters<typeof centerLaunchedWindow>[0]> = {}) =>
-      centerLaunchedWindow({
-        platform: "win32",
-        mode: "centered",
-        widthPct: 70,
-        heightPct: 70,
-        workArea,
-        launcherHwnd: LAUNCHER_HWND,
-        launcherPid: LAUNCHER_PID,
-        listWindows: async () => {
-          lists += 1;
-          return listWindows();
-        },
-        placeWindow: async (hwnd, rect) => {
-          placed.push({ hwnd, rect });
-          return true;
-        },
-        sleep: async () => undefined,
-        ...extra,
-      });
-    return { placed, run, lists: () => lists };
+    let reads = 0;
+    const queue = [...snaps];
+    const promise = centerLaunchedWindow({
+      platform: "win32",
+      mode: "centered",
+      widthPct: 70,
+      heightPct: 70,
+      workArea,
+      launcherHwnd: LAUNCHER_HWND,
+      launcherPid: LAUNCHER_PID,
+      baseline: [],
+      target: { exeName: "msedge.exe" },
+      nextSample: async () => {
+        reads += 1;
+        return queue.shift();
+      },
+      placeWindow: async (hwnd, rect) => {
+        placed.push({ hwnd, rect });
+        return true;
+      },
+      ...extra,
+    });
+    return { placed, reads: () => reads, promise };
   }
 
   it("does nothing off Windows or when mode is default", async () => {
-    const idle = harness(async () => sample(1, []));
-    expect(await idle.run({ platform: "linux" })).toBe(false);
-    expect(await idle.run({ mode: "default" })).toBe(false);
-    expect(idle.lists()).toBe(0);
+    const idle = run([], { platform: "linux" });
+    expect(await idle.promise).toBe(false);
+    const untouched = run([], { mode: "default" });
+    expect(await untouched.promise).toBe(false);
+    expect(idle.reads()).toBe(0);
+    expect(untouched.reads()).toBe(0);
     expect(idle.placed).toEqual([]);
   });
 
-  it("places the foreground window on the first snapshot when there is no pid", async () => {
-    const edge = app({ hwnd: 40, pid: 80, title: "Edge" });
-    let reads = 0;
-    const tools = harness(async () => {
-      reads += 1;
-      return sample(40, [edge]);
+  it("places a new window and converts the rect to screen pixels", async () => {
+    const edge = app({ hwnd: 40, exe: "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe", title: "Edge" });
+    const tools = run([sample(40, [edge])], {
+      toScreenRect: (rect) => ({ ...rect, x: rect.x + 1920, y: rect.y + 10 }),
     });
-    expect(await tools.run()).toBe(true);
-    expect(reads).toBe(1);
-    expect(tools.placed).toEqual([{ hwnd: 40, rect: centered }]);
+    expect(await tools.promise).toBe(true);
+    expect(tools.reads()).toBe(1);
+    expect(tools.placed).toEqual([{ hwnd: 40, rect: { x: 2208, y: 172, width: 1344, height: 756 } }]);
   });
 
-  it("applies the screen-pixel conversion before moving", async () => {
-    const edge = app({ hwnd: 40, title: "Edge" });
-    const tools = harness(async () => sample(40, [edge]));
-    expect(
-      await tools.run({
-        toScreenRect: (rect) => ({ ...rect, x: rect.x + 1920, y: rect.y + 10 }),
-      }),
-    ).toBe(true);
-    expect(tools.placed[0]?.rect).toEqual({ x: 2208, y: 172, width: 1344, height: 756 });
-  });
-
-  it("falls back to the foreground Explorer window after the spawned pid misses", async () => {
-    const cabinet = app({ hwnd: 70, pid: 900, className: "CabinetWClass", title: "Documents" });
-    let reads = 0;
-    const tools = harness(async () => {
-      reads += 1;
-      if (reads <= LAUNCH_WINDOW_FOREGROUND_ATTEMPT) return sample(LAUNCHER_HWND, []);
-      return sample(70, [cabinet]);
-    });
-    expect(await tools.run({ spawnedPid: 4242 })).toBe(true);
-    expect(reads).toBe(LAUNCH_WINDOW_FOREGROUND_ATTEMPT + 1);
-    expect(tools.placed).toEqual([{ hwnd: 70, rect: centered }]);
-  });
-
-  it("fails quietly when no window appears", async () => {
-    const tools = harness(async () => sample(LAUNCHER_HWND, []));
-    expect(await tools.run({ spawnedPid: 50 })).toBe(false);
-    expect(tools.lists()).toBe(LAUNCH_WINDOW_POLL_ATTEMPTS);
+  it("keeps looking until the samples end when nothing qualifies", async () => {
+    const notepad = app({ hwnd: 2, exe: "C:\\Windows\\notepad.exe", title: "Notepad" });
+    const tools = run([sample(2, [notepad])], { baseline: [2], target: { exeName: "msedge.exe" } });
+    expect(await tools.promise).toBe(false);
     expect(tools.placed).toEqual([]);
+    expect(tools.reads()).toBe(2);
   });
 
-  it("keeps polling after a list error and stops when the move throws", async () => {
-    let reads = 0;
+  it("returns false when the move throws", async () => {
     const edge = app({ hwnd: 41, title: "Edge" });
-    const listed = harness(async () => {
-      reads += 1;
-      if (reads < 3) throw new Error("busy");
-      return sample(41, [edge]);
+    const tools = run([sample(41, [edge])], {
+      placeWindow: async () => {
+        throw new Error("denied");
+      },
     });
-    expect(await listed.run()).toBe(true);
-    expect(reads).toBe(3);
-
-    const thrown = harness(async () => sample(41, [edge]));
-    expect(
-      await thrown.run({
-        placeWindow: async () => {
-          throw new Error("denied");
-        },
-      }),
-    ).toBe(false);
+    expect(await tools.promise).toBe(false);
   });
 });
