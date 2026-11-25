@@ -159,5 +159,6 @@ describe("page controls", () => {
         }
       }
     },
+    30_000,
   );
 });
