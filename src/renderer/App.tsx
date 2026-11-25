@@ -194,7 +194,7 @@ function tileStyle(place: RingPlacement): CSSProperties {
       width: place.width,
       height: place.height,
       transform: `translate(-50%, -50%) rotate(${place.rotation ?? 0}deg)`,
-      fontSize: Math.max(7, Math.min(11, (place.height ?? 16) * 0.42)),
+      fontSize: Math.max(9, Math.min(14, (place.height ?? 18) * 0.42)),
     };
   }
   return {

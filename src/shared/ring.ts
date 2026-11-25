@@ -227,56 +227,62 @@ export function subtitlePanelBox(viewport: Viewport): Aabb {
   return { left, top, right: left + width, bottom };
 }
 
+function circleEdge(y: number, cx: number, cy: number, radius: number): number {
+  const dy = y - cy;
+  if (dy * dy >= radius * radius) return cx - radius;
+  return cx - Math.sqrt(radius * radius - dy * dy);
+}
+
 export function hudFrame(viewport: Viewport, options?: LayoutOptions): HudFrame {
   const width = viewport.width;
   const height = viewport.height;
-  const header = clamp(Math.round(height * 0.078), 44, 78);
+  const header = clamp(Math.round(height * 0.068), 46, 74);
   const footer = FOOTER_BLOCK;
-  const railW = clamp(Math.round(width * 0.118), 150, 228);
-  const clockCol = clamp(Math.round(width * 0.13), 88, 300);
-  const sideW = clamp(Math.round(width * 0.2), 160, 380);
-  const calendarW = clamp(Math.round(width * 0.07), 56, 118);
-  const emblemW = clamp(Math.round(width * 0.15), 148, 268);
-  const systemW = clamp(Math.round(width * 0.17), 210, 300);
-  const subtitleTop = options?.subtitle ? subtitlePanelBox(viewport).top - SUBTITLE_GAP : height - footer;
-  const top = header + 4;
-  const bottom = Math.max(top + 80, subtitleTop);
-  const leftLimit = railW + clockCol;
-  const rightLimit = width - sideW;
-  const availW = Math.max(80, rightLimit - leftLimit);
-  const availH = Math.max(80, bottom - top);
-  const reactor = Math.max(96, Math.min(availW, availH) - 8);
-  const cx = leftLimit + availW / 2;
-  const cy = top + availH / 2;
-  const segH = clamp(reactor * 0.052, 16, 32);
-  const segW = clamp(reactor * 0.112, 42, 88);
-  const segRadius = reactor / 2 - segH - 22;
-  const levelH = clamp(Math.round(height * 0.09), 28, 64);
-  const wifiH = clamp(Math.round(height * 0.16), 68, 120);
-  const wifiTop = height - footer - wifiH;
-  const levelTop = wifiTop - levelH - 6;
-  const rail: Aabb = { left: 8, top: header + 6, right: railW - 6, bottom: Math.max(header + 40, levelTop - 6) };
-  const level: Aabb = { left: 10, top: levelTop, right: railW - 8, bottom: levelTop + levelH };
-  const wifi: Aabb = { left: 6, top: wifiTop, right: railW - 4, bottom: height - footer - 4 };
+  const railW = clamp(Math.round(width * 0.1), 136, 196);
+  const sideW = clamp(Math.round(width * 0.22), 150, 420);
+  const calendarW = clamp(Math.round(width * 0.1), 78, 160);
+  const emblemW = clamp(Math.round(width * 0.16), 156, 300);
+  const systemW = clamp(Math.round(width * 0.155), 168, 280);
+  const contentBottom = Math.max(header + 160, options?.subtitle ? subtitlePanelBox(viewport).top - SUBTITLE_GAP : height - footer);
+  const vertical = contentBottom - header;
+  const reactor = Math.max(180, Math.min(vertical * 0.94, width - railW - 28));
+  const cx = width / 2;
+  const cy = header + vertical / 2;
+  const segH = clamp(reactor * 0.062, 18, 46);
+  const segW = clamp(reactor * 0.15, 44, 124);
+  const segRadius = Math.max(reactor * 0.32, reactor / 2 - segH * 0.7 - 8);
+  const buttonH = clamp(Math.round(height * 0.044), 24, 46);
+  const railTop = header + 8;
+  const railBottom = Math.min(railTop + 6 * buttonH + 20, contentBottom - 96);
+  const wifiH = clamp(Math.round(height * 0.2), 76, 188);
+  const wifiTop = Math.max(railBottom + 40, height - footer - wifiH);
+  const levelTop = railBottom + 10;
+  const levelBottom = Math.min(levelTop + clamp(Math.round(height * 0.16), 40, 210), wifiTop - 16);
+  const rail: Aabb = { left: 8, top: railTop, right: railW - 8, bottom: railBottom };
+  const level: Aabb = { left: 16, top: levelTop, right: Math.min(72, railW - 16), bottom: levelBottom };
+  const wifi: Aabb = { left: 10, top: wifiTop, right: Math.min(width * 0.22, Math.max(railW + 8, 210)), bottom: height - footer - 6 };
+  const clockTop = header + 4;
+  const clockMid = clockTop + Math.min(92, height * 0.1);
+  const clockLimit = circleEdge(clockMid, cx, cy, reactor / 2) - 12;
   const clock: Aabb = {
-    left: railW + 6,
-    top: header + 2,
-    right: Math.max(railW + 80, cx - reactor / 2 - 8),
-    bottom: Math.min(header + 2 + Math.max(72, reactor * 0.34), cy - 8),
+    left: railW + 14,
+    top: clockTop,
+    right: Math.max(railW + 160, Math.min(railW + 14 + width * 0.27, clockLimit)),
+    bottom: Math.min(clockTop + height * 0.32, cy - segRadius * 0.35),
   };
-  const tabH = clamp(Math.round(header * 0.62), 28, 44);
+  const tabH = clamp(Math.round(header * 0.72), 30, 48);
   const tabTop = Math.max(4, (header - tabH) / 2);
   const tabs: Aabb = {
-    left: emblemW + 4,
+    left: emblemW + 6,
     top: tabTop,
-    right: Math.max(emblemW + 48, width - calendarW - systemW - 8),
+    right: Math.max(emblemW + 52, width - calendarW - systemW - 10),
     bottom: tabTop + tabH,
   };
   const bounds: Aabb = {
     left: railW + 2,
     top: header + 2,
-    right: width - sideW - 2,
-    bottom,
+    right: width - 6,
+    bottom: contentBottom - 2,
   };
   return {
     header,
@@ -329,50 +335,43 @@ function inside(bounds: Aabb, box: Aabb): boolean {
   return box.left >= bounds.left - 0.5 && box.top >= bounds.top - 0.5 && box.right <= bounds.right + 0.5 && box.bottom <= bounds.bottom + 0.5;
 }
 
-function segmentSlots(frame: HudFrame): SegmentSlot[] {
+function tryRing(frame: HudFrame, count: number, radius: number, boxW: number, boxH: number): SegmentSlot[] | null {
+  const slots: SegmentSlot[] = [];
+  for (let slot = 0; slot < count; slot++) {
+    const angle = segmentAngle(slot, count);
+    const point = segmentPoint(angle, radius);
+    const x = frame.cx + point.x;
+    const y = frame.cy + point.y;
+    const box = rotatedAabb(x, y, boxW, boxH, angle);
+    if (!inside(frame.bounds, box)) return null;
+    for (const prev of slots) {
+      if (boxesOverlap(prev.box, box, 1)) return null;
+    }
+    slots.push({ angle, rotation: uprightRotation(angle), x, y, box, width: boxW, height: boxH });
+  }
+  return slots;
+}
+
+/** The beveled buttons around the reactor. Sixteen when they fit, fewer on a short window. */
+export function reactorSlots(frame: HudFrame): SegmentSlot[] {
   let width = frame.segW;
   let height = frame.segH;
   let radius = frame.segRadius;
   for (let shrink = 0; shrink < 8; shrink++) {
-    const packed = packSegments(frame, radius, width, height);
-    if (packed.length > 0) return packed;
+    for (let count = 16; count >= 8; count--) {
+      const packed = tryRing(frame, count, radius, width, height);
+      if (packed) return packed;
+    }
     width = Math.max(28, width * 0.86);
-    height = Math.max(14, height * 0.86);
-    radius = Math.max(28, radius * 0.9);
+    height = Math.max(14, height * 0.88);
+    radius = Math.max(frame.reactor * 0.28, radius * 0.94);
+  }
+  for (let count = 7; count >= 1; count--) {
+    const packed = tryRing(frame, count, radius, width, height);
+    if (packed) return packed;
   }
   const box = rotatedAabb(frame.cx, frame.cy, width, height, 0);
   return [{ angle: 0, rotation: 0, x: frame.cx, y: frame.cy, box, width, height }];
-}
-
-function packSegments(frame: HudFrame, radius: number, boxW: number, boxH: number): SegmentSlot[] {
-  const circumference = Math.PI * 2 * radius;
-  let count = Math.min(16, Math.max(1, Math.floor(circumference / (boxW * 0.78))));
-  while (count >= 1) {
-    const slots: SegmentSlot[] = [];
-    let ok = true;
-    for (let slot = 0; slot < count; slot++) {
-      const angle = segmentAngle(slot, count);
-      const point = segmentPoint(angle, radius);
-      const x = frame.cx + point.x;
-      const y = frame.cy + point.y;
-      const box = rotatedAabb(x, y, boxW, boxH, angle);
-      if (!inside(frame.bounds, box)) {
-        ok = false;
-        break;
-      }
-      for (const prev of slots) {
-        if (boxesOverlap(prev.box, box, 2)) {
-          ok = false;
-          break;
-        }
-      }
-      if (!ok) break;
-      slots.push({ angle, rotation: uprightRotation(angle), x, y, box, width: boxW, height: boxH });
-    }
-    if (ok) return slots;
-    count -= 1;
-  }
-  return [];
 }
 
 function rowBoxes(area: Aabb, count: number, gap: number, min: number): Aabb[] | null {
@@ -394,6 +393,18 @@ function columnBoxes(area: Aabb, count: number, gap: number, min: number): Aabb[
   return Array.from({ length: count }, (_, slot) => {
     const top = area.top + slot * (size + gap);
     return { left: area.left, top, right: area.right, bottom: top + size };
+  });
+}
+
+function railStack(area: Aabb, count: number, gap: number, prefer: number): Aabb[] | null {
+  if (count <= 0) return [];
+  const gaps = gap * Math.max(0, count - 1);
+  const available = area.bottom - area.top - gaps;
+  const height = Math.min(prefer, available / count);
+  if (height < 20) return null;
+  return Array.from({ length: count }, (_, slot) => {
+    const top = area.top + slot * (height + gap);
+    return { left: area.left, top, right: area.right, bottom: top + height };
   });
 }
 
@@ -451,17 +462,24 @@ export function layoutHud<T extends LayoutTile>(
     groups[tileZone(tile)].push(index);
   });
 
-  const railFit = fitCount(groups.rail.length, frame.rail, 3, 20, "column");
+  const railPrefer = clamp(Math.round(viewport.height * 0.044), 24, 46);
+  let railFit = 0;
+  for (let count = groups.rail.length; count >= 1; count--) {
+    if (railStack(frame.rail, count, 4, railPrefer)) {
+      railFit = count;
+      break;
+    }
+  }
   const tabFit = fitCount(groups.tab.length, frame.tabs, 4, 46, "row");
   const railShown = groups.rail.slice(0, railFit);
   const tabShown = groups.tab.slice(0, tabFit);
   const queued = [...groups.segment, ...groups.rail.slice(railFit), ...groups.tab.slice(tabFit)];
-  const slots = segmentSlots(frame);
+  const slots = reactorSlots(frame);
   const capacity = Math.max(1, slots.length);
   const pageCount = Math.max(1, Math.ceil(queued.length / capacity));
   const placed: RingPlacement[] = new Array(tiles.length);
 
-  const railBoxes = columnBoxes(frame.rail, railShown.length, 3, 20) ?? [];
+  const railBoxes = railStack(frame.rail, railShown.length, 4, railPrefer) ?? [];
   railShown.forEach((index, slot) => {
     const box = railBoxes[slot];
     if (!box) return;

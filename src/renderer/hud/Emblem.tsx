@@ -6,7 +6,7 @@ export function Emblem() {
         <circle cx="32" cy="32" r="22" />
         <path d="M32 14 L44 38 H36 L32 30 L28 38 H20 Z" />
       </svg>
-      <div className="title-block">
+      <div className="title-card">
         <p className="title">JARVIS</p>
         <p className="version">Ver 0.1.0</p>
       </div>
