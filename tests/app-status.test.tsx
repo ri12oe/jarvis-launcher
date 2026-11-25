@@ -3,9 +3,20 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../src/renderer/App";
-import type { JarvisBridge, LaunchResult, LauncherState } from "../src/shared/types";
+import type { JarvisBridge, LaunchResult, LauncherState, VoiceSnapshot } from "../src/shared/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const voiceSnapshot: VoiceSnapshot = {
+  hasKey: false,
+  enabled: false,
+  capture: false,
+  phase: "idle",
+  heard: "",
+  reply: "",
+  error: "",
+  launchError: "",
+};
 
 const state: LauncherState = {
   hotkey: "CommandOrControl+Alt+J",
@@ -47,6 +58,13 @@ describe("App launch status", () => {
       refresh: async () => undefined,
       hide: () => hidden?.(),
       quit: () => undefined,
+      getVoice: async () => voiceSnapshot,
+      onVoice: () => () => undefined,
+      setVoiceEnabled: async () => undefined,
+      pushAudio: () => undefined,
+      onSpeak: () => () => undefined,
+      playbackEnded: () => undefined,
+      reportVoiceError: () => undefined,
     };
     (window as { jarvis?: JarvisBridge }).jarvis = bridge;
     host = document.createElement("div");

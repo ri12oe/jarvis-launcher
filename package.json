@@ -22,9 +22,14 @@
       "dist/**/*",
       "!dist/**/*.map",
       "assets/icon.png",
+      "assets/wake/**/*",
       "package.json"
     ],
     "asar": true,
+    "asarUnpack": [
+      "assets/wake/**",
+      "node_modules/onnxruntime-node/**"
+    ],
     "icon": "assets/icon.png",
     "win": {
       "icon": "assets/icon.png",
@@ -56,6 +61,7 @@
     }
   },
   "dependencies": {
+    "onnxruntime-node": "^1.31.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

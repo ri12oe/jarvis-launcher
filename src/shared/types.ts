@@ -60,6 +60,39 @@ export interface ExtraTile {
   kind: "app" | "folder";
 }
 
+export type VoicePhase = "idle" | "listening" | "thinking" | "speaking";
+
+/**
+ * Voice settings from config.json. The API key is never stored here.
+ * `enabled` omitted means on when the main process can read a key.
+ */
+export interface VoiceConfig {
+  enabled?: boolean;
+  /** Name of the environment variable that holds the xAI key. */
+  apiKeyEnv: string;
+  /** Model id for POST /v1/chat/completions. */
+  model: string;
+  /** Voice id for POST /v1/tts. */
+  voiceId: string;
+  /** Model id for POST /v1/stt. */
+  sttModel: string;
+}
+
+/** Renderer view of voice. It never includes the API key. */
+export interface VoiceSnapshot {
+  hasKey: boolean;
+  enabled: boolean;
+  /** Open the microphone and stream PCM to the main process. */
+  capture: boolean;
+  phase: VoicePhase;
+  heard: string;
+  reply: string;
+  /** Empty, or a short reason safe to show in the footer. */
+  error: string;
+  /** Empty, or a launch failure from a spoken open command. */
+  launchError: string;
+}
+
 export type LaunchWindowMode = "centered" | "default";
 
 /** How a launched app's top-level window is placed on Windows. */
@@ -88,6 +121,7 @@ export interface JarvisConfig {
   order: string[];
   /** Optional label overrides keyed by tile id. */
   labels: Record<string, string>;
+  voice: VoiceConfig;
 }
 
 export type TileKind = "app" | "folder" | "system";
@@ -138,4 +172,12 @@ export interface JarvisBridge {
   onHidden(listener: () => void): () => void;
   hide(): void;
   quit(): void;
+  getVoice(): Promise<VoiceSnapshot>;
+  onVoice(listener: (voice: VoiceSnapshot) => void): () => void;
+  setVoiceEnabled(enabled: boolean): Promise<void>;
+  /** 16 kHz mono PCM16 captured after the mic is open. Stays on this machine until the wake word. */
+  pushAudio(pcm: ArrayBuffer): void;
+  onSpeak(listener: (audio: ArrayBuffer, contentType: string) => void): () => void;
+  playbackEnded(): void;
+  reportVoiceError(message: string): void;
 }

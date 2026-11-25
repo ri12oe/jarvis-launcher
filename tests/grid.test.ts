@@ -116,5 +116,10 @@ describe("footer hint", () => {
     expect(clearLaunchStatus("LINK LOST")).toBe("LINK LOST");
     expect(clearLaunchStatus("REFRESH FAILED")).toBe("REFRESH FAILED");
     expect(clearLaunchStatus("")).toBe("");
+    expect(clearLaunchStatus("VOICE FAILED  Could not speak")).toBe("");
+    expect(statusAfterPublish("VOICE FAILED  Could not reach Grok", false)).toBe("VOICE FAILED  Could not reach Grok");
+    expect(footerHint({ ...hint, status: "VOICE FAILED  Could not transcribe", query: "edge" })).toBe(
+      "VOICE FAILED  Could not transcribe",
+    );
   });
 });

@@ -5,9 +5,11 @@ import {
   clearLaunchStatus,
   filterTiles,
   footerHint,
+  isVoiceStatus,
   launchStatusText,
   nextVisibleTile,
   statusAfterPublish,
+  voiceStatusText,
   type GridKey,
   type TilePoint,
 } from "../shared/grid";
@@ -15,7 +17,9 @@ import { tileFallbackIcon } from "../shared/icons";
 import { windowsExplorerPath } from "../shared/launch";
 import { acceptRefreshClick, refreshControlLabel } from "../shared/refresh";
 import { composeTiles } from "../shared/tiles";
-import type { LauncherState, LauncherTileView, TileKind } from "../shared/types";
+import type { LauncherState, LauncherTileView, TileKind, VoiceSnapshot } from "../shared/types";
+import { voiceControlLabel } from "../shared/voice-state";
+import { startMicrophone } from "./mic";
 
 const FILTER_LIMIT = 32;
 
@@ -71,6 +75,42 @@ function previewState(): LauncherState {
   };
 }
 
+const EMPTY_VOICE: VoiceSnapshot = {
+  hasKey: false,
+  enabled: false,
+  capture: false,
+  phase: "idle",
+  heard: "",
+  reply: "",
+  error: "",
+  launchError: "",
+};
+
+const PHASE_LABEL: Record<VoiceSnapshot["phase"], string> = {
+  idle: "",
+  listening: "LISTENING",
+  thinking: "THINKING",
+  speaking: "SPEAKING",
+};
+
+function previewVoice(): VoiceSnapshot {
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get("voice");
+  const phase =
+    requested === "listening" || requested === "thinking" || requested === "speaking" ? requested : "idle";
+  const hasKey = params.get("nokey") !== "1";
+  return {
+    hasKey,
+    enabled: hasKey && params.get("off") !== "1",
+    capture: false,
+    phase,
+    heard: params.get("heard") ?? (phase === "speaking" || phase === "thinking" ? "open projects" : ""),
+    reply: params.get("reply") ?? (phase === "speaking" ? "Opening Projects." : ""),
+    error: params.get("voiceError") ?? "",
+    launchError: "",
+  };
+}
+
 const KIND_LABEL: Record<TileKind, string> = {
   app: "APP",
   folder: "FOLDER",
@@ -96,6 +136,9 @@ export function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [voice, setVoice] = useState<VoiceSnapshot>(() =>
+    typeof window !== "undefined" && !window.jarvis && import.meta.env.DEV ? previewVoice() : EMPTY_VOICE,
+  );
   const refreshingRef = useRef(false);
   const focusFiltered = useRef(false);
   const queryRef = useRef("");
@@ -138,6 +181,9 @@ export function App() {
       setActiveIndex(0);
       setStatus((current) => clearLaunchStatus(current));
     });
+    const stopVoice = bridge.onVoice((next) => {
+      if (!cancel) setVoice(next);
+    });
     void bridge
       .getState()
       .then((next) => {
@@ -147,12 +193,83 @@ export function App() {
       .catch(() => {
         if (!cancel) setStatus("LINK LOST");
       });
+    void bridge.getVoice().then((next) => {
+      if (!cancel) setVoice(next);
+    });
     return () => {
       cancel = true;
       stop();
       stopHidden();
+      stopVoice();
     };
   }, []);
+
+  useEffect(() => {
+    setStatus((current) => {
+      if (voice.launchError) return launchStatusText(voice.launchError);
+      if (voice.error) return voiceStatusText(voice.error);
+      if (isVoiceStatus(current)) return "";
+      return current;
+    });
+  }, [voice.error, voice.launchError]);
+
+  useEffect(() => {
+    const bridge = window.jarvis;
+    if (!bridge || !voice.capture) return;
+    let stop = () => {};
+    let cancelled = false;
+    void startMicrophone((pcm) => bridge.pushAudio(pcm))
+      .then((end) => {
+        if (cancelled) end();
+        else stop = end;
+      })
+      .catch(() => bridge.reportVoiceError("Microphone is unavailable"));
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [voice.capture]);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const phaseRef = useRef(voice.phase);
+  const stopAudio = () => {
+    const element = audioRef.current;
+    if (element) {
+      element.onended = null;
+      element.onerror = null;
+      element.pause();
+    }
+    audioRef.current = null;
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+  };
+  useEffect(() => {
+    const bridge = window.jarvis;
+    if (!bridge) return;
+    return bridge.onSpeak((audio, contentType) => {
+      stopAudio();
+      const url = URL.createObjectURL(new Blob([audio], { type: contentType || "audio/mpeg" }));
+      audioUrlRef.current = url;
+      const element = new Audio(url);
+      audioRef.current = element;
+      const finish = () => {
+        if (audioRef.current !== element) return;
+        stopAudio();
+        bridge.playbackEnded();
+      };
+      element.onended = finish;
+      element.onerror = finish;
+      void element.play().catch(finish);
+    });
+  }, []);
+  useEffect(() => {
+    const previous = phaseRef.current;
+    phaseRef.current = voice.phase;
+    if (previous === "speaking" && voice.phase !== "speaking") stopAudio();
+  }, [voice.phase]);
 
   useEffect(() => {
     const dismissLaunch = () => {
@@ -251,6 +368,13 @@ export function App() {
   };
   launchRef.current = launch;
 
+  const toggleVoice = () => {
+    if (!voice.hasKey) return;
+    const next = !voice.enabled;
+    setVoice((current) => ({ ...current, enabled: next, capture: next && current.hasKey }));
+    void window.jarvis?.setVoiceEnabled(next);
+  };
+
   const refresh = () => {
     if (!acceptRefreshClick(refreshingRef.current)) return;
     const bridge = window.jarvis;
@@ -288,13 +412,13 @@ export function App() {
 
   return (
     <div className="screen">
-      <div className="hud" aria-hidden="true">
+      <div className="hud" data-voice={voice.phase} aria-hidden="true">
         <div className="ring ring-a" />
         <div className="ring ring-b" />
         <div className="ring ring-c" />
         <div className="arc arc-a" />
         <div className="arc arc-b" />
-        <div className="core" />
+        <div className="core" data-voice={voice.phase} />
       </div>
       <div className="beam" aria-hidden="true" />
       <div className="scanlines" aria-hidden="true" />
@@ -340,9 +464,26 @@ export function App() {
         </ul>
       </main>
 
+      {voice.phase !== "idle" || voice.heard || voice.reply ? (
+        <p className="subtitle" aria-live="polite">
+          {PHASE_LABEL[voice.phase] ? <span className="phase">{PHASE_LABEL[voice.phase]}</span> : null}
+          {voice.heard ? <span className="heard">{voice.heard}</span> : null}
+          {voice.reply ? <span className="reply">{voice.reply}</span> : null}
+        </p>
+      ) : null}
+
       <footer className="bottom">
         <p className="hint">{hint}</p>
         <div className="commands">
+          <button
+            type="button"
+            className="command"
+            aria-pressed={voice.hasKey ? voice.enabled : undefined}
+            disabled={!voice.hasKey}
+            onClick={toggleVoice}
+          >
+            {voiceControlLabel(voice)}
+          </button>
           <button
             type="button"
             className={refreshing ? "command refreshing" : "command"}

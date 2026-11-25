@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import type { JarvisBridge, LauncherState, LaunchResult } from "../shared/types";
+import type { JarvisBridge, LauncherState, LaunchResult, VoiceSnapshot } from "../shared/types";
+
+function toArrayBuffer(value: unknown): ArrayBuffer | undefined {
+  if (value instanceof ArrayBuffer) return value.slice(0);
+  if (ArrayBuffer.isView(value)) {
+    const view = value;
+    return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
+  }
+  return undefined;
+}
 
 const api: JarvisBridge = {
   getState: () => ipcRenderer.invoke("jarvis:get-state") as Promise<LauncherState>,
@@ -24,6 +33,35 @@ const api: JarvisBridge = {
   },
   quit: () => {
     ipcRenderer.send("jarvis:quit");
+  },
+  getVoice: () => ipcRenderer.invoke("jarvis:voice-get") as Promise<VoiceSnapshot>,
+  onVoice: (listener) => {
+    const wrapped = (_event: IpcRendererEvent, voice: VoiceSnapshot) => listener(voice);
+    ipcRenderer.on("jarvis:voice", wrapped);
+    return () => {
+      ipcRenderer.removeListener("jarvis:voice", wrapped);
+    };
+  },
+  setVoiceEnabled: (enabled) => ipcRenderer.invoke("jarvis:voice-enabled", enabled) as Promise<void>,
+  pushAudio: (pcm) => {
+    ipcRenderer.send("jarvis:voice-pcm", pcm);
+  },
+  onSpeak: (listener) => {
+    const wrapped = (_event: IpcRendererEvent, payload: { audio?: unknown; contentType?: unknown }) => {
+      const audio = toArrayBuffer(payload?.audio);
+      const contentType = typeof payload?.contentType === "string" ? payload.contentType : "audio/mpeg";
+      if (audio) listener(audio, contentType);
+    };
+    ipcRenderer.on("jarvis:voice-speak", wrapped);
+    return () => {
+      ipcRenderer.removeListener("jarvis:voice-speak", wrapped);
+    };
+  },
+  playbackEnded: () => {
+    ipcRenderer.send("jarvis:voice-played");
+  },
+  reportVoiceError: (message) => {
+    ipcRenderer.send("jarvis:voice-error", message);
   },
 };
 

@@ -88,21 +88,32 @@ export function isLaunchStatus(status: string): boolean {
   return status === "LAUNCH FAILED" || status.startsWith("LAUNCH FAILED ");
 }
 
-/** A tile click and a hide clear a launch failure. Other statuses stay. */
-export function clearLaunchStatus(status: string): string {
-  return isLaunchStatus(status) ? "" : status;
+/** Footer text for a voice failure, including the reason when there is one. */
+export function voiceStatusText(error: string | undefined): string {
+  const reason = error?.trim();
+  if (!reason || reason === "VOICE FAILED") return "VOICE FAILED";
+  return `VOICE FAILED  ${reason}`;
 }
 
-/** A published state must not wipe a launch failure. The next user action does that. */
+export function isVoiceStatus(status: string): boolean {
+  return status === "VOICE FAILED" || status.startsWith("VOICE FAILED ");
+}
+
+/** A tile click and a hide clear a launch failure or a voice failure. Other statuses stay. */
+export function clearLaunchStatus(status: string): string {
+  return isLaunchStatus(status) || isVoiceStatus(status) ? "" : status;
+}
+
+/** A published state must not wipe a launch or voice failure. The next user action does that. */
 export function statusAfterPublish(current: string, refreshFailed: boolean): string {
-  if (current === "LINK LOST" || isLaunchStatus(current)) return current;
+  if (current === "LINK LOST" || isLaunchStatus(current) || isVoiceStatus(current)) return current;
   if (current === "REFRESH FAILED" && refreshFailed) return current;
   return "";
 }
 
 /** Footer hint. The first match wins, in the order the HUD should prefer. */
 export function footerHint(input: FooterHintInput): string {
-  if (input.status === "LINK LOST" || isLaunchStatus(input.status)) return input.status;
+  if (input.status === "LINK LOST" || isLaunchStatus(input.status) || isVoiceStatus(input.status)) return input.status;
   if (input.refreshing) return "REFRESHING";
   if (input.scanning) return "SCANNING";
   if (input.refreshFailed || input.status === "REFRESH FAILED") return "REFRESH FAILED";

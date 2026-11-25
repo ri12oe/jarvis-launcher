@@ -30,6 +30,45 @@ The tray menu is Show, Hide, Refresh, and Quit. The footer REFRESH control runs 
 
 `npm test` runs the unit tests. `npm run typecheck` typechecks the main process and the renderer.
 
+## Voice
+
+Jarvis can listen for "hey jarvis" and answer out loud. The wake word runs on your PC. Audio is sent to xAI only after that phrase, for that one utterance, and the reply text is sent back for speech. The API key stays in the Electron main process. It is never written into the window, the renderer bundle, or the log.
+
+Set the key for your Windows user, then open a new terminal so the app can see it:
+
+```powershell
+setx XAI_API_KEY "your-key-here"
+```
+
+`setx` does not put the key in this repo. Do not paste it into `config.json`. To read a different variable, set `voice.apiKeyEnv` to that variable's name. The value is still read from the environment.
+
+With a key present, voice starts on. The footer reads `VOICE ON`. Click it to save `voice.enabled` as `false` (`VOICE OFF`) or `true`. With no key, the footer reads `VOICE: NO KEY` and the app keeps running. A failure stays in the footer as `VOICE FAILED` plus a short reason, the same way a bad launch stays as `LAUNCH FAILED`. The reason never includes the key.
+
+Say "hey jarvis". The window shows if it was hidden, and the reactor marks listening. Then:
+
+- `open <name>` matches a tile label, including a fuzzy name, and launches it through the same path as a click, including the centered window on Windows
+- `hide` hides the window
+- `refresh` reloads the tile list
+- `stop` or `cancel` ends the turn without calling Grok. Saying "hey jarvis" again while a reply is playing cuts it off and listens again
+- anything else is a short chat with Grok, and Jarvis speaks the answer
+
+The subtitle under the reactor shows what was heard and the reply. Grok may also ask to open a tile. Only a tile id that is on screen is accepted.
+
+Optional `voice` fields in `config.json`:
+
+```json
+"voice": {
+  "apiKeyEnv": "XAI_API_KEY",
+  "model": "grok-4.7",
+  "voiceId": "eve",
+  "sttModel": "grok-voice-transcribe-2.0"
+}
+```
+
+`model` is the chat model for `POST /v1/chat/completions`. `voiceId` is a built-in text-to-speech voice such as `eve`, `ara`, `leo`, `rex`, or `sal`. `sttModel` is the speech-to-text model. Leave `enabled` out to turn voice on when a key is present.
+
+The microphone permission is granted only for this app's own window, and only for `media`. The wake-word models under `assets/wake` are openWakeWord ONNX files and stay on the machine.
+
 On Linux or macOS the window still opens, with Microsoft Edge, File Explorer, and the standard folder tiles. Scanning Start Menu `.lnk` files, packaged apps, and the uninstall registry happens only on Windows, so those systems will not list installed AI apps.
 
 ## Build a Windows installer and a portable exe
@@ -87,7 +126,13 @@ A broken file is left as it is. The launcher uses defaults in memory until the J
   ],
   "disabled": ["copilot"],
   "order": ["cursor", "claude", "edge", "explorer"],
-  "labels": { "cursor": "Cursor IDE" }
+  "labels": { "cursor": "Cursor IDE" },
+  "voice": {
+    "apiKeyEnv": "XAI_API_KEY",
+    "model": "grok-4.7",
+    "voiceId": "eve",
+    "sttModel": "grok-voice-transcribe-2.0"
+  }
 }
 ```
 
@@ -146,10 +191,24 @@ Check both `JarvisLauncher-Setup.exe` and `JarvisLauncher-portable.exe` where it
 - Arrow keys move across the tiles, Enter launches the focused tile, Esc clears a filter and then hides, and typing filters the grid
 - A click leaves Jarvis up and opens the app in a centered window about 70% of the work area on that display. The window list is taken at the click from the helper that stays running for the life of Jarvis. An app that is already open is restored only when its window is in front. File Explorer moves only a new Explorer window. Jarvis stays full screen behind a placed window, and hides only if that window cannot be found or the move fails. A click in the moment after Jarvis starts, before the helper has compiled, launches the app and hides Jarvis without centering. `"launchWindow": { "mode": "default" }` leaves the app's own size and leaves Jarvis up
 
+## Windows smoke test for voice
+
+On a machine with a microphone and `XAI_API_KEY` set in the environment the app actually runs in:
+
+- The footer reads `VOICE ON`. With the variable removed and the app restarted, it reads `VOICE: NO KEY` and Jarvis does not crash
+- Hide the window, say "hey jarvis", and the HUD comes back. The reactor shows listening, then thinking, then speaking. The subtitle shows what you said and the reply
+- "open edge" opens Microsoft Edge in the centered window, and Jarvis says it is opening
+- "hide" hides the window. "refresh" reloads the tiles. "stop" or "cancel", said after the wake word instead of a question, ends the turn. Saying "hey jarvis" again while a reply is playing cuts it off and listens again
+- A question that is not a command gets a spoken answer
+- `VOICE OFF` stops the microphone and survives a restart. `VOICE ON` starts it again
+- A rejected key shows `VOICE FAILED` in the footer and the key itself is not on screen
+
+The Linux and Windows CI jobs do not have a microphone, so they do not run this list. They do run the unit tests, typecheck, and the production build.
+
 ## Tests
 
 ```powershell
 npm test
 ```
 
-Matching, config validation, shortcut scanning, registry parsing, Start menu app parsing, launch plans, the refresh gate, footer hints, grid navigation, and window placement are covered. Launch tests mock `openPath`, `openExternal`, and `spawn`. The placement tests mock the window list, so they do not need Windows. The Windows CI job also starts the helper, reads a real window list, moves a window that the test created, and checks that closing stdin exits the helper.
+Matching, config validation, shortcut scanning, registry parsing, Start menu app parsing, launch plans, the refresh gate, footer hints, grid navigation, and window placement are covered. Voice tests cover the command parser, fuzzy tile matching, the voice block in config, the listen/think/speak state machine, and the xAI client with a mocked `fetch`. Those tests check that the API key is not written into an error or a log line. Launch tests mock `openPath`, `openExternal`, and `spawn`. The placement tests mock the window list, so they do not need Windows. The Windows CI job also starts the helper, reads a real window list, moves a window that the test created, and checks that closing stdin exits the helper. The wake-word model is not asserted in CI. A real microphone is not available there.
