@@ -1,51 +1,68 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Clock } from "./Clock";
+import { measureHudLabel } from "./measure";
 import { cloneDefaultConfig, DEFAULT_HOTKEY } from "../shared/config";
 import {
   clampIndex,
   clearLaunchStatus,
-  filterTiles,
   footerHint,
+  isLaunchStatus,
   launchStatusText,
-  nextVisibleTile,
   statusAfterPublish,
+  tileMatches,
   type GridKey,
-  type TilePoint,
 } from "../shared/grid";
 import { tileFallbackIcon } from "../shared/icons";
 import { windowsExplorerPath } from "../shared/launch";
 import { acceptRefreshClick, refreshControlLabel } from "../shared/refresh";
+import { layoutHud, stepHud, type HudKey, type HudLayout, type RingPlacement, type Viewport } from "../shared/ring";
 import { composeTiles } from "../shared/tiles";
-import type { LauncherState, LauncherTileView, TileKind } from "../shared/types";
+import type { DiscoveredApp, LauncherState, LauncherTileView } from "../shared/types";
 
 const FILTER_LIMIT = 32;
 
-function formatHotkey(hotkey: string): string {
-  const names: Record<string, string> = {
-    CommandOrControl: "CTRL",
-    Command: "CMD",
-    Cmd: "CMD",
-    Control: "CTRL",
-    Ctrl: "CTRL",
-    Alt: "ALT",
-    Option: "ALT",
-    AltGr: "ALT",
-    Shift: "SHIFT",
-    Super: "SUPER",
-    Meta: "META",
-  };
-  return hotkey
-    .split("+")
-    .map((part) => names[part] ?? part.toUpperCase())
-    .join("  +  ");
+const PREVIEW_APPS: DiscoveredApp[] = [
+  ["chatgpt", "ChatGPT"],
+  ["claude", "Claude"],
+  ["cursor", "Cursor"],
+  ["grok", "Grok"],
+  ["copilot", "Copilot"],
+  ["perplexity", "Perplexity"],
+  ["ollama", "Ollama"],
+  ["lm-studio", "LM Studio"],
+].map(([id, label]) => ({
+  id: id as DiscoveredApp["id"],
+  label,
+  source: "store" as const,
+  launchPath: id,
+  launchKind: "store" as const,
+}));
+
+function readViewport(): Viewport {
+  const width = typeof window === "undefined" ? 1366 : window.innerWidth;
+  const height = typeof window === "undefined" ? 768 : window.innerHeight;
+  if (width < 320 || height < 240) return { width: 1366, height: 768 };
+  return { width, height };
 }
 
-function formatClock(date: Date): string {
-  return date.toLocaleTimeString("en-GB", { hour12: false });
+function useViewport(): Viewport {
+  const [viewport, setViewport] = useState(readViewport);
+  useEffect(() => {
+    const onResize = () => setViewport(readViewport());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return viewport;
+}
+
+function firstMatchIndex(tiles: readonly { label: string }[], query: string): number {
+  const index = tiles.findIndex((tile) => tileMatches(tile.label, query));
+  return index < 0 ? 0 : index;
 }
 
 function previewState(): LauncherState {
   const home = "/home/mario";
-  const tiles = composeTiles(cloneDefaultConfig(), [], {
+  const tiles = composeTiles(cloneDefaultConfig(), PREVIEW_APPS, {
     platform: "linux",
     edgeExecutables: [],
     explorerPath: windowsExplorerPath(),
@@ -71,44 +88,53 @@ function previewState(): LauncherState {
   };
 }
 
-const KIND_LABEL: Record<TileKind, string> = {
-  app: "APP",
-  folder: "FOLDER",
-  system: "SYSTEM",
-};
-
 function isGridKey(key: string): key is GridKey {
   return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown";
 }
 
-function tilePoints(list: HTMLElement | null): TilePoint[] {
-  return [...(list?.children ?? [])].map((node) => {
-    const rect = (node as HTMLElement).getBoundingClientRect();
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-  });
+function slotStyle(place: RingPlacement): CSSProperties {
+  return { "--x": `${place.x}px`, "--y": `${place.y}px` } as CSSProperties;
+}
+
+/** Decorative reactor. The center mark is reserved for a future voice indicator. */
+function Reactor({ size }: { size: number }) {
+  return (
+    <div className="reactor" style={{ width: size, height: size }} aria-hidden="true">
+      <div className="ticks" />
+      <div className="ring ring-a" />
+      <div className="ring ring-b" />
+      <div className="arc arc-a" />
+      <div className="arc arc-b" />
+      <div className="core">
+        <div className="voice" data-voice="standby" />
+      </div>
+    </div>
+  );
 }
 
 export function App() {
+  const viewport = useViewport();
   const [state, setState] = useState<LauncherState | null>(null);
-  const [now, setNow] = useState(() => new Date());
   const [status, setStatus] = useState("");
   const [pressed, setPressed] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [page, setPage] = useState(0);
   const refreshingRef = useRef(false);
   const focusFiltered = useRef(false);
+  const pendingFocus = useRef<number | null>(null);
   const queryRef = useRef("");
   const activeRef = useRef(0);
-  const visibleRef = useRef<LauncherTileView[]>([]);
-  const listRef = useRef<HTMLUListElement | null>(null);
+  const pageRef = useRef(0);
+  const tilesRef = useRef<LauncherTileView[]>([]);
+  const placementsRef = useRef<RingPlacement[]>([]);
+  const layoutRef = useRef<HudLayout>({ segments: [], pageCount: 1, reactor: [96] });
+  const pageCountRef = useRef(1);
+  const selectableRef = useRef<boolean[]>([]);
   const tileRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const launchRef = useRef<(id: string) => Promise<void>>(async () => {});
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
+  const changePageRef = useRef<(key: HudKey, focusTile: boolean) => void>(() => {});
 
   useEffect(() => {
     let cancel = false;
@@ -134,8 +160,10 @@ export function App() {
       if (cancel) return;
       queryRef.current = "";
       activeRef.current = 0;
+      pageRef.current = 0;
       setQuery("");
       setActiveIndex(0);
+      setPage(0);
       setStatus((current) => clearLaunchStatus(current));
     });
     void bridge
@@ -158,15 +186,28 @@ export function App() {
     const dismissLaunch = () => {
       setStatus((current) => clearLaunchStatus(current));
     };
+    const applyQuery = (next: string) => {
+      const index = firstMatchIndex(tilesRef.current, next);
+      const segment = placementsRef.current.find((place) => place.index === index);
+      queryRef.current = next;
+      activeRef.current = index;
+      if (segment) {
+        pageRef.current = segment.page;
+        setPage(segment.page);
+      }
+      focusFiltered.current = true;
+      setQuery(next);
+      setActiveIndex(index);
+    };
     const onKey = (event: KeyboardEvent) => {
       if (event.isComposing) return;
       if (event.key === "Escape") {
         dismissLaunch();
         if (queryRef.current) {
           queryRef.current = "";
-          activeRef.current = 0;
           setQuery("");
-          setActiveIndex(0);
+          const index = activeRef.current;
+          tileRefs.current[index]?.focus();
           return;
         }
         window.jarvis?.hide();
@@ -174,36 +215,43 @@ export function App() {
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
 
+      if (event.key === "PageUp" || event.key === "PageDown") {
+        event.preventDefault();
+        dismissLaunch();
+        changePageRef.current(event.key, true);
+        return;
+      }
+
       if (event.key === "Backspace") {
         event.preventDefault();
         dismissLaunch();
-        const next = queryRef.current.slice(0, -1);
-        queryRef.current = next;
-        activeRef.current = 0;
-        focusFiltered.current = true;
-        setQuery(next);
-        setActiveIndex(0);
+        applyQuery(queryRef.current.slice(0, -1));
         return;
       }
 
       if (isGridKey(event.key)) {
         event.preventDefault();
         dismissLaunch();
-        const visible = visibleRef.current;
-        const points = tilePoints(listRef.current);
-        const current = clampIndex(activeRef.current, visible.length);
-        const next = nextVisibleTile(current, points, event.key);
-        activeRef.current = next;
-        setActiveIndex(next < 0 ? 0 : next);
-        if (next >= 0) tileRefs.current[next]?.focus();
+        const next = stepHud(
+          layoutRef.current,
+          { index: activeRef.current, page: pageRef.current },
+          event.key,
+          selectableRef.current,
+        );
+        activeRef.current = next.index;
+        pageRef.current = next.page;
+        setActiveIndex(next.index);
+        setPage(next.page);
+        tileRefs.current[next.index]?.focus();
         return;
       }
 
       if (event.key === "Enter") {
         const target = event.target;
         if (target instanceof HTMLElement && target.closest("button")) return;
-        const visible = visibleRef.current;
-        const tile = visible[clampIndex(activeRef.current, visible.length)];
+        const index = activeRef.current;
+        if (!selectableRef.current[index]) return;
+        const tile = tilesRef.current[index];
         if (!tile) return;
         event.preventDefault();
         void launchRef.current(tile.id);
@@ -214,12 +262,7 @@ export function App() {
       if (event.key === " " && event.target instanceof HTMLElement && event.target.closest("button")) return;
       event.preventDefault();
       dismissLaunch();
-      const next = (queryRef.current + event.key).slice(0, FILTER_LIMIT);
-      queryRef.current = next;
-      activeRef.current = 0;
-      focusFiltered.current = true;
-      setQuery(next);
-      setActiveIndex(0);
+      applyQuery((queryRef.current + event.key).slice(0, FILTER_LIMIT));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -228,15 +271,32 @@ export function App() {
   useEffect(() => {
     if (!focusFiltered.current) return;
     focusFiltered.current = false;
-    tileRefs.current[0]?.focus();
-  }, [query]);
+    const index = activeRef.current;
+    if (!selectableRef.current[index]) return;
+    tileRefs.current[index]?.focus();
+  }, [query, page]);
 
   useEffect(() => {
-    const count = filterTiles(state?.tiles ?? [], query).length;
-    if (count > 0 && activeIndex >= count) {
-      const next = count - 1;
+    if (pendingFocus.current == null) return;
+    const index = pendingFocus.current;
+    pendingFocus.current = null;
+    tileRefs.current[index]?.focus();
+  }, [page, activeIndex]);
+
+  useEffect(() => {
+    const list = state?.tiles ?? [];
+    if (list.length === 0) return;
+    const index = clampIndex(activeIndex, list.length);
+    if (!tileMatches(list[index]?.label ?? "", query)) {
+      const next = list.findIndex((tile) => tileMatches(tile.label, query));
+      if (next < 0 || next === activeIndex) return;
       activeRef.current = next;
       setActiveIndex(next);
+      return;
+    }
+    if (index !== activeIndex) {
+      activeRef.current = index;
+      setActiveIndex(index);
     }
   }, [state, query, activeIndex]);
 
@@ -269,79 +329,192 @@ export function App() {
       });
   };
 
-  const hotkey = formatHotkey(state?.hotkey ?? DEFAULT_HOTKEY);
   const tiles = state?.tiles ?? [];
-  const visible = filterTiles(tiles, query);
-  visibleRef.current = visible;
-  const focusedIndex = clampIndex(activeIndex, visible.length);
-  if (activeRef.current >= visible.length) activeRef.current = focusedIndex;
+  const layout = useMemo(
+    () => layoutHud(tiles, viewport, measureHudLabel),
+    [tiles, viewport, page],
+  );
+  layoutRef.current = layout;
+  const selectable = tiles.map((tile) => tileMatches(tile.label, query));
+  const pageCount = layout.pageCount;
+  const safePage = Math.min(page, Math.max(0, pageCount - 1));
+  tilesRef.current = tiles;
+  placementsRef.current = layout.segments;
+  pageCountRef.current = pageCount;
+  pageRef.current = safePage;
+  selectableRef.current = selectable;
+  const focusedIndex = selectable.includes(true)
+    ? selectable[activeIndex]
+      ? activeIndex
+      : selectable.indexOf(true)
+    : -1;
+  if (focusedIndex >= 0 && !selectable[activeRef.current]) activeRef.current = focusedIndex;
   tileRefs.current = [];
   const warnings = state?.warnings ?? [];
+  const matchCount = selectable.filter(Boolean).length;
   const hint = footerHint({
     status,
     refreshing,
     scanning: state?.scanning ?? Boolean(window.jarvis),
     refreshFailed: state?.refreshFailed ?? false,
     query,
+    matchCount: query.trim() ? matchCount : undefined,
     warning: warnings[0] ?? "",
   });
+  const busy = hint === "SCANNING" || hint === "REFRESHING";
+  const warn = isLaunchStatus(hint);
+  const filtering = query.trim().length > 0;
+  const visible = layout.segments.filter((place) => place.page === safePage);
+  const reactor = layout.reactor[safePage] ?? 96;
+  const orbits: Array<{ ring: number; radius: number }> = [];
+  for (const place of visible) {
+    if (!orbits.some((orbit) => orbit.ring === place.ring)) orbits.push({ ring: place.ring, radius: place.radius });
+  }
+
+  const changePage = (key: HudKey, focusTile: boolean) => {
+    const next = stepHud(
+      layout,
+      { index: activeRef.current, page: pageRef.current },
+      key,
+      selectable,
+    );
+    const pageChanged = next.page !== pageRef.current;
+    pageRef.current = next.page;
+    activeRef.current = next.index;
+    setPage(next.page);
+    setActiveIndex(next.index);
+    setStatus((current) => clearLaunchStatus(current));
+    if (!focusTile || next.index < 0) return;
+    if (pageChanged) pendingFocus.current = next.index;
+    else tileRefs.current[next.index]?.focus();
+  };
+  changePageRef.current = changePage;
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
+
+  useEffect(() => {
+    const segment = layout.segments[activeIndex];
+    if (segment && segment.page !== safePage) setPage(segment.page);
+  }, [activeIndex, layout.segments, safePage]);
 
   return (
     <div className="screen">
-      <div className="hud" aria-hidden="true">
-        <div className="ring ring-a" />
-        <div className="ring ring-b" />
-        <div className="ring ring-c" />
-        <div className="arc arc-a" />
-        <div className="arc arc-b" />
-        <div className="core" />
-      </div>
       <div className="beam" aria-hidden="true" />
       <div className="scanlines" aria-hidden="true" />
 
-      <header className="top">
-        <div>
-          <p className="mark">JARVIS</p>
-          <p className="hint">OVERLAY  ·  {hotkey}</p>
-        </div>
-        <time dateTime={now.toISOString()}>{formatClock(now)}</time>
-      </header>
+      <Clock />
 
       <main className="stage">
-        <ul className="tiles" ref={listRef}>
-          {visible.map((tile, index) => (
-            <li key={tile.id}>
-              <button
-                type="button"
-                ref={(node) => {
-                  tileRefs.current[index] = node;
-                }}
-                className={pressed === tile.id ? "tile pressed" : "tile"}
-                data-kind={tile.kind}
-                tabIndex={visible.length > 0 && index === focusedIndex ? 0 : -1}
-                onFocus={() => {
-                  activeRef.current = index;
-                  setActiveIndex(index);
-                }}
-                onClick={() => void launch(tile.id)}
-              >
-                <span className="kind">
-                  {tile.icon ? (
-                    <span className="icon-ring">
-                      <img className="icon" alt="" src={tile.icon} />
-                    </span>
-                  ) : null}
-                  {KIND_LABEL[tile.kind]}
-                </span>
-                <span className="label">{tile.label}</span>
-              </button>
-            </li>
-          ))}
+        {orbits.map((orbit) => (
+          <div
+            key={orbit.ring}
+            className="orbit-anchor"
+            style={{ width: orbit.radius * 2, height: orbit.radius * 2 }}
+            aria-hidden="true"
+          >
+            <div
+              className={orbit.ring === 0 ? "orbit" : "orbit orbit-outer"}
+              style={orbit.ring > 1 ? { animationDuration: "110s" } : undefined}
+            />
+          </div>
+        ))}
+        <Reactor key={reactor} size={reactor} />
+        {pageCount > 1 ? (
+          <div className="pager" style={{ "--reactor": `${reactor}px` } as CSSProperties}>
+            <button
+              type="button"
+              className="arc-btn arc-prev"
+              aria-label="Previous page"
+              onClick={(event) => {
+                changePage("PageUp", false);
+                event.currentTarget.focus();
+              }}
+            >
+              ‹
+            </button>
+            <p className="page-readout">
+              {Array.from({ length: pageCount }, (_, index) => {
+                const hit = filtering && layout.segments.some((place) => place.page === index && selectable[place.index]);
+                const miss = filtering && !hit;
+                return (
+                  <span
+                    key={index}
+                    className={["page-mark", index === safePage ? "current" : "", hit ? "hit" : "", miss ? "miss" : ""]
+                      .filter(Boolean)
+                      .join(" ")}
+                    aria-current={index === safePage ? "page" : undefined}
+                  >
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                );
+              })}
+            </p>
+            <button
+              type="button"
+              className="arc-btn arc-next"
+              aria-label="Next page"
+              onClick={(event) => {
+                changePage("PageDown", false);
+                event.currentTarget.focus();
+              }}
+            >
+              ›
+            </button>
+          </div>
+        ) : null}
+        <ul className="segments" aria-label="Programs">
+          {visible.map((place) => {
+            const tile = tiles[place.index];
+            if (!tile) return null;
+            const matched = selectable[place.index] === true;
+            const dim = filtering && !matched;
+            const active = place.index === focusedIndex;
+            return (
+              <li key={tile.id} className="slot" style={slotStyle(place)}>
+                <button
+                  type="button"
+                  ref={(node) => {
+                    tileRefs.current[place.index] = node;
+                  }}
+                  className={["tile", dim ? "dim" : "", filtering && matched ? "lit" : "", active ? "active" : "", pressed === tile.id ? "pressed" : ""]
+                    .filter(Boolean)
+                    .join(" ")}
+                  data-kind={tile.kind}
+                  data-side={place.side}
+                  aria-disabled={dim || undefined}
+                  tabIndex={active ? 0 : -1}
+                  onFocus={() => {
+                    activeRef.current = place.index;
+                    setActiveIndex(place.index);
+                  }}
+                  onClick={() => {
+                    if (!tileMatches(tile.label, query)) return;
+                    void launch(tile.id);
+                  }}
+                >
+                  <span className="icon-ring">
+                    {tile.icon ? (
+                      <img className="icon" alt="" draggable={false} src={tile.icon} />
+                    ) : (
+                      <span className={`glyph glyph-${tile.kind}`} />
+                    )}
+                  </span>
+                  <span className="label" title={place.ellipsis ? tile.label : undefined}>
+                    {tile.label}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       </main>
 
       <footer className="bottom">
-        <p className="hint">{hint}</p>
+        <p className={["hint", busy ? "busy" : "", warn ? "warn" : ""].filter(Boolean).join(" ")} aria-live="polite">
+          {hint}
+        </p>
         <div className="commands">
           <button
             type="button"
@@ -360,7 +533,7 @@ export function App() {
       <div className="boot" aria-hidden="true">
         <p className="boot-kicker">UPLINK</p>
         <p className="boot-title">JARVIS</p>
-        <p className="boot-line line-a">SENSORS</p>
+        <p className="boot-line line-a">REACTOR</p>
         <p className="boot-line line-b">ONLINE</p>
       </div>
     </div>
