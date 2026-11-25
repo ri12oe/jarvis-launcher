@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  HUD_FILL,
-  ICON_SIZE,
   LABEL_CHAR_WIDTH,
   LABEL_FONT,
   LABEL_TRACKING_EM,
@@ -10,9 +8,7 @@ import {
   layoutHud,
   measureLabel,
   metricsFromAdvance,
-  minArcSpacing,
   nextRingTile,
-  radiusForArcSpacing,
   segmentAngle,
   segmentPoint,
   stepHud,
@@ -142,28 +138,24 @@ describe("segment angles and positions", () => {
   });
 });
 
-describe("arc spacing", () => {
-  it("grows with the label and never drops below the icon", () => {
+describe("label metrics", () => {
+  it("ellipsizes a long label and measures CJK wider than the ASCII fallback", () => {
     const short = measureLabel("Edge");
     const long = measureLabel("Microsoft Visual Studio Code Workspace");
     expect(long.ellipsis).toBe(true);
     expect(long.width).toBeGreaterThan(short.width);
-    expect(minArcSpacing(long)).toBeGreaterThan(minArcSpacing(short));
-    expect(minArcSpacing(short)).toBeGreaterThanOrEqual(ICON_SIZE);
-    expect(radiusForArcSpacing(8, minArcSpacing(long))).toBeGreaterThan(radiusForArcSpacing(8, minArcSpacing(short)));
+    expect(wideMeasure("文件").width).toBeGreaterThan(measureLabel("文件").width);
+    expect(LABEL_FONT * LABEL_TRACKING_EM).toBeGreaterThan(0);
   });
 });
 
-describe("ring layout", () => {
+describe("slot layout", () => {
   const viewports: Array<Viewport & { name: string }> = [
     { name: "1366x768", width: 1366, height: 768 },
-    // 150% scaling on a 1280×720 panel: CSS pixels are the logical size.
     { name: "1280x720@1.5x", width: 1280 / 1.5, height: 720 / 1.5 },
   ];
 
-  it("keeps every label and icon apart for N = 1..40, and every tile reachable", () => {
-    expect(wideMeasure("文件").width).toBeGreaterThan(measureLabel("文件").width);
-    expect(LABEL_FONT * LABEL_TRACKING_EM).toBeGreaterThan(0);
+  it("keeps every button apart for N = 1..40, and every tile reachable", () => {
     for (const viewport of viewports) {
       for (let count = 1; count <= 40; count++) {
         const layout = layoutHud(tiles(count), viewport, wideMeasure);
@@ -173,41 +165,37 @@ describe("ring layout", () => {
         expect(overlapOnPage(layout), `${viewport.name} N=${count}`).toBeNull();
         expect(reachable(layout), `${viewport.name} N=${count}`).toBe(count);
         expect(layout.reactor.every((size) => size > 0)).toBe(true);
+        for (const segment of layout.segments) {
+          expect(segment.icon.left, viewport.name).toBeGreaterThanOrEqual(-0.5);
+          expect(segment.icon.top, viewport.name).toBeGreaterThanOrEqual(-0.5);
+          expect(segment.icon.right, viewport.name).toBeLessThanOrEqual(viewport.width + 0.5);
+          expect(segment.icon.bottom, viewport.name).toBeLessThanOrEqual(viewport.height + 0.5);
+        }
       }
     }
   });
 
-  it("uses more than one page when the viewport cannot hold the labels", () => {
-    const crowded = Array.from({ length: 18 }, (_, index) => ({ label: `Project Folder ${index} Documents` }));
+  it("pages segment tiles that do not fit around the reactor", () => {
+    const crowded = Array.from({ length: 24 }, (_, index) => ({ label: `Project Folder ${index} Documents` }));
     const layout = layoutHud(crowded, { width: 1280 / 1.5, height: 720 / 1.5 }, wideMeasure);
     expect(layout.pageCount).toBeGreaterThan(1);
     expect(overlapOnPage(layout)).toBeNull();
     expect(reachable(layout)).toBe(crowded.length);
   });
 
-  it("fills about 85-90% of the height at 2560x1440", () => {
-    const layout = layoutHud(tiles(6), { width: 2560, height: 1440 });
-    expect(layout.pageCount).toBe(1);
-    let top = Infinity;
-    let bottom = -Infinity;
-    for (const segment of layout.segments) {
-      top = Math.min(top, segment.icon.top, segment.label.top);
-      bottom = Math.max(bottom, segment.icon.bottom, segment.label.bottom);
-    }
-    const span = (bottom - top) / 1440;
-    expect(span).toBeGreaterThanOrEqual(0.85);
-    expect(span).toBeLessThanOrEqual(0.9);
-    expect(HUD_FILL).toBeGreaterThanOrEqual(0.85);
-    expect(HUD_FILL).toBeLessThanOrEqual(0.9);
-  });
-
-  it("puts a single tile at the top of the ring", () => {
-    const layout = layoutHud([{ label: "Edge" }], { width: 1366, height: 768 });
-    expect(layout.pageCount).toBe(1);
-    expect(layout.segments[0]?.angle).toBeCloseTo(0);
-    expect(layout.segments[0]?.side).toBe("top");
-    expect(layout.segments[0]?.x).toBeCloseTo(0);
-    expect(layout.segments[0]?.y).toBeLessThan(0);
+  it("puts Microsoft Edge on the rail and ChatGPT in the tabs", () => {
+    const layout = layoutHud(
+      [
+        { id: "chatgpt", label: "ChatGPT", kind: "app" },
+        { id: "edge", label: "Microsoft Edge", kind: "app" },
+        { id: "notes", label: "Notes", kind: "app" },
+      ],
+      { width: 1366, height: 768 },
+    );
+    const zone = (id: string) => layout.segments.find((segment) => segment.index === ["chatgpt", "edge", "notes"].indexOf(id))?.zone;
+    expect(zone("chatgpt")).toBe("tab");
+    expect(zone("edge")).toBe("rail");
+    expect(zone("notes")).toBe("segment");
   });
 });
 

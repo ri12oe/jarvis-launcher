@@ -25,6 +25,7 @@ describe("HUD ring", () => {
   let root: Root | undefined;
   let host: HTMLDivElement | undefined;
   let pending: Array<(result: LaunchResult) => void>;
+  let launched: string[];
 
   afterEach(() => {
     act(() => root?.unmount());
@@ -34,6 +35,7 @@ describe("HUD ring", () => {
 
   async function renderApp(): Promise<void> {
     pending = [];
+    launched = [];
     const state: LauncherState = {
       hotkey: "CommandOrControl+Alt+J",
       platform: "win32",
@@ -46,10 +48,12 @@ describe("HUD ring", () => {
       getState: async () => state,
       onState: () => () => undefined,
       onHidden: () => () => undefined,
-      launch: () =>
-        new Promise((resolve) => {
+      launch: (id: string) => {
+        launched.push(id);
+        return new Promise((resolve) => {
           pending.push(resolve);
-        }),
+        });
+      },
       refresh: async () => undefined,
       hide: () => undefined,
       quit: () => undefined,
@@ -149,5 +153,27 @@ describe("HUD ring", () => {
       for (const key of ["z", "z", "z"]) press(key);
     });
     expect(footer()).toBe("NO MATCH");
+  });
+
+  it("launches Edge, File Explorer, and a folder, and leaves the power buttons dead", async () => {
+    await renderApp();
+    const power = [...(host?.querySelectorAll<HTMLButtonElement>(".sys-btn") ?? [])];
+    expect(power.map((button) => button.textContent)).toEqual(["DOWNT", "RESTRT", "HIBER", "LOGOUT", "LOCK"]);
+    for (const button of power) {
+      expect(button.disabled).toBe(true);
+      await act(async () => {
+        button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    }
+    expect(launched).toEqual([]);
+    expect(host?.querySelector(".search-pill input, .media input")).toBeNull();
+
+    for (const label of ["Microsoft Edge", "File Explorer", "Desktop"]) {
+      const button = [...(host?.querySelectorAll(".tile") ?? [])].find((node) => node.textContent?.includes(label));
+      await act(async () => {
+        button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    }
+    expect(launched).toEqual(["edge", "explorer", "desktop"]);
   });
 });

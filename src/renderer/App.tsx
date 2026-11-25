@@ -1,5 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Clock } from "./Clock";
+import { AnalogClock } from "./hud/AnalogClock";
+import { Calendar } from "./hud/Calendar";
+import { Emblem } from "./hud/Emblem";
+import { Gauge } from "./hud/Gauge";
+import { LevelBar } from "./hud/LevelBar";
+import { MediaStrip } from "./hud/MediaStrip";
+import { ReactorFace } from "./hud/ReactorFace";
+import { RoundMeter } from "./hud/RoundMeter";
+import { SearchPill } from "./hud/SearchPill";
+import { SystemButtons } from "./hud/SystemButtons";
+import { Uptime } from "./hud/Uptime";
+import { Weather } from "./hud/Weather";
+import { Wifi } from "./hud/Wifi";
 import { measureHudLabel } from "./measure";
 import { cloneDefaultConfig, DEFAULT_HOTKEY } from "../shared/config";
 import {
@@ -20,7 +33,8 @@ import { acceptRefreshClick, refreshControlLabel } from "../shared/refresh";
 import {
   layoutHud,
   stepHud,
-  viewportAboveSubtitle,
+  subtitlePanelBox,
+  type HudFrame,
   type HudKey,
   type HudLayout,
   type RingPlacement,
@@ -152,25 +166,43 @@ function isGridKey(key: string): key is GridKey {
   return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown";
 }
 
-function slotStyle(place: RingPlacement): CSSProperties {
-  return { "--x": `${place.x}px`, "--y": `${place.y}px` } as CSSProperties;
+function frameStyle(frame: HudFrame): CSSProperties {
+  return {
+    "--header": `${frame.header}px`,
+    "--footer": `${frame.footer}px`,
+    "--rail": `${frame.railW}px`,
+    "--side": `${frame.sideW}px`,
+    "--cal": `${frame.calendarW}px`,
+    "--emblem": `${frame.emblemW}px`,
+    "--system": `${frame.systemW}px`,
+    "--reactor": `${frame.reactor}px`,
+    "--rx": `${frame.cx}px`,
+    "--ry": `${frame.cy}px`,
+    "--clock-w": `${Math.max(1, frame.clock.right - frame.clock.left)}px`,
+    "--level-t": `${frame.level.top}px`,
+    "--level-h": `${Math.max(1, frame.level.bottom - frame.level.top)}px`,
+    "--wifi-t": `${frame.wifi.top}px`,
+    "--wifi-h": `${Math.max(1, frame.wifi.bottom - frame.wifi.top)}px`,
+  } as CSSProperties;
 }
 
-/** Decorative reactor. Idle keeps the static standby mark. The other phases are the voice states. */
-function Reactor({ size, phase }: { size: number; phase: VoicePhase }) {
-  const mark = phase === "idle" ? "standby" : phase;
-  return (
-    <div className="reactor" style={{ width: size, height: size }} aria-hidden="true">
-      <div className="ticks" />
-      <div className="ring ring-a" />
-      <div className="ring ring-b" />
-      <div className="arc arc-a" />
-      <div className="arc arc-b" />
-      <div className="core">
-        <div className="voice" data-voice={mark} />
-      </div>
-    </div>
-  );
+function tileStyle(place: RingPlacement): CSSProperties {
+  if (place.zone === "segment") {
+    return {
+      left: place.x,
+      top: place.y,
+      width: place.width,
+      height: place.height,
+      transform: `translate(-50%, -50%) rotate(${place.rotation ?? 0}deg)`,
+      fontSize: Math.max(7, Math.min(11, (place.height ?? 16) * 0.42)),
+    };
+  }
+  return {
+    left: place.icon.left,
+    top: place.icon.top,
+    width: place.width,
+    height: place.height,
+  };
 }
 
 export function App() {
@@ -193,16 +225,7 @@ export function App() {
   const pageRef = useRef(0);
   const tilesRef = useRef<LauncherTileView[]>([]);
   const placementsRef = useRef<RingPlacement[]>([]);
-  const layoutRef = useRef<HudLayout>({
-    segments: [],
-    pageCount: 1,
-    reactor: [96],
-    icon: 44,
-    gap: 8,
-    labelFont: 12,
-    labelLine: 18,
-    labelMax: 176,
-  });
+  const layoutRef = useRef<HudLayout>(layoutHud([], { width: 1366, height: 768 }));
   const pageCountRef = useRef(1);
   const selectableRef = useRef<boolean[]>([]);
   const tileRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -352,7 +375,7 @@ export function App() {
       const segment = placementsRef.current.find((place) => place.index === index);
       queryRef.current = next;
       activeRef.current = index;
-      if (segment) {
+      if (segment && !segment.pinned) {
         pageRef.current = segment.page;
         setPage(segment.page);
       }
@@ -499,12 +522,11 @@ export function App() {
 
   const tiles = state?.tiles ?? [];
   const showSubtitle = voice.phase !== "idle" || voice.heard.length > 0 || voice.reply.length > 0;
-  // Reserve the panel the whole time voice is on, so a turn does not resize the ring.
+  // Reserve the panel the whole time voice is on, so a turn does not resize the reactor.
   const voiceOn = voice.hasKey && voice.enabled;
-  const layoutViewport = voiceOn ? viewportAboveSubtitle(viewport) : viewport;
   const layout = useMemo(
-    () => layoutHud(tiles, layoutViewport, measureHudLabel),
-    [tiles, layoutViewport.width, layoutViewport.height],
+    () => layoutHud(tiles, viewport, measureHudLabel, { subtitle: voiceOn }),
+    [tiles, viewport, voiceOn],
   );
   layoutRef.current = layout;
   const selectable = tiles.map((tile) => tileMatches(tile.label, query));
@@ -536,12 +558,8 @@ export function App() {
   const busy = hint === "SCANNING" || hint === "REFRESHING";
   const warn = isLaunchStatus(hint) || isVoiceStatus(hint);
   const filtering = query.trim().length > 0;
-  const visible = layout.segments.filter((place) => place.page === safePage);
-  const reactor = layout.reactor[safePage] ?? 96;
-  const orbits: Array<{ ring: number; radius: number }> = [];
-  for (const place of visible) {
-    if (!orbits.some((orbit) => orbit.ring === place.ring)) orbits.push({ ring: place.ring, radius: place.radius });
-  }
+  const visible = layout.segments.filter((place) => place.pinned || place.page === safePage);
+  const panel = voiceOn ? subtitlePanelBox(viewport) : null;
 
   const changePage = (key: HudKey, focusTile: boolean) => {
     const next = stepHud(
@@ -567,117 +585,118 @@ export function App() {
   }, [page, safePage]);
 
   useEffect(() => {
-    const segment = layout.segments[activeIndex];
-    if (segment && segment.page !== safePage) setPage(segment.page);
+    const segment = layout.segments.find((place) => place.index === activeIndex);
+    if (segment && !segment.pinned && segment.page !== safePage) setPage(segment.page);
   }, [activeIndex, layout.segments, safePage]);
 
   return (
-    <div className="screen">
-      <div className="beam" aria-hidden="true" />
-      <div className="scanlines" aria-hidden="true" />
+    <div className="screen" style={frameStyle(layout.frame)}>
+      <Emblem />
+      <SystemButtons />
+      <Calendar />
+      <Clock box={layout.frame.clock} />
+      <LevelBar />
+      <Wifi />
+      <ReactorFace frame={layout.frame} phase={voice.phase} />
+      <div className="right-stack">
+        <Weather />
+        <div className="meters">
+          <RoundMeter name="RAM" />
+          <RoundMeter name="BIN" />
+        </div>
+        <div className="gauges">
+          <Gauge />
+          <Gauge />
+        </div>
+      </div>
+      <AnalogClock />
 
-      <Clock />
-
-      <main
-        className="stage"
-        style={
-          {
-            "--icon": `${layout.icon / 2}px`,
-            "--hud-icon": `${layout.icon}px`,
-            "--hud-gap": `${layout.gap}px`,
-            "--hud-label": `${layout.labelFont}px`,
-            "--hud-line": `${layout.labelLine}px`,
-            "--hud-label-max": `${layout.labelMax}px`,
-          } as CSSProperties
-        }
-      >
-        {orbits.map((orbit) => (
-          <div
-            key={orbit.ring}
-            className="orbit-anchor"
-            style={{ width: orbit.radius * 2, height: orbit.radius * 2 }}
-            aria-hidden="true"
+      {pageCount > 1 ? (
+        <div className="pager" style={{ left: layout.frame.cx, bottom: 10 }}>
+          <button
+            type="button"
+            className="arc-btn arc-prev"
+            aria-label="Previous page"
+            onClick={(event) => {
+              changePage("PageUp", false);
+              event.currentTarget.focus();
+            }}
           >
-            <div
-              className={orbit.ring === 0 ? "orbit" : "orbit orbit-outer"}
-              style={orbit.ring > 1 ? { animationDuration: "110s" } : undefined}
-            />
-          </div>
-        ))}
-        <Reactor key={reactor} size={reactor} phase={voice.phase} />
-        {pageCount > 1 ? (
-          <div className="pager" style={{ "--reactor": `${reactor}px` } as CSSProperties}>
-            <button
-              type="button"
-              className="arc-btn arc-prev"
-              aria-label="Previous page"
-              onClick={(event) => {
-                changePage("PageUp", false);
-                event.currentTarget.focus();
-              }}
-            >
-              ‹
-            </button>
-            <p className="page-readout">
-              {Array.from({ length: pageCount }, (_, index) => {
-                const hit = filtering && layout.segments.some((place) => place.page === index && selectable[place.index]);
-                const miss = filtering && !hit;
-                return (
-                  <span
-                    key={index}
-                    className={["page-mark", index === safePage ? "current" : "", hit ? "hit" : "", miss ? "miss" : ""]
-                      .filter(Boolean)
-                      .join(" ")}
-                    aria-current={index === safePage ? "page" : undefined}
-                  >
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                );
-              })}
-            </p>
-            <button
-              type="button"
-              className="arc-btn arc-next"
-              aria-label="Next page"
-              onClick={(event) => {
-                changePage("PageDown", false);
-                event.currentTarget.focus();
-              }}
-            >
-              ›
-            </button>
-          </div>
-        ) : null}
-        <ul className="segments" aria-label="Programs">
-          {visible.map((place) => {
-            const tile = tiles[place.index];
-            if (!tile) return null;
-            const matched = selectable[place.index] === true;
-            const dim = filtering && !matched;
-            const active = place.index === focusedIndex;
-            return (
-              <li key={tile.id} className="slot" style={slotStyle(place)}>
-                <button
-                  type="button"
-                  ref={(node) => {
-                    tileRefs.current[place.index] = node;
-                  }}
-                  className={["tile", dim ? "dim" : "", filtering && matched ? "lit" : "", active ? "active" : "", pressed === tile.id ? "pressed" : ""]
+            ‹
+          </button>
+          <p className="page-readout">
+            {Array.from({ length: pageCount }, (_, index) => {
+              const hit =
+                filtering &&
+                layout.segments.some((place) => selectable[place.index] && (place.pinned || place.page === index));
+              const miss = filtering && !hit;
+              return (
+                <span
+                  key={index}
+                  className={["page-mark", index === safePage ? "current" : "", hit ? "hit" : "", miss ? "miss" : ""]
                     .filter(Boolean)
                     .join(" ")}
-                  data-kind={tile.kind}
-                  data-side={place.side}
-                  aria-disabled={dim || undefined}
-                  tabIndex={active ? 0 : -1}
-                  onFocus={() => {
-                    activeRef.current = place.index;
-                    setActiveIndex(place.index);
-                  }}
-                  onClick={() => {
-                    if (!tileMatches(tile.label, query)) return;
-                    void launch(tile.id);
-                  }}
+                  aria-current={index === safePage ? "page" : undefined}
                 >
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+              );
+            })}
+          </p>
+          <button
+            type="button"
+            className="arc-btn arc-next"
+            aria-label="Next page"
+            onClick={(event) => {
+              changePage("PageDown", false);
+              event.currentTarget.focus();
+            }}
+          >
+            ›
+          </button>
+        </div>
+      ) : null}
+
+      <ul className="segments" aria-label="Programs">
+        {visible.map((place) => {
+          const tile = tiles[place.index];
+          if (!tile) return null;
+          const matched = selectable[place.index] === true;
+          const dim = filtering && !matched;
+          const active = place.index === focusedIndex;
+          return (
+            <li key={tile.id}>
+              <button
+                type="button"
+                ref={(node) => {
+                  tileRefs.current[place.index] = node;
+                }}
+                className={[
+                  "tile",
+                  `tile-${place.zone ?? "segment"}`,
+                  dim ? "dim" : "",
+                  filtering && matched ? "lit" : "",
+                  active ? "active" : "",
+                  pressed === tile.id ? "pressed" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                style={tileStyle(place)}
+                data-kind={tile.kind}
+                data-zone={place.zone}
+                data-side={place.side}
+                aria-disabled={dim || undefined}
+                tabIndex={active ? 0 : -1}
+                onFocus={() => {
+                  activeRef.current = place.index;
+                  setActiveIndex(place.index);
+                }}
+                onClick={() => {
+                  if (!tileMatches(tile.label, query)) return;
+                  void launch(tile.id);
+                }}
+              >
+                {place.zone === "segment" ? null : (
                   <span className="icon-ring">
                     {tile.icon ? (
                       <img className="icon" alt="" draggable={false} src={tile.icon} />
@@ -685,18 +704,26 @@ export function App() {
                       <span className={`glyph glyph-${tile.kind}`} />
                     )}
                   </span>
-                  <span className="label" title={place.ellipsis ? tile.label : undefined}>
-                    {tile.label}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </main>
+                )}
+                <span className="label" title={place.ellipsis ? tile.label : undefined}>
+                  {tile.label}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
 
-      {voiceOn ? (
-        <div className="subtitle-slot">
+      {panel ? (
+        <div
+          className="subtitle-slot"
+          style={{
+            left: panel.left,
+            top: panel.top,
+            width: panel.right - panel.left,
+            height: panel.bottom - panel.top,
+          }}
+        >
           {showSubtitle ? (
             <p className="subtitle" ref={subtitleRef} aria-live="polite">
               {PHASE_LABEL[voice.phase] ? <span className="phase">{PHASE_LABEL[voice.phase]}</span> : null}
@@ -733,6 +760,9 @@ export function App() {
             QUIT
           </button>
         </div>
+        <SearchPill />
+        <MediaStrip />
+        <Uptime />
       </footer>
 
       <div className="boot" aria-hidden="true">
