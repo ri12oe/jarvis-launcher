@@ -16,6 +16,7 @@ function contentSecurityPolicy(): Plugin {
         scriptSrc,
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data:",
+        "media-src 'self' blob:",
         connectSrc,
       ].join("; ");
       const meta = `<meta http-equiv="Content-Security-Policy" content="${policy}" />`;

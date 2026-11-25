@@ -7,17 +7,29 @@ import {
   clearLaunchStatus,
   footerHint,
   isLaunchStatus,
+  isVoiceStatus,
   launchStatusText,
   statusAfterPublish,
   tileMatches,
+  voiceStatusText,
   type GridKey,
 } from "../shared/grid";
 import { tileFallbackIcon } from "../shared/icons";
 import { windowsExplorerPath } from "../shared/launch";
 import { acceptRefreshClick, refreshControlLabel } from "../shared/refresh";
-import { layoutHud, stepHud, type HudKey, type HudLayout, type RingPlacement, type Viewport } from "../shared/ring";
+import {
+  layoutHud,
+  stepHud,
+  viewportAboveSubtitle,
+  type HudKey,
+  type HudLayout,
+  type RingPlacement,
+  type Viewport,
+} from "../shared/ring";
 import { composeTiles } from "../shared/tiles";
-import type { DiscoveredApp, LauncherState, LauncherTileView } from "../shared/types";
+import type { DiscoveredApp, LauncherState, LauncherTileView, VoicePhase, VoiceSnapshot } from "../shared/types";
+import { voiceControlLabel } from "../shared/voice-state";
+import { startMicrophone } from "./mic";
 
 const FILTER_LIMIT = 32;
 
@@ -62,7 +74,19 @@ function firstMatchIndex(tiles: readonly { label: string }[], query: string): nu
 
 function previewState(): LauncherState {
   const home = "/home/mario";
-  const tiles = composeTiles(cloneDefaultConfig(), PREVIEW_APPS, {
+  const config = cloneDefaultConfig();
+  const requested = Number(new URLSearchParams(window.location.search).get("tiles") ?? "0");
+  const previewBase = PREVIEW_APPS.length + 6;
+  const extraCount = requested >= 24 ? 10 : Math.max(0, requested - previewBase);
+  if (extraCount > 0) {
+    config.extraTiles = Array.from({ length: extraCount }, (_, index) => ({
+      id: `module${index + 1}`,
+      label: `Module ${index + 1}`,
+      path: `C:\\Tools\\module-${index + 1}.exe`,
+      kind: "app" as const,
+    }));
+  }
+  const tiles = composeTiles(config, PREVIEW_APPS, {
     platform: "linux",
     edgeExecutables: [],
     explorerPath: windowsExplorerPath(),
@@ -88,6 +112,42 @@ function previewState(): LauncherState {
   };
 }
 
+const EMPTY_VOICE: VoiceSnapshot = {
+  hasKey: false,
+  enabled: false,
+  capture: false,
+  phase: "idle",
+  heard: "",
+  reply: "",
+  error: "",
+  launchError: "",
+};
+
+const PHASE_LABEL: Record<VoicePhase, string> = {
+  idle: "",
+  listening: "LISTENING",
+  thinking: "THINKING",
+  speaking: "SPEAKING",
+};
+
+function previewVoice(): VoiceSnapshot {
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get("voice");
+  const phase =
+    requested === "listening" || requested === "thinking" || requested === "speaking" ? requested : "idle";
+  const hasKey = params.get("nokey") !== "1";
+  return {
+    hasKey,
+    enabled: hasKey && params.get("off") !== "1",
+    capture: false,
+    phase,
+    heard: params.get("heard") ?? (phase === "speaking" || phase === "thinking" ? "open projects" : ""),
+    reply: params.get("reply") ?? (phase === "speaking" ? "Opening Projects." : ""),
+    error: params.get("voiceError") ?? "",
+    launchError: "",
+  };
+}
+
 function isGridKey(key: string): key is GridKey {
   return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown";
 }
@@ -96,8 +156,9 @@ function slotStyle(place: RingPlacement): CSSProperties {
   return { "--x": `${place.x}px`, "--y": `${place.y}px` } as CSSProperties;
 }
 
-/** Decorative reactor. The center mark is reserved for a future voice indicator. */
-function Reactor({ size }: { size: number }) {
+/** Decorative reactor. Idle keeps the static standby mark. The other phases are the voice states. */
+function Reactor({ size, phase }: { size: number; phase: VoicePhase }) {
+  const mark = phase === "idle" ? "standby" : phase;
   return (
     <div className="reactor" style={{ width: size, height: size }} aria-hidden="true">
       <div className="ticks" />
@@ -106,7 +167,7 @@ function Reactor({ size }: { size: number }) {
       <div className="arc arc-a" />
       <div className="arc arc-b" />
       <div className="core">
-        <div className="voice" data-voice="standby" />
+        <div className="voice" data-voice={mark} />
       </div>
     </div>
   );
@@ -121,6 +182,9 @@ export function App() {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [page, setPage] = useState(0);
+  const [voice, setVoice] = useState<VoiceSnapshot>(() =>
+    typeof window !== "undefined" && !window.jarvis && import.meta.env.DEV ? previewVoice() : EMPTY_VOICE,
+  );
   const refreshingRef = useRef(false);
   const focusFiltered = useRef(false);
   const pendingFocus = useRef<number | null>(null);
@@ -129,7 +193,16 @@ export function App() {
   const pageRef = useRef(0);
   const tilesRef = useRef<LauncherTileView[]>([]);
   const placementsRef = useRef<RingPlacement[]>([]);
-  const layoutRef = useRef<HudLayout>({ segments: [], pageCount: 1, reactor: [96] });
+  const layoutRef = useRef<HudLayout>({
+    segments: [],
+    pageCount: 1,
+    reactor: [96],
+    icon: 44,
+    gap: 8,
+    labelFont: 12,
+    labelLine: 18,
+    labelMax: 176,
+  });
   const pageCountRef = useRef(1);
   const selectableRef = useRef<boolean[]>([]);
   const tileRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -166,6 +239,9 @@ export function App() {
       setPage(0);
       setStatus((current) => clearLaunchStatus(current));
     });
+    const stopVoice = bridge.onVoice((next) => {
+      if (!cancel) setVoice(next);
+    });
     void bridge
       .getState()
       .then((next) => {
@@ -175,12 +251,97 @@ export function App() {
       .catch(() => {
         if (!cancel) setStatus("LINK LOST");
       });
+    void bridge.getVoice().then((next) => {
+      if (!cancel) setVoice(next);
+    });
     return () => {
       cancel = true;
       stop();
       stopHidden();
+      stopVoice();
     };
   }, []);
+
+  useEffect(() => {
+    setStatus((current) => {
+      if (voice.launchError) return launchStatusText(voice.launchError);
+      if (voice.error) return voiceStatusText(voice.error);
+      if (isVoiceStatus(current)) return "";
+      return current;
+    });
+  }, [voice.error, voice.launchError]);
+
+  useEffect(() => {
+    const bridge = window.jarvis;
+    if (!bridge || !voice.capture) return;
+    let stop = () => {};
+    let cancelled = false;
+    void startMicrophone((pcm) => bridge.pushAudio(pcm))
+      .then((end) => {
+        if (cancelled) end();
+        else stop = end;
+      })
+      .catch(() => bridge.reportVoiceError("Microphone is unavailable"));
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [voice.capture]);
+
+  const subtitleRef = useRef<HTMLParagraphElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const phaseRef = useRef(voice.phase);
+  const stopAudio = () => {
+    const element = audioRef.current;
+    if (element) {
+      element.onended = null;
+      element.onerror = null;
+      element.pause();
+    }
+    audioRef.current = null;
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+  };
+  useEffect(() => {
+    const bridge = window.jarvis;
+    if (!bridge) return;
+    return bridge.onSpeak((audio, contentType) => {
+      stopAudio();
+      const url = URL.createObjectURL(new Blob([audio], { type: contentType || "audio/mpeg" }));
+      audioUrlRef.current = url;
+      const element = new Audio(url);
+      audioRef.current = element;
+      const finish = () => {
+        if (audioRef.current !== element) return;
+        stopAudio();
+        bridge.playbackEnded();
+      };
+      element.onended = finish;
+      element.onerror = finish;
+      void element.play().catch(finish);
+    });
+  }, []);
+  useEffect(() => {
+    const node = subtitleRef.current;
+    if (!node) return;
+    const anchor = node.querySelector(".phase") ?? node.querySelector(".reply") ?? node.querySelector(".heard");
+    if (!(anchor instanceof HTMLElement)) {
+      node.scrollTop = 0;
+      return;
+    }
+    const pad = Number.parseFloat(getComputedStyle(node).paddingTop) || 0;
+    const delta = anchor.getBoundingClientRect().top - node.getBoundingClientRect().top - node.clientTop - pad;
+    node.scrollTop = Math.max(0, node.scrollTop + delta);
+  }, [voice.phase, voice.heard, voice.reply]);
+
+  useEffect(() => {
+    const previous = phaseRef.current;
+    phaseRef.current = voice.phase;
+    if (previous === "speaking" && voice.phase !== "speaking") stopAudio();
+  }, [voice.phase]);
 
   useEffect(() => {
     const dismissLaunch = () => {
@@ -311,6 +472,13 @@ export function App() {
   };
   launchRef.current = launch;
 
+  const toggleVoice = () => {
+    if (!voice.hasKey) return;
+    const next = !voice.enabled;
+    setVoice((current) => ({ ...current, enabled: next, capture: next && current.hasKey }));
+    void window.jarvis?.setVoiceEnabled(next);
+  };
+
   const refresh = () => {
     if (!acceptRefreshClick(refreshingRef.current)) return;
     const bridge = window.jarvis;
@@ -330,9 +498,13 @@ export function App() {
   };
 
   const tiles = state?.tiles ?? [];
+  const showSubtitle = voice.phase !== "idle" || voice.heard.length > 0 || voice.reply.length > 0;
+  // Reserve the panel the whole time voice is on, so a turn does not resize the ring.
+  const voiceOn = voice.hasKey && voice.enabled;
+  const layoutViewport = voiceOn ? viewportAboveSubtitle(viewport) : viewport;
   const layout = useMemo(
-    () => layoutHud(tiles, viewport, measureHudLabel),
-    [tiles, viewport, page],
+    () => layoutHud(tiles, layoutViewport, measureHudLabel),
+    [tiles, layoutViewport.width, layoutViewport.height],
   );
   layoutRef.current = layout;
   const selectable = tiles.map((tile) => tileMatches(tile.label, query));
@@ -362,7 +534,7 @@ export function App() {
     warning: warnings[0] ?? "",
   });
   const busy = hint === "SCANNING" || hint === "REFRESHING";
-  const warn = isLaunchStatus(hint);
+  const warn = isLaunchStatus(hint) || isVoiceStatus(hint);
   const filtering = query.trim().length > 0;
   const visible = layout.segments.filter((place) => place.page === safePage);
   const reactor = layout.reactor[safePage] ?? 96;
@@ -406,7 +578,19 @@ export function App() {
 
       <Clock />
 
-      <main className="stage">
+      <main
+        className="stage"
+        style={
+          {
+            "--icon": `${layout.icon / 2}px`,
+            "--hud-icon": `${layout.icon}px`,
+            "--hud-gap": `${layout.gap}px`,
+            "--hud-label": `${layout.labelFont}px`,
+            "--hud-line": `${layout.labelLine}px`,
+            "--hud-label-max": `${layout.labelMax}px`,
+          } as CSSProperties
+        }
+      >
         {orbits.map((orbit) => (
           <div
             key={orbit.ring}
@@ -420,7 +604,7 @@ export function App() {
             />
           </div>
         ))}
-        <Reactor key={reactor} size={reactor} />
+        <Reactor key={reactor} size={reactor} phase={voice.phase} />
         {pageCount > 1 ? (
           <div className="pager" style={{ "--reactor": `${reactor}px` } as CSSProperties}>
             <button
@@ -511,11 +695,32 @@ export function App() {
         </ul>
       </main>
 
+      {voiceOn ? (
+        <div className="subtitle-slot">
+          {showSubtitle ? (
+            <p className="subtitle" ref={subtitleRef} aria-live="polite">
+              {PHASE_LABEL[voice.phase] ? <span className="phase">{PHASE_LABEL[voice.phase]}</span> : null}
+              {voice.heard ? <span className="heard">{voice.heard}</span> : null}
+              {voice.reply ? <span className="reply">{voice.reply}</span> : null}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       <footer className="bottom">
         <p className={["hint", busy ? "busy" : "", warn ? "warn" : ""].filter(Boolean).join(" ")} aria-live="polite">
           {hint}
         </p>
         <div className="commands">
+          <button
+            type="button"
+            className="command"
+            aria-pressed={voice.hasKey ? voice.enabled : undefined}
+            disabled={!voice.hasKey}
+            onClick={toggleVoice}
+          >
+            {voiceControlLabel(voice)}
+          </button>
           <button
             type="button"
             className={refreshing ? "command refreshing" : "command"}

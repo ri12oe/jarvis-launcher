@@ -53,6 +53,22 @@ describe("HUD ring", () => {
       refresh: async () => undefined,
       hide: () => undefined,
       quit: () => undefined,
+      getVoice: async () => ({
+        hasKey: false,
+        enabled: false,
+        capture: false,
+        phase: "idle" as const,
+        heard: "",
+        reply: "",
+        error: "",
+        launchError: "",
+      }),
+      onVoice: () => () => undefined,
+      setVoiceEnabled: async () => undefined,
+      pushAudio: () => undefined,
+      onSpeak: () => () => undefined,
+      playbackEnded: () => undefined,
+      reportVoiceError: () => undefined,
     };
     (window as { jarvis?: JarvisBridge }).jarvis = bridge;
     host = document.createElement("div");

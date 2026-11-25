@@ -31,7 +31,86 @@ export const MAX_RINGS = 3;
 /** Icon centers stay outside the reactor and the page controls. */
 const MIN_INNER = 136;
 
+interface Fit {
+  icon: number;
+  gap: number;
+  minInner: number;
+  labelMax: number;
+  labelLine: number;
+  font: number;
+  charWidth: number;
+  /** How many page numbers to reserve under the reactor while placing this ring. */
+  readoutPages: number;
+}
+
+const FULL_FIT: Fit = {
+  icon: ICON_SIZE,
+  gap: LABEL_GAP,
+  minInner: MIN_INNER,
+  labelMax: LABEL_MAX_WIDTH,
+  labelLine: LABEL_LINE,
+  font: LABEL_FONT,
+  charWidth: LABEL_CHAR_WIDTH,
+  readoutPages: 0,
+};
+
+/**
+ * Smaller ring used only when every full page has fallen to one tile.
+ * The inner radius stays past the page arrows. Those arrows reach about
+ * reactor/2 + 46px, so a 48px radius puts icons underneath them.
+ */
+const COMPACT_FITS: readonly Fit[] = [
+  { icon: 36, gap: 6, minInner: 104, labelMax: 128, labelLine: 16, font: 11, charWidth: 6.6, readoutPages: 0 },
+  { icon: 32, gap: 4, minInner: 96, labelMax: 104, labelLine: 14, font: 10, charWidth: 5.6, readoutPages: 0 },
+  { icon: 28, gap: 4, minInner: 88, labelMax: 84, labelLine: 13, font: 9, charWidth: 4.8, readoutPages: 0 },
+];
+
 const FOOTER_BLOCK = 72;
+
+/** Matches `.subtitle` max-height. The panel scrolls past this. */
+export const SUBTITLE_MAX = 72;
+
+/** Gap between the ring stage and the subtitle panel. Matches the subtitle margin. */
+export const SUBTITLE_GAP = 8;
+
+/** Height taken from the window while the subtitle panel is visible. */
+export function subtitleReserve(): number {
+  return SUBTITLE_MAX + SUBTITLE_GAP;
+}
+
+/** Ring layout height while the subtitle panel is on screen. */
+export function viewportAboveSubtitle(viewport: Viewport): Viewport {
+  return { width: viewport.width, height: Math.max(240, viewport.height - subtitleReserve()) };
+}
+
+/**
+ * The voice subtitle, in window coordinates. It is centered under the ring
+ * and above the footer. `viewport` is the full window.
+ */
+export function subtitlePanelBox(viewport: Viewport): Aabb {
+  const layout = viewportAboveSubtitle(viewport);
+  const stageH = Math.max(160, layout.height - FOOTER_BLOCK);
+  const width = Math.min(760, Math.max(160, viewport.width - 48));
+  const left = (viewport.width - width) / 2;
+  const top = stageH + SUBTITLE_GAP;
+  return { left, top, right: left + width, bottom: top + SUBTITLE_MAX };
+}
+
+/** Icon and label boxes for every placed tile, in the same window coordinates as the subtitle. */
+export function placedTileBoxes(layout: HudLayout, layoutViewport: Viewport): Aabb[] {
+  const stageH = Math.max(160, layoutViewport.height - FOOTER_BLOCK);
+  const cx = layoutViewport.width / 2;
+  const cy = stageH / 2;
+  const boxes: Aabb[] = [];
+  for (const segment of layout.segments) {
+    boxes.push(shiftBox(segment.icon, cx, cy), shiftBox(segment.label, cx, cy));
+  }
+  return boxes;
+}
+
+function shiftBox(box: Aabb, dx: number, dy: number): Aabb {
+  return { left: box.left + dx, top: box.top + dy, right: box.right + dx, bottom: box.bottom + dy };
+}
 const SEARCH_STEPS = 22;
 
 export type LabelSide = "top" | "right" | "bottom" | "left";
@@ -79,6 +158,12 @@ export interface HudLayout {
   pageCount: number;
   /** Reactor diameter in CSS pixels, one entry per page. */
   reactor: number[];
+  /** Icon ring diameter. The stage uses this so the drawn tiles match the boxes. */
+  icon: number;
+  gap: number;
+  labelFont: number;
+  labelLine: number;
+  labelMax: number;
 }
 
 /** Pure fallback used when canvas measurement is unavailable, including unit tests. */
@@ -109,8 +194,8 @@ export type LabelMeasurer = (text: string) => LabelMetrics;
  * The label width is the tangential span when the label sits across the arc,
  * and the icon is the span when the label points outward.
  */
-export function minArcSpacing(metrics: LabelMetrics): number {
-  return Math.max(ICON_SIZE, metrics.width) + LABEL_GAP;
+export function minArcSpacing(metrics: LabelMetrics, sizing: Fit = FULL_FIT): number {
+  return Math.max(sizing.icon, metrics.width) + sizing.gap;
 }
 
 export function radiusForArcSpacing(count: number, spacing: number): number {
@@ -154,32 +239,55 @@ export function boxesOverlap(a: Aabb, b: Aabb, pad = 0): boolean {
   return a.left < b.right + pad && a.right + pad > b.left && a.top < b.bottom + pad && a.bottom + pad > b.top;
 }
 
-function boxesAt(x: number, y: number, side: LabelSide, metrics: LabelMetrics): { icon: Aabb; label: Aabb } {
-  const half = ICON_SIZE / 2;
+function boxesAt(
+  x: number,
+  y: number,
+  side: LabelSide,
+  metrics: LabelMetrics,
+  sizing: Fit,
+): { icon: Aabb; label: Aabb } {
+  const half = sizing.icon / 2;
   const icon: Aabb = { left: x - half, top: y - half, right: x + half, bottom: y + half };
   const label: Aabb = { left: 0, top: 0, right: 0, bottom: 0 };
   if (side === "right") {
-    label.left = icon.right + LABEL_GAP;
+    label.left = icon.right + sizing.gap;
     label.right = label.left + metrics.width;
     label.top = y - metrics.height / 2;
     label.bottom = y + metrics.height / 2;
   } else if (side === "left") {
-    label.right = icon.left - LABEL_GAP;
+    label.right = icon.left - sizing.gap;
     label.left = label.right - metrics.width;
     label.top = y - metrics.height / 2;
     label.bottom = y + metrics.height / 2;
   } else if (side === "bottom") {
     label.left = x - metrics.width / 2;
     label.right = x + metrics.width / 2;
-    label.top = icon.bottom + LABEL_GAP;
+    label.top = icon.bottom + sizing.gap;
     label.bottom = label.top + metrics.height;
   } else {
     label.left = x - metrics.width / 2;
     label.right = x + metrics.width / 2;
-    label.bottom = icon.top - LABEL_GAP;
+    label.bottom = icon.top - sizing.gap;
     label.top = label.bottom - metrics.height;
   }
   return { icon, label };
+}
+
+/**
+ * Page arrows and the page numbers, in stage-center coordinates.
+ * Matches `.arc-prev`, `.arc-next`, and `.page-readout`.
+ * Arrows are 36×28 and sit reactor/2 + 10px to reactor/2 + 46px from center.
+ */
+export function pageControlBoxes(reactor: number, pageCount: number): Aabb[] {
+  if (pageCount < 2) return [];
+  const half = reactor / 2;
+  const prev: Aabb = { left: -(half + 46), right: -(half + 10), top: -14, bottom: 14 };
+  const next: Aabb = { left: half + 10, right: half + 46, top: -14, bottom: 14 };
+  const mark = 26;
+  const width = Math.max(mark, pageCount * mark);
+  const top = half + 8;
+  const readout: Aabb = { left: -width / 2, right: width / 2, top, bottom: top + 16 };
+  return [prev, next, readout];
 }
 
 function allowedBounds(viewport: Viewport): Aabb {
@@ -197,11 +305,15 @@ function clockObstacle(viewport: Viewport): Aabb {
   return { left: 16 - cx, right: 284 - cx, top: 16 - cy, bottom: 140 - cy };
 }
 
-function ringSegments(items: readonly LabelMetrics[], radius: number): Array<{ icon: Aabb; label: Aabb }> {
+function ringSegments(
+  items: readonly LabelMetrics[],
+  radius: number,
+  sizing: Fit,
+): Array<{ icon: Aabb; label: Aabb }> {
   return items.map((metrics, slot) => {
     const angle = segmentAngle(slot, items.length);
     const point = segmentPoint(angle, radius);
-    return boxesAt(point.x, point.y, labelSide(angle), metrics);
+    return boxesAt(point.x, point.y, labelSide(angle), metrics, sizing);
   });
 }
 
@@ -217,38 +329,38 @@ function segmentsCollide(segments: ReadonlyArray<{ icon: Aabb; label: Aabb }>, p
   return false;
 }
 
-function radiusFromPairs(items: readonly LabelMetrics[]): number {
-  if (items.length <= 1) return MIN_INNER;
+function radiusFromPairs(items: readonly LabelMetrics[], sizing: Fit): number {
+  if (items.length <= 1) return sizing.minInner;
   let radius = 0;
   for (let i = 0; i < items.length; i++) {
-    const span = (minArcSpacing(items[i]) + minArcSpacing(items[(i + 1) % items.length])) / 2;
+    const span = (minArcSpacing(items[i], sizing) + minArcSpacing(items[(i + 1) % items.length], sizing)) / 2;
     radius = Math.max(radius, radiusForArcSpacing(items.length, span));
   }
   return radius;
 }
 
-function ringClear(items: readonly LabelMetrics[], radius: number): boolean {
-  return !segmentsCollide(ringSegments(items, radius));
+function ringClear(items: readonly LabelMetrics[], radius: number, sizing: Fit): boolean {
+  return !segmentsCollide(ringSegments(items, radius, sizing));
 }
 
 /** Smallest icon radius whose boxes clear each other, seeded by the arc spacing. */
-function minimumRadius(items: readonly LabelMetrics[]): number {
-  if (items.length === 0) return MIN_INNER;
-  const hinted = Math.max(MIN_INNER, radiusFromPairs(items));
-  let lo = MIN_INNER;
+function minimumRadius(items: readonly LabelMetrics[], sizing: Fit): number {
+  if (items.length === 0) return sizing.minInner;
+  const hinted = Math.max(sizing.minInner, radiusFromPairs(items, sizing));
+  let lo = sizing.minInner;
   let hi = hinted;
-  if (!ringClear(items, hi)) {
+  if (!ringClear(items, hi, sizing)) {
     lo = hi;
     hi = Math.max(hi * 2, lo + 200);
-    while (!ringClear(items, hi) && hi < 8000) hi *= 2;
-    if (!ringClear(items, hi)) return Number.POSITIVE_INFINITY;
+    while (!ringClear(items, hi, sizing) && hi < 8000) hi *= 2;
+    if (!ringClear(items, hi, sizing)) return Number.POSITIVE_INFINITY;
   }
   for (let step = 0; step < SEARCH_STEPS; step++) {
     const mid = (lo + hi) / 2;
-    if (ringClear(items, mid)) hi = mid;
+    if (ringClear(items, mid, sizing)) hi = mid;
     else lo = mid;
   }
-  return Math.max(hi, items.length > 1 ? 0 : MIN_INNER);
+  return Math.max(hi, items.length > 1 ? 0 : sizing.minInner);
 }
 
 function furthest(segments: ReadonlyArray<{ icon: Aabb; label: Aabb }>): number {
@@ -319,12 +431,16 @@ function sliceGroups(items: readonly LabelMetrics[], counts: readonly number[]):
   return groups;
 }
 
-function buildAt(groups: readonly LabelMetrics[][], radii: readonly number[]): Array<{ icon: Aabb; label: Aabb }> {
+function buildAt(
+  groups: readonly LabelMetrics[][],
+  radii: readonly number[],
+  sizing: Fit,
+): Array<{ icon: Aabb; label: Aabb }> {
   const out: Array<{ icon: Aabb; label: Aabb }> = [];
   groups.forEach((group, ring) => {
     group.forEach((metrics, slot) => {
       const point = segmentPoint(segmentAngle(slot, group.length), radii[ring]);
-      out.push(boxesAt(point.x, point.y, labelSide(segmentAngle(slot, group.length)), metrics));
+      out.push(boxesAt(point.x, point.y, labelSide(segmentAngle(slot, group.length)), metrics, sizing));
     });
   });
   return out;
@@ -347,47 +463,76 @@ function tryCounts(
   counts: readonly number[],
   bounds: Aabb,
   obstacles: readonly Aabb[],
+  sizing: Fit,
 ): Built | null {
   const groups = sliceGroups(items, counts);
   const radii = groups.map((group, ring) => {
-    const min = minimumRadius(group);
+    const min = minimumRadius(group, sizing);
     if (!Number.isFinite(min)) return Number.POSITIVE_INFINITY;
-    return ring === 0 ? Math.max(min, MIN_INNER) : min;
+    return ring === 0 ? Math.max(min, sizing.minInner) : min;
   });
   if (radii.some((radius) => !Number.isFinite(radius))) return null;
 
   for (let ring = 1; ring < radii.length; ring++) {
-    const prev = ringSegments(groups[ring - 1], radii[ring - 1]);
-    radii[ring] = Math.max(radii[ring], furthest(prev) + LABEL_GAP + ICON_SIZE / 2);
+    const prev = ringSegments(groups[ring - 1], radii[ring - 1], sizing);
+    radii[ring] = Math.max(radii[ring], furthest(prev) + sizing.gap + sizing.icon / 2);
   }
 
-  const minimum = buildAt(groups, radii);
-  if (!layoutFits(minimum, bounds, obstacles)) return null;
+  const blocked = (inner: number) => [...obstacles, ...pageControlBoxes(reactorFromRadius(inner), sizing.readoutPages)];
+  const minimum = buildAt(groups, radii, sizing);
+  if (!layoutFits(minimum, bounds, blocked(radii[0]))) return null;
 
   let lo = 0;
   let hi = 4000;
   let best = 0;
   for (let step = 0; step < SEARCH_STEPS; step++) {
     const mid = (lo + hi) / 2;
-    const grown = buildAt(groups, radii.map((radius) => radius + mid));
-    if (layoutFits(grown, bounds, obstacles)) {
+    const grown = buildAt(groups, radii.map((radius) => radius + mid), sizing);
+    if (layoutFits(grown, bounds, blocked(radii[0] + mid))) {
       best = mid;
       lo = mid;
     } else hi = mid;
   }
 
   const finalRadii = radii.map((radius) => radius + best);
-  const finalSegments = buildAt(groups, finalRadii);
-  if (!layoutFits(finalSegments, bounds, obstacles)) return null;
+  const finalSegments = buildAt(groups, finalRadii, sizing);
+  if (!layoutFits(finalSegments, bounds, blocked(finalRadii[0]))) return null;
   return { radii: finalRadii, groups, reach: reachOf(finalSegments) };
 }
 
-function placeSlice(items: readonly LabelMetrics[], bounds: Aabb, obstacles: readonly Aabb[]): Built | null {
+/**
+ * One tile on its own page, inside `bounds`.
+ * A full ring at the usual inner radius can stick out of a short window.
+ * Shrinking the radius, then ignoring the clock, still beats drawing it off screen.
+ */
+function placeOneInside(metrics: LabelMetrics, bounds: Aabb, obstacles: readonly Aabb[], sizing: Fit): Built {
+  const withClock = placeSlice([metrics], bounds, obstacles, sizing);
+  if (withClock) return withClock;
+  const clear = placeSlice([metrics], bounds, [], sizing);
+  if (clear) return clear;
+  let best: Built | null = null;
+  for (let radius = sizing.minInner; radius >= 0; radius -= 2) {
+    const controls = pageControlBoxes(reactorFromRadius(radius), sizing.readoutPages);
+    const segments = buildAt([[metrics]], [radius], sizing);
+    if (!layoutFits(segments, bounds, controls)) continue;
+    best = { radii: [radius], groups: [[metrics]], reach: reachOf(segments) };
+    break;
+  }
+  if (best) return best;
+  return { radii: [sizing.minInner], groups: [[metrics]], reach: 0 };
+}
+
+function placeSlice(
+  items: readonly LabelMetrics[],
+  bounds: Aabb,
+  obstacles: readonly Aabb[],
+  sizing: Fit,
+): Built | null {
   let best: Built | null = null;
   const ringLimit = Math.min(MAX_RINGS, items.length);
   for (let rings = 1; rings <= ringLimit; rings++) {
     for (const counts of splits(items.length, rings)) {
-      const built = tryCounts(items, counts, bounds, obstacles);
+      const built = tryCounts(items, counts, bounds, obstacles, sizing);
       if (!built) continue;
       if (!best || built.reach > best.reach + 0.5) best = built;
     }
@@ -396,7 +541,7 @@ function placeSlice(items: readonly LabelMetrics[], bounds: Aabb, obstacles: rea
   return null;
 }
 
-function materialize(built: Built, page: number, indexBase: number): RingPlacement[] {
+function materialize(built: Built, page: number, indexBase: number, sizing: Fit): RingPlacement[] {
   const placed: RingPlacement[] = [];
   let offset = 0;
   built.groups.forEach((group, ring) => {
@@ -404,7 +549,7 @@ function materialize(built: Built, page: number, indexBase: number): RingPlaceme
       const angle = segmentAngle(slot, group.length);
       const point = segmentPoint(angle, built.radii[ring]);
       const side = labelSide(angle);
-      const boxes = boxesAt(point.x, point.y, side, metrics);
+      const boxes = boxesAt(point.x, point.y, side, metrics, sizing);
       placed.push({
         index: indexBase + offset,
         page,
@@ -429,8 +574,15 @@ function materialize(built: Built, page: number, indexBase: number): RingPlaceme
 /** Reactor diameter from the innermost icon radius. The seed is +Infinity so a real radius wins. */
 export function reactorDiameter(segments: readonly RingPlacement[]): number {
   const inner = segments.reduce((min, segment) => Math.min(min, segment.radius), Number.POSITIVE_INFINITY);
+  return reactorFromRadius(inner);
+}
+
+function reactorFromRadius(inner: number): number {
   if (!Number.isFinite(inner)) return 96;
-  return Math.max(72, Math.min(inner * 0.7, inner - 88));
+  const raw = Math.min(inner * 0.7, inner - 88);
+  if (raw >= 72) return Math.min(raw, 480);
+  // A reduced ring is smaller than the usual core. Keep the core inside the icons.
+  return Math.max(36, Math.min(inner * 0.5, Math.max(0, inner - 24)));
 }
 
 /**
@@ -446,7 +598,69 @@ export function layoutHud<T extends { label: string }>(
   if (viewport.width < 320 || viewport.height < 240) {
     return layoutHud(tiles, { width: Math.max(viewport.width, 1366), height: Math.max(viewport.height, 768) }, measure);
   }
-  const metrics = tiles.map((tile) => measure(tile.label));
+  const measured = tiles.map((tile) => measure(tile.label));
+  const full = layoutFitted(measured, viewport, FULL_FIT);
+  // Shrink only after the full size has already fallen to one tile per page.
+  // A short last page does not count. A window that still holds a real ring
+  // keeps its labels and reactor.
+  if (full.pageCount <= 1 || minTilesOnPage(full) > 1) return full;
+  let best = full;
+  for (const candidate of COMPACT_FITS) {
+    const next = layoutFitted(scaleMetrics(measured, candidate), viewport, candidate);
+    if (next.pageCount < best.pageCount) best = next;
+  }
+  return best;
+}
+
+/** Fewest tiles on a page, ignoring a short last page. */
+function minTilesOnPage(layout: HudLayout): number {
+  if (layout.pageCount <= 1) return layout.segments.length;
+  const counts = Array.from({ length: layout.pageCount - 1 }, () => 0);
+  for (const segment of layout.segments) {
+    if (segment.page < counts.length) counts[segment.page] += 1;
+  }
+  return Math.min(...counts);
+}
+
+function controlsOverlap(layout: HudLayout): boolean {
+  if (layout.pageCount < 2) return false;
+  for (let page = 0; page < layout.pageCount; page++) {
+    const controls = pageControlBoxes(layout.reactor[page] ?? 96, layout.pageCount);
+    for (const segment of layout.segments) {
+      if (segment.page !== page) continue;
+      for (const control of controls) {
+        if (boxesOverlap(segment.icon, control) || boxesOverlap(segment.label, control)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function scaleMetrics(metrics: readonly LabelMetrics[], next: Fit): LabelMetrics[] {
+  const ratio = next.font / FULL_FIT.font;
+  return metrics.map((metric) => {
+    const raw = metric.width * ratio;
+    return {
+      width: Math.min(raw, next.labelMax),
+      height: next.labelLine,
+      ellipsis: raw > next.labelMax + 0.5,
+    };
+  });
+}
+
+function layoutFitted(metrics: readonly LabelMetrics[], viewport: Viewport, sizing: Fit): HudLayout {
+  let layout = layoutAt(metrics, viewport, { ...sizing, readoutPages: 0 });
+  // Reserve the arrows and the page numbers only after a layout actually hits them,
+  // so a ring that already clears the controls keeps the same pages.
+  for (let pass = 0; pass < 3 && controlsOverlap(layout); pass++) {
+    const reserved = layoutAt(metrics, viewport, { ...sizing, readoutPages: layout.pageCount });
+    if (reserved.pageCount === layout.pageCount && !controlsOverlap(reserved)) return reserved;
+    layout = reserved;
+  }
+  return layout;
+}
+
+function layoutAt(metrics: readonly LabelMetrics[], viewport: Viewport, sizing: Fit): HudLayout {
   const bounds = allowedBounds(viewport);
   const obstacles = [clockObstacle(viewport)];
   const pages: RingPlacement[][] = [];
@@ -457,26 +671,32 @@ export function layoutHud<T extends { label: string }>(
     let hi = metrics.length - start;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      const placed = placeSlice(metrics.slice(start, start + mid), bounds, obstacles);
+      const placed = placeSlice(metrics.slice(start, start + mid), bounds, obstacles, sizing);
       if (placed) {
         best = mid;
         lo = mid + 1;
       } else hi = mid - 1;
     }
-    const placed = placeSlice(metrics.slice(start, start + best), bounds, obstacles);
+    const placed = placeSlice(metrics.slice(start, start + best), bounds, obstacles, sizing);
     if (!placed) {
-      const open = placeSlice(metrics.slice(start, start + 1), { left: -4000, top: -4000, right: 4000, bottom: 4000 }, []);
-      pages.push(materialize(open ?? { radii: [MIN_INNER], groups: [metrics.slice(start, start + 1)], reach: 0 }, pages.length, start));
+      // One tile did not fit the grown ring. Keep it inside the stage instead of
+      // laying it out in an unbounded box, which pushes the reactor and the tile off screen.
+      pages.push(materialize(placeOneInside(metrics[start], bounds, obstacles, sizing), pages.length, start, sizing));
       start += 1;
       continue;
     }
-    pages.push(materialize(placed, pages.length, start));
+    pages.push(materialize(placed, pages.length, start, sizing));
     start += best;
   }
   return {
     segments: pages.flat(),
     pageCount: Math.max(1, pages.length),
     reactor: (pages.length > 0 ? pages : [[]]).map((page) => reactorDiameter(page)),
+    icon: sizing.icon,
+    gap: sizing.gap,
+    labelFont: sizing.font,
+    labelLine: sizing.labelLine,
+    labelMax: sizing.labelMax,
   };
 }
 

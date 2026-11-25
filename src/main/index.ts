@@ -9,6 +9,7 @@ import {
   Menu,
   nativeImage,
   screen,
+  session,
   shell,
   Tray,
   type IpcMainEvent,
@@ -16,7 +17,8 @@ import {
 } from "electron";
 import { loadConfig } from "../config/load";
 import { discoverInstalledApps } from "../discovery";
-import { DEFAULT_HOTKEY } from "../shared/config";
+import { patchVoiceEnabledText, DEFAULT_HOTKEY } from "../shared/config";
+import { allowMediaPermission } from "../shared/media-permission";
 import { hotkeyRegistrationWarnings } from "../shared/hotkey";
 import { tileFallbackIcon, tileIconFile } from "../shared/icons";
 import { defaultEdgeCandidates, runLaunch, spawnDetached, windowsExplorerPath } from "../shared/launch";
@@ -29,7 +31,17 @@ import {
 import { loginItemOptions } from "../shared/login-item";
 import { createRefreshGate, isMainFrameSender } from "../shared/refresh";
 import { composeTiles } from "../shared/tiles";
-import type { DiscoveredApp, JarvisConfig, LauncherState, LauncherTileView, ResolvedTile } from "../shared/types";
+import type {
+  DiscoveredApp,
+  JarvisConfig,
+  LauncherState,
+  LauncherTileView,
+  LaunchResult,
+  ResolvedTile,
+  VoiceSnapshot,
+} from "../shared/types";
+import { createVoiceSession, type VoiceSession } from "./voice-session";
+import { resolveWakeDir } from "./wakeword";
 import { createWindowSession, type WindowWatch } from "./window-snapshot";
 
 let mainWindow: BrowserWindow | null = null;
@@ -47,7 +59,8 @@ let configWatchStarted = false;
 let placeSerial = 0;
 const placementHelper = createWindowSession({ platform: process.platform, env: process.env });
 let configFilePath = "";
-let session: { config: JarvisConfig; tiles: ResolvedTile[]; view: LauncherTileView[]; warnings: string[] } | null =
+let voice: VoiceSession | null = null;
+let launcher: { config: JarvisConfig; tiles: ResolvedTile[]; view: LauncherTileView[]; warnings: string[] } | null =
   null;
 
 function iconImage(): Electron.NativeImage {
@@ -194,15 +207,17 @@ async function refreshSession(): Promise<void> {
     });
     const view = await tileViews(tiles);
     const config = applyHostSettings(loaded.config, loaded.warnings);
-    session = { config, tiles, view, warnings: loaded.warnings };
+    launcher = { config, tiles, view, warnings: loaded.warnings };
     scanning = false;
     refreshFailed = false;
     publishState();
+    voice?.apply();
     startConfigWatch(loaded.filePath);
   } catch (error) {
     scanning = false;
     refreshFailed = true;
     publishState();
+    voice?.apply();
     const fallbackPath = path.join(app.getPath("userData"), "config.json");
     startConfigWatch(fallbackPath);
     throw error;
@@ -210,7 +225,7 @@ async function refreshSession(): Promise<void> {
 }
 
 function currentState(): LauncherState {
-  const snapshot = session;
+  const snapshot = launcher;
   return {
     hotkey: snapshot?.config.hotkey ?? DEFAULT_HOTKEY,
     platform: process.platform,
@@ -262,7 +277,7 @@ async function centerAfterLaunch(
   baseline: readonly number[] | undefined,
 ): Promise<PlacementOutcome> {
   const win = mainWindow;
-  const launchWindow = session?.config.launchWindow;
+  const launchWindow = launcher?.config.launchWindow;
   if (!win || win.isDestroyed() || !launchWindow) return "skipped";
   if (process.platform !== "win32" || launchWindow.mode !== "centered") return "skipped";
   const launcherHwnd = browserHwnd(win);
@@ -370,7 +385,7 @@ function createWindow(startHidden: boolean): void {
   else void mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
 
   mainWindow.once("ready-to-show", () => {
-    const hidden = session?.config.startHidden ?? startHidden;
+    const hidden = launcher?.config.startHidden ?? startHidden;
     if (!hidden || !trayReady) showWindow();
   });
 }
@@ -403,52 +418,128 @@ function createTray(): void {
   trayReady = true;
 }
 
+const EMPTY_VOICE: VoiceSnapshot = {
+  hasKey: false,
+  enabled: false,
+  capture: false,
+  phase: "idle",
+  heard: "",
+  reply: "",
+  error: "",
+  launchError: "",
+};
+
+function configPath(): string {
+  return configFilePath || path.join(app.getPath("userData"), "config.json");
+}
+
+function publishVoice(snapshot: VoiceSnapshot): void {
+  const contents = mainWindow?.webContents;
+  if (!contents || contents.isDestroyed()) return;
+  contents.send("jarvis:voice", snapshot);
+}
+
+function sendSpeech(audio: Uint8Array, contentType: string): void {
+  const contents = mainWindow?.webContents;
+  if (!contents || contents.isDestroyed()) return;
+  contents.send("jarvis:voice-speak", { audio: Buffer.from(audio), contentType });
+}
+
+function installPermissions(): void {
+  const devUrl = process.env.VITE_DEV_SERVER_URL;
+  const ownWindow = (contents: Electron.WebContents | null): boolean => {
+    const current = mainWindow?.webContents;
+    if (!current || current.isDestroyed()) return false;
+    if (!contents) return true;
+    return contents.id === current.id;
+  };
+  session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
+    if (!ownWindow(contents) || details.mediaType === "video") return false;
+    return allowMediaPermission({
+      permission,
+      requestingUrl: details.requestingUrl || requestingOrigin,
+      devServerUrl: devUrl,
+      mainFrame: details.isMainFrame,
+    });
+  });
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    const mediaTypes = "mediaTypes" in details ? details.mediaTypes : undefined;
+    if (!ownWindow(contents) || mediaTypes?.some((type) => type !== "audio")) {
+      callback(false);
+      return;
+    }
+    callback(
+      allowMediaPermission({
+        permission,
+        requestingUrl: details.requestingUrl,
+        devServerUrl: devUrl,
+        mainFrame: details.isMainFrame,
+      }),
+    );
+  });
+}
+
+function pcmFromPayload(payload: unknown): Int16Array | undefined {
+  let bytes: Buffer | undefined;
+  if (payload instanceof ArrayBuffer) bytes = Buffer.from(payload);
+  else if (Buffer.isBuffer(payload)) bytes = Buffer.from(payload);
+  else if (ArrayBuffer.isView(payload)) bytes = Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength);
+  if (!bytes || bytes.length < 2) return undefined;
+  const length = bytes.length - (bytes.length % 2);
+  const copy = Buffer.from(bytes.subarray(0, length));
+  return new Int16Array(copy.buffer, copy.byteOffset, copy.length / 2);
+}
+
+async function launchTile(tileId: string): Promise<LaunchResult> {
+  if (!launcher) await refreshGate.requestRefresh();
+  const current = launcher;
+  if (!current) return { ok: false, error: "Unknown tile" };
+  const tile = current.tiles.find((item) => item.id === tileId);
+  if (!tile) return { ok: false, error: "Unknown tile" };
+  const centering = process.platform === "win32" && current.config.launchWindow.mode === "centered";
+  const serial = centering ? ++placeSerial : placeSerial;
+  let baseline: number[] | undefined;
+  if (centering) {
+    const before = await placementHelper.sample(LAUNCH_BASELINE_WAIT_MS);
+    if (!before) {
+      try {
+        await execute(tile.action);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Launch failed";
+        return { ok: false, error: message };
+      }
+      hideWindow();
+      return { ok: true };
+    }
+    baseline = before.windows.map((window) => window.hwnd);
+  }
+  try {
+    const spawnedPid = await execute(tile.action);
+    if (!centering) return { ok: true };
+    const watch = placementHelper.serve(LAUNCH_WINDOW_WATCH_MS);
+    try {
+      const outcome = await centerAfterLaunch(tile.action, spawnedPid, watch, serial, baseline);
+      if (outcome === "missed") hideWindow();
+      return { ok: true };
+    } finally {
+      watch.close();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Launch failed";
+    return { ok: false, error: message };
+  }
+}
+
 function registerIpc(): void {
   ipcMain.handle("jarvis:get-state", (event) => {
     if (!isAppFrame(event)) return { ...currentState(), warnings: ["Untrusted frame"] };
     return currentState();
   });
 
-  ipcMain.handle("jarvis:launch", async (event, tileId: unknown) => {
+  ipcMain.handle("jarvis:launch", (event, tileId: unknown) => {
     if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
-    if (!session) await refreshGate.requestRefresh();
     if (typeof tileId !== "string") return { ok: false, error: "Unknown tile" };
-    const current = session;
-    if (!current) return { ok: false, error: "Unknown tile" };
-    const tile = current.tiles.find((item) => item.id === tileId);
-    if (!tile) return { ok: false, error: "Unknown tile" };
-    const centering = process.platform === "win32" && current.config.launchWindow.mode === "centered";
-    const serial = centering ? ++placeSerial : placeSerial;
-    let baseline: number[] | undefined;
-    if (centering) {
-      const before = await placementHelper.sample(LAUNCH_BASELINE_WAIT_MS);
-      if (!before) {
-        try {
-          await execute(tile.action);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "Launch failed";
-          return { ok: false, error: message };
-        }
-        hideWindow();
-        return { ok: true };
-      }
-      baseline = before.windows.map((window) => window.hwnd);
-    }
-    try {
-      const spawnedPid = await execute(tile.action);
-      if (!centering) return { ok: true };
-      const watch = placementHelper.serve(LAUNCH_WINDOW_WATCH_MS);
-      try {
-        const outcome = await centerAfterLaunch(tile.action, spawnedPid, watch, serial, baseline);
-        if (outcome === "missed") hideWindow();
-        return { ok: true };
-      } finally {
-        watch.close();
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Launch failed";
-      return { ok: false, error: message };
-    }
+    return launchTile(tileId);
   });
 
   ipcMain.handle("jarvis:refresh", (event) => {
@@ -465,6 +556,28 @@ function registerIpc(): void {
     quitting = true;
     app.quit();
   });
+
+  ipcMain.handle("jarvis:voice-get", (event) => {
+    if (!isAppFrame(event)) return EMPTY_VOICE;
+    return voice?.snapshot() ?? EMPTY_VOICE;
+  });
+  ipcMain.handle("jarvis:voice-enabled", (event, enabled: unknown) => {
+    if (!isAppFrame(event) || typeof enabled !== "boolean") return;
+    return voice?.setEnabled(enabled);
+  });
+  ipcMain.on("jarvis:voice-pcm", (event, payload: unknown) => {
+    if (!isAppFrame(event)) return;
+    const samples = pcmFromPayload(payload);
+    if (samples) voice?.onPcm(samples);
+  });
+  ipcMain.on("jarvis:voice-played", (event) => {
+    if (!isAppFrame(event)) return;
+    voice?.playbackEnded();
+  });
+  ipcMain.on("jarvis:voice-error", (event, message: unknown) => {
+    if (!isAppFrame(event)) return;
+    voice?.reportError(typeof message === "string" ? message : "");
+  });
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -476,11 +589,41 @@ if (!gotLock) {
   app.whenReady().then(async () => {
     if (process.platform === "win32") placementHelper.start();
     app.setAppUserModelId("com.mario.jarvis-launcher");
+    installPermissions();
+    voice = createVoiceSession({
+      tiles: () => launcher?.tiles.map((tile) => ({ id: tile.id, label: tile.label })) ?? [],
+      voice: () => launcher?.config.voice ?? loadConfig(app.getPath("userData")).config.voice,
+      env: () => process.env,
+      configText: () => {
+        try {
+          return fs.readFileSync(configPath(), "utf8");
+        } catch {
+          return undefined;
+        }
+      },
+      writeConfig: (text) => {
+        try {
+          fs.writeFileSync(configPath(), text);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      show: () => showWindow(),
+      hide: () => hideWindow(),
+      launch: (tileId) => launchTile(tileId),
+      refresh: () => refreshGate.requestRefresh(),
+      publish: publishVoice,
+      speak: sendSpeech,
+      modelDir: () => resolveWakeDir(app.getAppPath()),
+      patchEnabled: patchVoiceEnabledText,
+    });
     registerIpc();
     // Paint before discovery. Get-StartApps can use its full timeout.
     const startHidden = loadConfig(app.getPath("userData")).config.startHidden;
     createWindow(startHidden);
     createTray();
+    void voice.start();
     await refreshGate.requestRefresh().catch(() => {
       // refreshSession published refreshFailed and cleared scanning.
     });
@@ -488,6 +631,7 @@ if (!gotLock) {
 
   app.on("before-quit", () => {
     quitting = true;
+    voice?.stop();
     placementHelper.stop();
     if (refreshTimer) clearTimeout(refreshTimer);
     if (configFilePath) fs.unwatchFile(configFilePath);

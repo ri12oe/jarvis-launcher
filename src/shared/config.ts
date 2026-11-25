@@ -1,4 +1,4 @@
-import type { ExtraTile, JarvisConfig, LaunchWindowConfig, PinnedFolder } from "./types";
+import type { ExtraTile, JarvisConfig, LaunchWindowConfig, PinnedFolder, VoiceConfig } from "./types";
 import { AI_APP_IDS, BUILTIN_IDS } from "./types";
 
 export const DEFAULT_HOTKEY = "CommandOrControl+Alt+J";
@@ -7,6 +7,24 @@ export const DEFAULT_LAUNCH_WINDOW: LaunchWindowConfig = {
   mode: "centered",
   widthPct: 70,
   heightPct: 70,
+};
+
+/** Current Grok chat model from the xAI chat-completions guide. */
+export const DEFAULT_CHAT_MODEL = "grok-4.7";
+
+/** Default speech-to-text model. xAI uses this when `model` is omitted. */
+export const DEFAULT_STT_MODEL = "grok-voice-transcribe-2.0";
+
+/** Built-in TTS voice. `eve` is the voice the xAI text-to-speech examples use. */
+export const DEFAULT_VOICE_ID = "eve";
+
+export const DEFAULT_API_KEY_ENV = "XAI_API_KEY";
+
+export const DEFAULT_VOICE: VoiceConfig = {
+  apiKeyEnv: DEFAULT_API_KEY_ENV,
+  model: DEFAULT_CHAT_MODEL,
+  voiceId: DEFAULT_VOICE_ID,
+  sttModel: DEFAULT_STT_MODEL,
 };
 
 export const DEFAULT_CONFIG: JarvisConfig = {
@@ -19,6 +37,7 @@ export const DEFAULT_CONFIG: JarvisConfig = {
   disabled: [],
   order: [],
   labels: {},
+  voice: { ...DEFAULT_VOICE },
 };
 
 const RESERVED_IDS = new Set<string>([...AI_APP_IDS, ...BUILTIN_IDS]);
@@ -48,6 +67,7 @@ export function cloneDefaultConfig(): JarvisConfig {
     disabled: [],
     order: [],
     labels: {},
+    voice: { ...DEFAULT_VOICE },
   };
 }
 
@@ -270,8 +290,85 @@ export function parseConfig(input: unknown): ParsedConfig {
     disabled: readIdList(input.disabled, warnings, "disabled"),
     order: readIdList(input.order, warnings, "order"),
     labels: readLabels(input.labels, warnings),
+    voice: readVoice(input.voice, warnings),
   };
   return { config, warnings };
+}
+
+const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+/** Only the xAI key variable, or another variable whose name starts with XAI_. */
+export function isAllowedKeyEnv(name: string): boolean {
+  return /^XAI_[A-Za-z0-9_]+$/.test(name);
+}
+
+function readToken(value: unknown, fallback: string, warnings: string[], label: string, pattern: RegExp): string {
+  if (value === undefined) return fallback;
+  if (typeof value === "string" && pattern.test(value.trim())) return value.trim();
+  warnings.push(`${label} is invalid; using ${fallback}`);
+  return fallback;
+}
+
+function readKeyEnv(value: unknown, warnings: string[]): string {
+  if (value === undefined) return DEFAULT_API_KEY_ENV;
+  if (typeof value === "string" && isAllowedKeyEnv(value.trim())) return value.trim();
+  warnings.push(`voice.apiKeyEnv must be XAI_API_KEY or start with XAI_; using ${DEFAULT_API_KEY_ENV}`);
+  return DEFAULT_API_KEY_ENV;
+}
+
+function readVoice(value: unknown, warnings: string[]): VoiceConfig {
+  if (value === undefined) return { ...DEFAULT_VOICE };
+  if (!isRecord(value)) {
+    warnings.push("voice must be an object; using defaults");
+    return { ...DEFAULT_VOICE };
+  }
+  const voice: VoiceConfig = {
+    apiKeyEnv: readKeyEnv(value.apiKeyEnv, warnings),
+    model: readToken(value.model, DEFAULT_VOICE.model, warnings, "voice.model", TOKEN),
+    voiceId: readToken(value.voiceId, DEFAULT_VOICE.voiceId, warnings, "voice.voiceId", TOKEN).toLowerCase(),
+    sttModel: readToken(value.sttModel, DEFAULT_VOICE.sttModel, warnings, "voice.sttModel", TOKEN),
+  };
+  if (value.enabled !== undefined) {
+    if (typeof value.enabled === "boolean") voice.enabled = value.enabled;
+    else warnings.push("voice.enabled must be a boolean; leaving it unset");
+  }
+  return voice;
+}
+
+/**
+ * Set `voice.enabled` in a config file's text.
+ * Returns undefined when the file is not a JSON object, so a broken file is left alone.
+ */
+export function patchVoiceEnabledText(text: string, enabled: boolean): string | undefined {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(raw)) return undefined;
+  const voice = isRecord(raw.voice) ? { ...raw.voice } : {};
+  voice.enabled = enabled;
+  raw.voice = voice;
+  return `${JSON.stringify(raw, null, 2)}\n`;
+}
+
+/** The key lives in the environment. Blank values count as missing. The value is not logged. */
+export function readVoiceApiKey(env: { readonly [name: string]: string | undefined }, name: string): string | undefined {
+  const value = env[name];
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
+ * The mic toggle. An omitted `enabled` is on when a key is present and off when it is not.
+ * An explicit true stays true even if the key is missing; the footer then says NO KEY.
+ */
+export function voicePreferenceOn(voice: VoiceConfig, hasKey: boolean): boolean {
+  if (voice.enabled === false) return false;
+  if (voice.enabled === true) return true;
+  return hasKey;
 }
 
 export function parseConfigText(text: string): ParsedConfig {

@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { cloneDefaultConfig, DEFAULT_HOTKEY, isValidHotkey, parseConfig, parseConfigText } from "../src/shared/config";
+import {
+  cloneDefaultConfig,
+  DEFAULT_CHAT_MODEL,
+  DEFAULT_HOTKEY,
+  DEFAULT_STT_MODEL,
+  isAllowedKeyEnv,
+  isValidHotkey,
+  parseConfig,
+  parseConfigText,
+  patchVoiceEnabledText,
+  readVoiceApiKey,
+  voicePreferenceOn,
+} from "../src/shared/config";
 
 describe("config parsing", () => {
   it("accepts a sensible hotkey and rejects bare keys", () => {
@@ -93,6 +105,52 @@ describe("config parsing", () => {
     const broken = parseConfig({ launchWindow: [] });
     expect(broken.config.launchWindow).toEqual({ mode: "centered", widthPct: 70, heightPct: 70 });
     expect(broken.warnings).toEqual(["launchWindow must be an object; using the centered default"]);
+  });
+
+  it("validates the voice block and leaves the key out of the file", () => {
+    expect(parseConfig({}).config.voice).toEqual({
+      apiKeyEnv: "XAI_API_KEY",
+      model: DEFAULT_CHAT_MODEL,
+      voiceId: "eve",
+      sttModel: DEFAULT_STT_MODEL,
+    });
+    expect(parseConfig({}).config.voice.enabled).toBeUndefined();
+    const turnedOff = parseConfig({
+      voice: { enabled: false, model: "grok-4", voiceId: "REX", apiKeyEnv: "XAI_CUSTOM", sttModel: "grok-voice-transcribe-2.0" },
+    });
+    expect(turnedOff.warnings).toEqual([]);
+    expect(turnedOff.config.voice).toEqual({
+      enabled: false,
+      apiKeyEnv: "XAI_CUSTOM",
+      model: "grok-4",
+      voiceId: "rex",
+      sttModel: DEFAULT_STT_MODEL,
+    });
+    expect(isAllowedKeyEnv("XAI_API_KEY")).toBe(true);
+    expect(isAllowedKeyEnv("JARVIS_KEY")).toBe(false);
+    const foreign = parseConfig({ voice: { apiKeyEnv: "JARVIS_KEY" } });
+    expect(foreign.config.voice.apiKeyEnv).toBe("XAI_API_KEY");
+    expect(foreign.warnings.join(" ")).toMatch(/XAI_/);
+    const broken = parseConfig({ voice: { enabled: "yes", model: "not a model", apiKeyEnv: "1KEY", voiceId: "" } });
+    expect(broken.config.voice.enabled).toBeUndefined();
+    expect(broken.config.voice.model).toBe(DEFAULT_CHAT_MODEL);
+    expect(broken.config.voice.apiKeyEnv).toBe("XAI_API_KEY");
+    expect(broken.warnings.join(" ")).toMatch(/voice.enabled/);
+    expect(parseConfig({ voice: [] }).warnings).toEqual(["voice must be an object; using defaults"]);
+    expect(voicePreferenceOn(parseConfig({}).config.voice, true)).toBe(true);
+    expect(voicePreferenceOn(parseConfig({}).config.voice, false)).toBe(false);
+    expect(voicePreferenceOn(parseConfig({ voice: { enabled: false } }).config.voice, true)).toBe(false);
+    expect(voicePreferenceOn(parseConfig({ voice: { enabled: true } }).config.voice, false)).toBe(true);
+    expect(readVoiceApiKey({ XAI_API_KEY: "  secret  " }, "XAI_API_KEY")).toBe("secret");
+    expect(readVoiceApiKey({ XAI_API_KEY: "   " }, "XAI_API_KEY")).toBeUndefined();
+    const patched = patchVoiceEnabledText('{"hotkey":"Ctrl+Alt+J","voice":{"model":"grok-4.7"}}', false);
+    expect(patched).toBeDefined();
+    expect(JSON.parse(patched ?? "{}")).toEqual({
+      hotkey: "Ctrl+Alt+J",
+      voice: { model: "grok-4.7", enabled: false },
+    });
+    expect(patchVoiceEnabledText("{", true)).toBeUndefined();
+    expect(patched?.includes("secret")).toBe(false);
   });
 
   it("accepts POSIX and UNC paths", () => {

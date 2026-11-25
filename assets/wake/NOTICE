@@ -1,0 +1,22 @@
+openWakeWord models
+Copyright 2022-2023 David Scripka
+https://github.com/dscripka/openWakeWord
+
+These ONNX files are unmodified from upstream v0.5.1
+(https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1):
+
+- hey_jarvis_v0.1.onnx
+- melspectrogram.onnx
+- embedding_model.onnx
+
+openWakeWord's code is Apache-2.0. These pre-trained models are not.
+The project licenses every included pre-trained model under
+Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+(CC BY-NC-SA 4.0):
+
+https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+See the License section of https://github.com/dscripka/openWakeWord
+The embedding model is a reimplementation of Google's speech embedding
+(the original TFHub module is Apache-2.0). The file shipped here is the
+openWakeWord release model and follows that project's CC BY-NC-SA 4.0 terms.
