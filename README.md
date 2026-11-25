@@ -20,6 +20,8 @@ npm run dev
 
 That starts the renderer, compiles the Electron main process, and opens the launcher. The default hotkey is **Ctrl+Alt+J** (`CommandOrControl+Alt+J` in the config). Press it again, or Esc, to hide the window. The process keeps running so the hotkey still works. Quit from the tray icon or the QUIT control.
 
+The tray menu is Show, Hide, Refresh, and Quit. Refresh re-reads `config.json` and the installed apps. Opening the window uses the list already in memory. Saving `config.json` re-reads it too.
+
 `npm test` runs the unit tests. `npm run typecheck` typechecks the main process and the renderer.
 
 On Linux or macOS the window still opens, with Microsoft Edge, File Explorer, and the standard folder tiles. Scanning Start Menu `.lnk` files, packaged apps, and the uninstall registry happens only on Windows, so those systems will not list installed AI apps.
@@ -43,7 +45,7 @@ The build does not turn on code signing (`signAndEditExecutable` is false).
 
 The launcher does not write shell registry keys. Two ways to start it at login:
 
-**Config flag.** Set `"openAtLogin": true` in `config.json`. On Windows and macOS, Electron's login-item API registers or removes the app. On Windows that is the normal per-user startup entry, not `Winlogon\Shell`. A portable exe passes `PORTABLE_EXECUTABLE_FILE` as the login path, so Windows does not start the temporary unpacked copy. Restart the launcher after changing the flag. Set it back to `false` to remove that entry. The setting is applied at startup and again when the config value changes, not on every refresh.
+**Config flag.** Set `"openAtLogin": true` in `config.json`. On Windows and macOS, Electron's login-item API registers or removes the app. On Windows that is the normal per-user startup entry, not `Winlogon\Shell`. A portable exe passes `PORTABLE_EXECUTABLE_FILE` as the login path, so Windows does not start the temporary unpacked copy. Saving the file applies the flag. Set it back to `false` to remove that entry. The setting is applied at startup and when the config value changes. Showing the window does not re-read the file.
 
 **Startup folder shortcut.** In File Explorer, open:
 
@@ -97,7 +99,7 @@ Shortcut names (and, when Windows can read them, shortcut targets) under:
 - `%ProgramData%\Microsoft\Windows\Start Menu\Programs`
 - `%AppData%\Microsoft\Windows\Start Menu\Programs`
 
-Packaged Store apps such as ChatGPT and Copilot often have no `.lnk` and no uninstall entry. Those are read with `powershell.exe -NoProfile -NonInteractive -Command` running `Get-StartApps` (an argument array, not a shell command line). A match launches with `%SystemRoot%\explorer.exe shell:AppsFolder\<AppID>`.
+Packaged Store apps such as ChatGPT and Copilot often have no `.lnk` and no uninstall entry. Those are read with `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -Command` running `Get-StartApps` (an argument array, not a shell command line). If that call fails, the launcher shows a warning and still lists shortcuts and uninstall matches. A match launches with `%SystemRoot%\explorer.exe shell:AppsFolder\<AppID>`.
 
 Plus display names in these uninstall keys, read with `reg query` only:
 
@@ -115,6 +117,8 @@ Fixed tiles:
 | File Explorer | Starts `%SystemRoot%\explorer.exe` |
 | Desktop, Documents, Downloads, Pictures | Opens that folder |
 | Pinned folder | Opens the path from the config |
+
+A tile shows the file icon when the platform can read one. A Store app has no file to read, and Microsoft Edge uses a small placeholder when `msedge.exe` is not in the usual install folders.
 
 ## Tests
 

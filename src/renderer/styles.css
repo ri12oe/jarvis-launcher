@@ -242,6 +242,7 @@ time {
 .icon {
   width: 14px;
   height: 14px;
+  flex: 0 0 auto;
 }
 
 .label {

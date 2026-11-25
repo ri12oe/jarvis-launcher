@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { cloneDefaultConfig, DEFAULT_HOTKEY } from "../shared/config";
+import { tileFallbackIcon } from "../shared/icons";
 import { windowsExplorerPath } from "../shared/launch";
 import { composeTiles } from "../shared/tiles";
 import type { LauncherState, TileKind } from "../shared/types";
@@ -44,7 +45,12 @@ function previewState(): LauncherState {
   return {
     hotkey: DEFAULT_HOTKEY,
     platform: "linux",
-    tiles: tiles.map(({ id, label, kind }) => ({ id, label, kind })),
+    tiles: tiles.map((tile) => {
+      const icon = tileFallbackIcon(tile);
+      return icon
+        ? { id: tile.id, label: tile.label, kind: tile.kind, icon }
+        : { id: tile.id, label: tile.label, kind: tile.kind };
+    }),
     warnings: [],
   };
 }

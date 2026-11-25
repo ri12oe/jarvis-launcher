@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readStartApps, START_APPS_ARGS } from "../src/discovery/start-apps";
+import { readStartApps, START_APPS_ARGS, START_APPS_FAILURE, windowsPowershellPath } from "../src/discovery/start-apps";
 import { parseStartAppsJson } from "../src/shared/start-apps";
 
 const CHATGPT = "OpenAI.ChatGPT-Desktop_2p2nqsdnc2c4m!App";
@@ -14,6 +14,15 @@ describe("Get-StartApps parsing", () => {
       expect.stringContaining("Get-StartApps"),
     ]);
     expect(START_APPS_ARGS[3]).not.toContain("\n");
+  });
+
+  it("builds the System32 Windows PowerShell path", () => {
+    expect(windowsPowershellPath("D:\\Windows\\")).toBe(
+      "D:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    );
+    expect(windowsPowershellPath(undefined)).toBe(
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    );
   });
 
   it("parses one object, an array, and drops bad ids", () => {
@@ -35,6 +44,30 @@ describe("Get-StartApps parsing", () => {
   });
 
   it("does not run PowerShell off Windows", async () => {
-    await expect(readStartApps("linux")).resolves.toEqual([]);
+    let called = false;
+    const read = await readStartApps("linux", process.env, async () => {
+      called = true;
+      return { stdout: "" };
+    });
+    expect(called).toBe(false);
+    expect(read).toEqual({ apps: [] });
+  });
+
+  it("calls Windows PowerShell by its System32 path", async () => {
+    let file = "";
+    const read = await readStartApps("win32", { SystemRoot: "D:\\Windows\\" }, async (cmd, args) => {
+      file = cmd;
+      expect(args).toEqual([...START_APPS_ARGS]);
+      return { stdout: `{"Name":"ChatGPT","AppID":"${CHATGPT}"}` };
+    });
+    expect(file).toBe("D:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    expect(read).toEqual({ apps: [{ name: "ChatGPT", appId: CHATGPT }] });
+  });
+
+  it("returns a warning when PowerShell fails", async () => {
+    const read = await readStartApps("win32", { SystemRoot: "C:\\Windows" }, async () => {
+      throw new Error("missing");
+    });
+    expect(read).toEqual({ apps: [], warning: START_APPS_FAILURE });
   });
 });

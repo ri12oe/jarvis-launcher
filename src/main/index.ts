@@ -16,12 +16,12 @@ import {
 import { loadConfig } from "../config/load";
 import { discoverInstalledApps } from "../discovery";
 import { DEFAULT_HOTKEY } from "../shared/config";
+import { hotkeyRegistrationWarnings } from "../shared/hotkey";
+import { tileFallbackIcon, tileIconFile } from "../shared/icons";
 import { defaultEdgeCandidates, runLaunch, spawnDetached, windowsExplorerPath } from "../shared/launch";
 import { loginItemOptions } from "../shared/login-item";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, JarvisConfig, LauncherState, LauncherTileView, ResolvedTile } from "../shared/types";
-
-const DISCOVERY_CACHE_MS = 15_000;
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -30,7 +30,11 @@ let quitting = false;
 let activeHotkey = "";
 let appliedHotkeyRequest = "";
 let appliedLogin: boolean | null = null;
-let discoveredCache: { at: number; apps: DiscoveredApp[] } | null = null;
+let hotkeyWarnings: string[] = [];
+let refreshSerial = 0;
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+let configWatchStarted = false;
+let configFilePath = "";
 let session: { config: JarvisConfig; tiles: ResolvedTile[]; view: LauncherTileView[]; warnings: string[] } | null =
   null;
 
@@ -63,34 +67,24 @@ function readShortcutTarget(lnkPath: string): string | undefined {
   }
 }
 
-async function loadDiscovered(): Promise<DiscoveredApp[]> {
-  const now = Date.now();
-  if (discoveredCache && now - discoveredCache.at < DISCOVERY_CACHE_MS) return discoveredCache.apps;
-  const apps = await discoverInstalledApps({
-    platform: process.platform,
-    readTarget: readShortcutTarget,
-  });
-  discoveredCache = { at: now, apps };
-  return apps;
-}
-
-function registerHotkey(hotkey: string, warnings: string[]): string {
+function registerHotkey(hotkey: string): string {
   const next = hotkey || DEFAULT_HOTKEY;
-  if (next === activeHotkey && globalShortcut.isRegistered(next)) return next;
-  globalShortcut.unregisterAll();
-  activeHotkey = "";
-  const ok = globalShortcut.register(next, () => toggleWindow());
-  if (ok) {
-    activeHotkey = next;
+  if (next === activeHotkey && globalShortcut.isRegistered(next)) {
+    hotkeyWarnings = [];
     return next;
   }
-  warnings.push(`Could not register ${next}; trying ${DEFAULT_HOTKEY}`);
+  globalShortcut.unregisterAll();
+  activeHotkey = "";
+  if (globalShortcut.register(next, () => toggleWindow())) {
+    activeHotkey = next;
+    hotkeyWarnings = [];
+    return next;
+  }
   if (next !== DEFAULT_HOTKEY && globalShortcut.register(DEFAULT_HOTKEY, () => toggleWindow())) {
     activeHotkey = DEFAULT_HOTKEY;
-    return DEFAULT_HOTKEY;
   }
-  warnings.push("No global hotkey is registered");
-  return next;
+  hotkeyWarnings = hotkeyRegistrationWarnings(next, activeHotkey);
+  return activeHotkey || next;
 }
 
 function syncLoginItem(openAtLogin: boolean): void {
@@ -101,22 +95,18 @@ function syncLoginItem(openAtLogin: boolean): void {
 }
 
 function applyHostSettings(config: JarvisConfig, warnings: string[]): JarvisConfig {
-  let hotkey = activeHotkey || config.hotkey;
-  if (config.hotkey !== appliedHotkeyRequest) {
-    hotkey = registerHotkey(config.hotkey, warnings);
+  const registered = activeHotkey !== "" && globalShortcut.isRegistered(activeHotkey);
+  if (config.hotkey !== appliedHotkeyRequest || hotkeyWarnings.length > 0 || !registered) {
+    registerHotkey(config.hotkey);
     appliedHotkeyRequest = config.hotkey;
   }
+  warnings.push(...hotkeyWarnings);
   if (appliedLogin !== config.openAtLogin) {
     syncLoginItem(config.openAtLogin);
     appliedLogin = config.openAtLogin;
   }
+  const hotkey = activeHotkey || config.hotkey;
   return hotkey === config.hotkey ? config : { ...config, hotkey };
-}
-
-function iconTarget(tile: ResolvedTile): string | undefined {
-  if (tile.action.type === "openPath") return tile.action.path;
-  if (tile.id === "explorer" && tile.action.type === "spawn") return tile.action.command;
-  return undefined;
 }
 
 async function fileIcon(target: string | undefined): Promise<string | undefined> {
@@ -134,7 +124,7 @@ async function fileIcon(target: string | undefined): Promise<string | undefined>
 async function tileViews(tiles: readonly ResolvedTile[]): Promise<LauncherTileView[]> {
   return Promise.all(
     tiles.map(async (tile) => {
-      const icon = await fileIcon(iconTarget(tile));
+      const icon = (await fileIcon(tileIconFile(tile))) ?? tileFallbackIcon(tile);
       return icon
         ? { id: tile.id, label: tile.label, kind: tile.kind, icon }
         : { id: tile.id, label: tile.label, kind: tile.kind };
@@ -142,16 +132,41 @@ async function tileViews(tiles: readonly ResolvedTile[]): Promise<LauncherTileVi
   );
 }
 
+function scheduleRefresh(): void {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null;
+    void refreshSession();
+  }, 300);
+}
+
+function startConfigWatch(filePath: string): void {
+  if (configWatchStarted) return;
+  configWatchStarted = true;
+  configFilePath = filePath;
+  fs.watchFile(filePath, { persistent: true, interval: 1000 }, (current, previous) => {
+    if (current.mtimeMs === previous.mtimeMs && current.size === previous.size) return;
+    scheduleRefresh();
+  });
+}
+
 async function refreshSession(): Promise<void> {
+  const serial = ++refreshSerial;
   const loaded = loadConfig(app.getPath("userData"));
   let discovered: DiscoveredApp[] = [];
   try {
-    discovered = await loadDiscovered();
+    const discovery = await discoverInstalledApps({
+      platform: process.platform,
+      readTarget: readShortcutTarget,
+    });
+    if (serial !== refreshSerial) return;
+    discovered = discovery.apps;
+    loaded.warnings.push(...discovery.warnings);
   } catch {
+    if (serial !== refreshSerial) return;
     loaded.warnings.push("App discovery failed; showing built-in tiles only");
   }
-  const config = applyHostSettings(loaded.config, loaded.warnings);
-  const tiles = composeTiles(config, discovered, {
+  const tiles = composeTiles(loaded.config, discovered, {
     platform: process.platform,
     edgeExecutables: existingEdgeExecutables(),
     explorerPath: windowsExplorerPath(process.env.SystemRoot),
@@ -163,7 +178,11 @@ async function refreshSession(): Promise<void> {
     },
   });
   const view = await tileViews(tiles);
+  if (serial !== refreshSerial) return;
+  const config = applyHostSettings(loaded.config, loaded.warnings);
   session = { config, tiles, view, warnings: loaded.warnings };
+  publishState();
+  startConfigWatch(loaded.filePath);
 }
 
 function currentState(): LauncherState {
@@ -196,10 +215,6 @@ function showWindow(): void {
   win.show();
   win.setFullScreen(true);
   win.focus();
-  void refreshSession().then(() => {
-    if (win.isDestroyed()) return;
-    publishState();
-  });
 }
 
 function hideWindow(): void {
@@ -280,6 +295,7 @@ function createTray(): void {
   const menu = Menu.buildFromTemplate([
     { label: "Show", click: () => showWindow() },
     { label: "Hide", click: () => hideWindow() },
+    { label: "Refresh", click: () => void refreshSession() },
     { type: "separator" },
     {
       label: "Quit",
@@ -342,6 +358,8 @@ if (!gotLock) {
 
   app.on("before-quit", () => {
     quitting = true;
+    if (refreshTimer) clearTimeout(refreshTimer);
+    if (configFilePath) fs.unwatchFile(configFilePath);
     globalShortcut.unregisterAll();
   });
 
