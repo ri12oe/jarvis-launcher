@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { discoverInstalledApps } from "../src/discovery";
+import { START_APPS_FAILURE } from "../src/discovery/start-apps";
 import { exeFromDisplayIcon, parseUninstallListing, UNINSTALL_KEYS } from "../src/discovery/registry";
 import { readInstalledPrograms } from "../src/discovery/registry";
 import { scanShortcuts, windowsStartMenuRoots } from "../src/discovery/shortcuts";
@@ -121,9 +122,11 @@ describe("discoverInstalledApps", () => {
         { name: "Cursor", exePath: "C:\\cursor\\Cursor.exe" },
         { name: "Claude", exePath: "C:\\claude\\Claude.exe" },
       ],
+      storeApps: [],
     });
 
-    expect(found.map((app) => [app.id, app.source])).toEqual([
+    expect(found.warnings).toEqual([]);
+    expect(found.apps.map((app) => [app.id, app.source])).toEqual([
       ["claude", "uninstall"],
       ["cursor", "shortcut"],
     ]);
@@ -139,7 +142,7 @@ describe("discoverInstalledApps", () => {
       env: { ProgramData: path.join(root, "ProgramData") },
       programs: [],
     });
-    expect(found).toEqual([]);
+    expect(found).toEqual({ apps: [], warnings: [] });
   });
 
   it("matches injected Store apps without calling PowerShell", async () => {
@@ -152,14 +155,32 @@ describe("discoverInstalledApps", () => {
         { name: "Calculator", appId: "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App" },
       ],
     });
-    expect(found).toEqual([
-      {
-        id: "chatgpt",
-        label: "ChatGPT",
-        source: "store",
-        launchKind: "store",
-        launchPath: "OpenAI.ChatGPT-Desktop_2p2nqsdnc2c4m!App",
-      },
-    ]);
+    expect(found).toEqual({
+      warnings: [],
+      apps: [
+        {
+          id: "chatgpt",
+          label: "ChatGPT",
+          source: "store",
+          launchKind: "store",
+          launchPath: "OpenAI.ChatGPT-Desktop_2p2nqsdnc2c4m!App",
+        },
+      ],
+    });
+  });
+
+  it("keeps shortcut matches and reports a Start menu failure", async () => {
+    const root = makeTemp();
+    const programs = path.join(root, "Programs");
+    fs.mkdirSync(programs, { recursive: true });
+    fs.writeFileSync(path.join(programs, "Cursor.lnk"), "");
+    const found = await discoverInstalledApps({
+      platform: "win32",
+      shortcutRoots: [programs],
+      programs: [],
+      readStoreApps: async () => ({ apps: [], warning: START_APPS_FAILURE }),
+    });
+    expect(found.warnings).toEqual([START_APPS_FAILURE]);
+    expect(found.apps.map((app) => app.id)).toEqual(["cursor"]);
   });
 });

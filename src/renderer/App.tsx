@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cloneDefaultConfig, DEFAULT_HOTKEY } from "../shared/config";
+import { tileFallbackIcon } from "../shared/icons";
 import { windowsExplorerPath } from "../shared/launch";
+import { acceptRefreshClick, refreshControlLabel } from "../shared/refresh";
 import { composeTiles } from "../shared/tiles";
 import type { LauncherState, TileKind } from "../shared/types";
 
@@ -44,7 +46,12 @@ function previewState(): LauncherState {
   return {
     hotkey: DEFAULT_HOTKEY,
     platform: "linux",
-    tiles: tiles.map(({ id, label, kind }) => ({ id, label, kind })),
+    tiles: tiles.map((tile) => {
+      const icon = tileFallbackIcon(tile);
+      return icon
+        ? { id: tile.id, label: tile.label, kind: tile.kind, icon }
+        : { id: tile.id, label: tile.label, kind: tile.kind };
+    }),
     warnings: [],
   };
 }
@@ -60,6 +67,8 @@ export function App() {
   const [now, setNow] = useState(() => new Date());
   const [status, setStatus] = useState("");
   const [pressed, setPressed] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
@@ -76,15 +85,22 @@ export function App() {
         cancel = true;
       };
     }
+    let pushed = false;
     const apply = (next: LauncherState) => {
       if (cancel) return;
       setState(next);
       setStatus("");
     };
-    void bridge.getState().then(apply).catch(() => {
+    const stop = bridge.onState((next) => {
+      pushed = true;
+      apply(next);
+    });
+    void bridge.getState().then((next) => {
+      if (pushed) return;
+      apply(next);
+    }).catch(() => {
       if (!cancel) setStatus("LINK LOST");
     });
-    const stop = bridge.onState(apply);
     return () => {
       cancel = true;
       stop();
@@ -110,6 +126,18 @@ export function App() {
       return;
     }
     bridge.hide();
+  };
+
+  const refresh = () => {
+    if (!acceptRefreshClick(refreshingRef.current)) return;
+    const bridge = window.jarvis;
+    if (!bridge) return;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    void bridge.refresh().finally(() => {
+      refreshingRef.current = false;
+      setRefreshing(false);
+    });
   };
 
   const hotkey = formatHotkey(state?.hotkey ?? DEFAULT_HOTKEY);
@@ -160,11 +188,21 @@ export function App() {
 
       <footer className="bottom">
         <p className="hint">
-          {status || (warnings.length > 0 ? warnings[0] : "SELECT A SYSTEM")}
+          {refreshing ? "REFRESHING" : status || (warnings.length > 0 ? warnings[0] : "SELECT A SYSTEM")}
         </p>
-        <button type="button" className="quit" onClick={() => window.jarvis?.quit()}>
-          QUIT
-        </button>
+        <div className="commands">
+          <button
+            type="button"
+            className={refreshing ? "quit refreshing" : "quit"}
+            aria-busy={refreshing}
+            onClick={refresh}
+          >
+            {refreshControlLabel(refreshing)}
+          </button>
+          <button type="button" className="quit" onClick={() => window.jarvis?.quit()}>
+            QUIT
+          </button>
+        </div>
       </footer>
 
       <div className="boot" aria-hidden="true">

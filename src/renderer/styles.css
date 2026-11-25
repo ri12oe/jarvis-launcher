@@ -242,6 +242,7 @@ time {
 .icon {
   width: 14px;
   height: 14px;
+  flex: 0 0 auto;
 }
 
 .label {
@@ -251,6 +252,12 @@ time {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.commands {
+  display: flex;
+  align-items: flex-end;
+  gap: 28px;
 }
 
 .quit {
@@ -267,6 +274,13 @@ time {
 .quit:focus-visible {
   color: var(--cyan);
   outline: none;
+}
+
+.quit.refreshing,
+.quit.refreshing:hover,
+.quit.refreshing:focus-visible {
+  color: var(--cyan);
+  cursor: default;
 }
 
 .boot {
