@@ -245,7 +245,8 @@ type PlacementOutcome = "placed" | "missed" | "skipped" | "cancelled";
 /**
  * Move the new window in front of Jarvis.
  * The watch is already running. Its first sample is the before list.
- * `missed` means Jarvis should hide if a new foreground window has not already uncovered the app.
+ * `missed` means no window was found or the move failed, and Jarvis should hide.
+ * A placed window stays in front of the full-screen launcher, which is not always on top.
  */
 async function centerAfterLaunch(
   action: ResolvedTile["action"],
@@ -278,9 +279,6 @@ async function centerAfterLaunch(
       target: targetFromAction(action, readShortcutTarget),
       // Physical pixels. The helper is per-monitor v2, so Windows does not scale these again.
       toScreenRect: (rect) => screen.dipToScreenRect(win, rect),
-      onNewForeground: () => {
-        if (serial === placeSerial) hideWindow();
-      },
       nextSample: () => (serial === placeSerial ? watch.nextSample() : Promise.resolve(undefined)),
       placeWindow: (hwnd, rect) => (serial === placeSerial ? watch.place(hwnd, rect) : Promise.resolve(false)),
     });

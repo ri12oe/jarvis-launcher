@@ -92,8 +92,6 @@ export interface CenterLaunchOptions {
   spawnedPid?: number;
   baseline?: readonly number[];
   target?: LaunchTarget;
-  /** Called when a new foreground window appears, before it is necessarily the one we move. */
-  onNewForeground?: () => void;
   /** DIP rect to physical pixels. The helper is per-monitor DPI aware, so it must not be scaled again. */
   toScreenRect?: (rect: WindowRect) => WindowRect;
   /** Undefined when the watch has ended. */
@@ -423,7 +421,7 @@ function roundRect(rect: WindowRect): WindowRect {
 
 /**
  * Move the launched window. Returns false when nothing qualified or the move failed.
- * The caller hides Jarvis on false so the launcher does not stay on top of the app.
+ * A successful place leaves Jarvis full screen behind the app. The caller hides only on false.
  */
 export async function centerLaunchedWindow(options: CenterLaunchOptions): Promise<boolean> {
   if (options.platform !== "win32" || options.mode !== "centered") return false;
@@ -437,7 +435,6 @@ export async function centerLaunchedWindow(options: CenterLaunchOptions): Promis
   }
   let baseline = options.baseline;
   const samples: WindowSnapshot[] = [];
-  let announced = false;
   while (true) {
     let snap: WindowSnapshot | undefined;
     try {
@@ -451,17 +448,6 @@ export async function centerLaunchedWindow(options: CenterLaunchOptions): Promis
       continue;
     }
     samples.push(snap);
-    const foreground = snap.windows.find((window) => window.hwnd === snap.foreground);
-    if (
-      !announced &&
-      foreground &&
-      foreground.hwnd !== options.launcherHwnd &&
-      !baseline.includes(foreground.hwnd) &&
-      isPlaceableWindow(foreground, options.launcherHwnd, options.launcherPid)
-    ) {
-      announced = true;
-      options.onNewForeground?.();
-    }
     const picked = pickLaunchedWindow({
       samples,
       launcherHwnd: options.launcherHwnd,

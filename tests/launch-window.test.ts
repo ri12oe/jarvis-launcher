@@ -484,18 +484,13 @@ describe("centerLaunchedWindow", () => {
     expect(tools.reads()).toBe(2);
   });
 
-  it("uses the helper's first sample as the before list and hides on a new foreground", async () => {
+  it("uses the helper's first sample as the before list and still places the new window", async () => {
     const oldNotepad = app({ hwnd: 2, exe: "C:\\Windows\\notepad.exe", title: "Notepad" });
     const edge = app({ hwnd: 40, exe: "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe", title: "Edge" });
-    let hid = 0;
     const tools = run([sample(2, [oldNotepad]), sample(40, [oldNotepad, edge])], {
       baseline: undefined,
-      onNewForeground: () => {
-        hid += 1;
-      },
     });
     expect(await tools.promise).toBe(true);
-    expect(hid).toBe(1);
     expect(tools.placed).toEqual([{ hwnd: 40, rect: centered }]);
   });
 
