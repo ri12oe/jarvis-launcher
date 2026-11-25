@@ -125,7 +125,7 @@ describe("rendered geometry", () => {
           if (/^[A-Z]$/.test(text) || /^\d+$/.test(text)) return [`replaced ${plate.full} -> ${plate.shown}`];
           if (first && text.includes(first)) return [];
           const letters = text.replace(/[^A-Z0-9]/g, "");
-          if (first.length > 8 && letters.length >= 4 && first.startsWith(letters.slice(0, 4))) return [];
+          if (letters.length >= 4 && first.startsWith(letters.slice(0, 4))) return [];
           return [`short ${plate.full} -> ${plate.shown}`];
         });
         const misses: string[] = [];

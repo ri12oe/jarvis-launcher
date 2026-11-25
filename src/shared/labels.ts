@@ -12,7 +12,7 @@ export type MeasureWidth = (text: string, fontPx: number) => number;
 
 export function estimateWidth(text: string, fontPx: number): number {
   let width = 0;
-  for (const char of text) width += char === " " ? fontPx * 0.33 : fontPx * 0.58;
+  for (const char of text) width += char === " " ? fontPx * 0.33 : fontPx * 0.68;
   return width;
 }
 

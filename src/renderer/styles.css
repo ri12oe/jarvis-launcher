@@ -899,6 +899,7 @@ button {
   display: flex;
   align-items: center;
   min-width: 0;
+  font-family: Arial, "Liberation Sans", "DejaVu Sans", sans-serif;
   color: #d7f4ff;
   cursor: pointer;
   text-transform: uppercase;
@@ -939,7 +940,7 @@ button {
   flex-direction: column;
   justify-content: center;
   gap: 1px;
-  padding: 1px 3px;
+  padding: 0 1px;
   background: linear-gradient(180deg, #465266, #1a212c 42%, #0d1218);
   clip-path: polygon(10% 0, 90% 0, 100% 100%, 0 100%);
   letter-spacing: 0;

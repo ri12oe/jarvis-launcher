@@ -41,7 +41,7 @@ export function measurePlateWidth(text: string, fontPx: number): number {
     context = canvas.getContext("2d");
   }
   if (!context) return text.length * fontPx * 0.58;
-  context.font = `600 ${fontPx}px "Segoe UI", "Arial Narrow", "Helvetica Neue", sans-serif`;
+  context.font = `600 ${fontPx}px Arial, "Liberation Sans", "DejaVu Sans", sans-serif`;
   const measured = context.measureText(text).width;
   const width = Number.isFinite(measured) && measured > 0 ? measured : text.length * fontPx * 0.62;
   return width * 1.03;
