@@ -4,6 +4,18 @@ A full-screen JARVIS-style launcher for Windows. It is an Electron window, not a
 
 Click a tile to open that app or folder. The launcher only reads Start Menu shortcuts, the uninstall program list, and the Start menu app list. It never deletes, moves, or edits your files. The only file it writes is its own `config.json`.
 
+## UI
+
+The window is a full-screen HUD. Every tile — discovered AI apps, Microsoft Edge, File Explorer, the standard folders, pinned folders, and extra tiles — is a segment on a ring around an arc reactor. The reactor is a cyan core with concentric rings, tick marks, and arcs. A static mark in the center of the core is reserved for a later mic or voice indicator. It does not listen, record, or change state.
+
+Segments sit on up to three rings. The first segment on a ring is at the top and the rest run clockwise, in config order. Each segment's radius comes from its label width and icon size, so a label does not cover a neighbor. When the tiles fit, the ring fills about 85–90% of the screen height. When they still do not fit, the rest move to another page. PageUp and PageDown change pages and focus a tile on that page. The previous and next arc buttons beside the core also change pages, and they keep the keyboard focus so Enter can page again. A page indicator sits under the reactor. Pages that contain a filter match are highlighted. Focusing a tile on another page shows that page. Esc clears a filter and leaves the current page up, with focus still on a tile.
+
+The only side panel is the clock and the date, at the top left. The footer keeps the status line and the REFRESH and QUIT controls. The status is SCANNING, REFRESHING, REFRESH FAILED, LAUNCH FAILED with the reason, the filter text, NO MATCH when the filter hits nothing, or a warning. LAUNCH FAILED is shown in amber.
+
+Left and Right move around the current ring. They wrap, and they skip dimmed segments. Up and Down move to the nearest lit segment on the next ring, wrapping from the inner ring to the outer ring and back. On a single ring, Up and Down move around that ring as well. Enter launches the focused segment. Typing filters by name: matching segments stay bright, the rest dim, and the footer shows the text (`FILTER  EDGE`). A filter that matches nothing shows `NO MATCH`. Backspace edits the filter. Space activates the focused button. Esc clears the filter, and hides the window when the filter is already empty. Hiding from the hotkey clears the filter too. A failed launch stays in the footer until the next key, a tile click, refresh, or hide. A launch leaves Jarvis up.
+
+The rings turn slowly, a scan line crosses the display, and a short boot sequence plays when the window opens. Motion is CSS transforms and opacity. `prefers-reduced-motion` turns that motion off, including the boot overlay. The Vite dev server, opened without Electron, fills the ring with sample tiles (ChatGPT, Claude, Cursor, Grok, Copilot, Perplexity, Ollama, LM Studio, plus the built-ins) so the HUD can be viewed in a browser.
+
 ## Install
 
 You need Node.js 20 or newer.
@@ -20,7 +32,7 @@ npm run dev
 
 That starts the renderer, compiles the Electron main process, and opens the launcher. The default hotkey is **Ctrl+Alt+J** (`CommandOrControl+Alt+J` in the config). Press it again, or Esc, to hide the window. The process keeps running so the hotkey still works. Quit from the tray icon or the QUIT control.
 
-Arrow keys move through the tiles as they are laid out. Enter launches the focused tile. Typing filters the grid by name, and the footer shows that text (`FILTER  EDGE`). Backspace edits it. A space activates the focused button. Esc clears the filter, and hides the window when the filter is already empty. Hiding from the hotkey clears the filter too. A failed launch stays in the footer as `LAUNCH FAILED` plus the reason until the next key, click, refresh, or hide.
+Keyboard focus, the filter, and the footer are covered in [UI](#ui). A failed launch stays in the footer as `LAUNCH FAILED` plus the reason until the next key, click, refresh, or hide.
 
 A click launches the app immediately. Jarvis stays full screen behind it and is not always on top, so the centered window can sit in front. Esc and the hotkey still hide it. On Windows one PowerShell helper starts with Jarvis and stays up for the life of the app. It is compiled once. Commands go in on stdin and JSON comes back on stdout, and the helper waits on stdin while it has nothing to do. It exits when that pipe closes, including a crash, Ctrl+C, or Task Manager ending Jarvis, and it also exits if Jarvis's process is gone. Quitting asks it to exit and kills the process tree only if it is still running. The click does not wait for the helper to start. If a fresh window list is not ready, which is only in the moment right after Jarvis itself starts, the click waits at most about 300ms, launches the app, and then hides Jarvis without trying to center. Once the helper is ready, the list taken at the click is the before list: windows already open at that moment.
 
@@ -188,7 +200,7 @@ Check both `JarvisLauncher-Setup.exe` and `JarvisLauncher-portable.exe` where it
 - Ctrl+Alt+J shows and hides the window
 - Autostart works for the NSIS install and the portable exe (`openAtLogin`, or a shortcut in the Startup folder)
 - REFRESH reloads the list. The footer reads SCANNING during the first scan, and REFRESH FAILED if a reload throws
-- Arrow keys move across the tiles, Enter launches the focused tile, Esc clears a filter and then hides, and typing filters the grid
+- Arrow keys move around the ring, PageUp and PageDown change pages when the tiles do not fit, Enter launches the focused segment, Esc clears a filter and then hides, and typing highlights matching segments and dims the rest
 - A click leaves Jarvis up and opens the app in a centered window about 70% of the work area on that display. The window list is taken at the click from the helper that stays running for the life of Jarvis. An app that is already open is restored only when its window is in front. File Explorer moves only a new Explorer window. Jarvis stays full screen behind a placed window, and hides only if that window cannot be found or the move fails. A click in the moment after Jarvis starts, before the helper has compiled, launches the app and hides Jarvis without centering. `"launchWindow": { "mode": "default" }` leaves the app's own size and leaves Jarvis up
 
 ## Windows smoke test for voice
@@ -211,4 +223,4 @@ The Linux and Windows CI jobs do not have a microphone, so they do not run this 
 npm test
 ```
 
-Matching, config validation, shortcut scanning, registry parsing, Start menu app parsing, launch plans, the refresh gate, footer hints, grid navigation, and window placement are covered. Voice tests cover the command parser, fuzzy tile matching, the voice block in config, the listen/think/speak state machine, and the xAI client with a mocked `fetch`. Those tests check that the API key is not written into an error or a log line. Launch tests mock `openPath`, `openExternal`, and `spawn`. The placement tests mock the window list, so they do not need Windows. The Windows CI job also starts the helper, reads a real window list, moves a window that the test created, and checks that closing stdin exits the helper. The wake-word model is not asserted in CI. A real microphone is not available there.
+Matching, config validation, shortcut scanning, registry parsing, Start menu app parsing, launch plans, the refresh gate, footer hints, ring layout, ring navigation, and window placement are covered. Voice tests cover the command parser, fuzzy tile matching, the voice block in config, the listen/think/speak state machine, and the xAI client with a mocked `fetch`. Those tests check that the API key is not written into an error or a log line. Launch tests mock `openPath`, `openExternal`, and `spawn`. The placement tests mock the window list, so they do not need Windows. The Windows CI job also starts the helper, reads a real window list, moves a window that the test created, and checks that closing stdin exits the helper. The wake-word model is not asserted in CI. A real microphone is not available there.
