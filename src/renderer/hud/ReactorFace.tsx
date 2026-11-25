@@ -21,23 +21,41 @@ export function ReactorFace({ frame, phase }: { frame: HudFrame; phase: VoicePha
       className="reactor"
       style={{ width: size, height: size, left: frame.cx - size / 2, top: frame.cy - size / 2 }}
     >
-      {slots.map((slot, index) => (
-        <span
-          key={index}
-          className="plate-btn"
-          style={{
-            left: slot.x - frame.cx + size / 2,
-            top: slot.y - frame.cy + size / 2,
-            width: slot.width,
-            height: slot.height,
-            transform: `translate(-50%, -50%) rotate(${slot.rotation}deg)`,
-          }}
-        />
-      ))}
+      {slots.map((slot, index) => {
+        const dx = slot.x - frame.cx;
+        const dy = slot.y - frame.cy;
+        const chord = (2 * frame.segRadius * Math.sin(Math.PI / slots.length)) / size;
+        return (
+          <span key={`outer-${index}`}>
+            <span
+              className="plate-btn"
+              style={{
+                left: size / 2 + dx,
+                top: size / 2 + dy,
+                width: chord * size * 1.02,
+                height: frame.segH,
+                transform: `translate(-50%, -50%) rotate(${slot.rotation}deg)`,
+              }}
+            />
+            <span
+              className="plate-btn inner"
+              style={{
+                left: size / 2 + dx * 0.84,
+                top: size / 2 + dy * 0.84,
+                width: chord * size * 0.86,
+                height: frame.segH * 0.82,
+                transform: `translate(-50%, -50%) rotate(${slot.rotation}deg)`,
+              }}
+            />
+          </span>
+        );
+      })}
       <svg className="reactor-svg" viewBox="0 0 200 200">
-        <circle className="glow-ring" cx="100" cy="100" r="97" />
-        <circle className="hairline" cx="100" cy="100" r="93" />
-        <circle className="hairline dim" cx="100" cy="100" r="78" />
+        <circle className="glow-ring" cx="100" cy="100" r="99" />
+        <circle className="hairline" cx="100" cy="100" r="96" />
+        <path className="sweep" d={arc(99, 188, 352)} />
+        <path className="sweep" d={arc(99, 8, 172)} />
+        <path className="sweep dim" d={arc(96, 210, 330)} />
         {Array.from({ length: 120 }, (_, index) => {
           const angle = (index / 120) * Math.PI * 2;
           const inner = index % 10 === 0 ? 88 : index % 5 === 0 ? 90 : 91.4;
@@ -52,8 +70,6 @@ export function ReactorFace({ frame, phase }: { frame: HudFrame; phase: VoicePha
             />
           );
         })}
-        <path className="sweep" d={arc(97, 200, 340)} />
-        <path className="sweep" d={arc(97, 20, 160)} />
         {[
           { label: "G", degree: 0 },
           { label: "C", degree: 90 },
@@ -70,15 +86,15 @@ export function ReactorFace({ frame, phase }: { frame: HudFrame; phase: VoicePha
             </g>
           );
         })}
-        {[180, 270].map((degree) => {
+        {[90, 135, 225, 270].map((degree) => {
           const angle = (degree * Math.PI) / 180;
           return (
             <circle
               key={degree}
               className="node"
-              cx={100 + Math.sin(angle) * 97}
-              cy={100 - Math.cos(angle) * 97}
-              r="2.3"
+              cx={100 + Math.sin(angle) * 99}
+              cy={100 - Math.cos(angle) * 99}
+              r="2.6"
             />
           );
         })}
@@ -95,10 +111,11 @@ export function ReactorFace({ frame, phase }: { frame: HudFrame; phase: VoicePha
           );
         })}
       </svg>
-      <div className="ring dashed orbit spin" />
-      <div className="ring solid" />
       <div className="ring hatch spin" />
+      <div className="ring solid" />
       <div className="ring hatch inner spin-rev" />
+      <div className="ring solid inner" />
+      <div className="ring dashed orbit spin" />
       <div className="core">
         <svg className="core-ticks" viewBox="0 0 100 100">
           {Array.from({ length: 28 }, (_, index) => {

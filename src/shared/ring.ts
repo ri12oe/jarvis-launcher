@@ -268,7 +268,7 @@ export function hudFrame(viewport: Viewport, options?: LayoutOptions): HudFrame 
     left: railW + 14,
     top: clockTop,
     right: Math.max(railW + 160, Math.min(railW + 14 + width * 0.27, clockLimit)),
-    bottom: Math.min(clockTop + height * 0.32, cy - segRadius * 0.35),
+    bottom: Math.min(clockTop + height * 0.42, cy - segRadius * 0.2),
   };
   const tabH = clamp(Math.round(header * 0.72), 30, 48);
   const tabTop = Math.max(4, (header - tabH) / 2);
@@ -358,7 +358,7 @@ export function reactorSlots(frame: HudFrame): SegmentSlot[] {
   let height = frame.segH;
   let radius = frame.segRadius;
   for (let shrink = 0; shrink < 8; shrink++) {
-    for (let count = 16; count >= 8; count--) {
+    for (let count = 10; count >= 8; count--) {
       const packed = tryRing(frame, count, radius, width, height);
       if (packed) return packed;
     }

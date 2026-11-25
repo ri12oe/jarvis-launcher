@@ -597,6 +597,8 @@ export function App() {
       <Clock box={layout.frame.clock} />
       <LevelBar />
       <Wifi />
+      <div className="corner-arcs" aria-hidden="true" />
+      <div className="corner-dial" aria-hidden="true" />
       <ReactorFace frame={layout.frame} phase={voice.phase} />
       <div className="right-stack">
         <Weather />
