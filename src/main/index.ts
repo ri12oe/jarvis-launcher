@@ -25,7 +25,7 @@ import { loginItemOptions } from "../shared/login-item";
 import { createRefreshGate, isMainFrameSender } from "../shared/refresh";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, JarvisConfig, LauncherState, LauncherTileView, ResolvedTile } from "../shared/types";
-import { listTopLevelWindows, startWindowWatch } from "./window-snapshot";
+import { startWindowWatch, type WindowWatch } from "./window-snapshot";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -244,12 +244,14 @@ type PlacementOutcome = "placed" | "missed" | "skipped" | "cancelled";
 
 /**
  * Move the new window in front of Jarvis.
- * `missed` means the caller should hide Jarvis so it does not cover the app.
+ * The watch is already running. Its first sample is the before list.
+ * `missed` means Jarvis should hide if a new foreground window has not already uncovered the app.
  */
 async function centerAfterLaunch(
   action: ResolvedTile["action"],
   spawnedPid: number | undefined,
-  baseline: readonly number[] | undefined,
+  watch: WindowWatch,
+  serial: number,
 ): Promise<PlacementOutcome> {
   const win = mainWindow;
   const launchWindow = session?.config.launchWindow;
@@ -263,12 +265,6 @@ async function centerAfterLaunch(
   } catch {
     return "missed";
   }
-  const serial = ++placeSerial;
-  const watch = startWindowWatch({
-    platform: process.platform,
-    env: process.env,
-    timeoutMs: LAUNCH_WINDOW_WATCH_MS,
-  });
   try {
     const placed = await centerLaunchedWindow({
       platform: process.platform,
@@ -279,10 +275,12 @@ async function centerAfterLaunch(
       launcherHwnd,
       launcherPid: process.pid,
       spawnedPid,
-      baseline,
       target: targetFromAction(action, readShortcutTarget),
       // Physical pixels. The helper is per-monitor v2, so Windows does not scale these again.
       toScreenRect: (rect) => screen.dipToScreenRect(win, rect),
+      onNewForeground: () => {
+        if (serial === placeSerial) hideWindow();
+      },
       nextSample: () => (serial === placeSerial ? watch.nextSample() : Promise.resolve(undefined)),
       placeWindow: (hwnd, rect) => (serial === placeSerial ? watch.place(hwnd, rect) : Promise.resolve(false)),
     });
@@ -291,8 +289,6 @@ async function centerAfterLaunch(
   } catch {
     if (serial !== placeSerial) return "cancelled";
     return "missed";
-  } finally {
-    watch.close();
   }
 }
 
@@ -415,20 +411,26 @@ function registerIpc(): void {
     if (!current) return { ok: false, error: "Unknown tile" };
     const tile = current.tiles.find((item) => item.id === tileId);
     if (!tile) return { ok: false, error: "Unknown tile" };
+    const centering = process.platform === "win32" && current.config.launchWindow.mode === "centered";
+    const serial = centering ? ++placeSerial : placeSerial;
+    const watch = centering
+      ? startWindowWatch({
+          platform: process.platform,
+          env: process.env,
+          timeoutMs: LAUNCH_WINDOW_WATCH_MS,
+        })
+      : undefined;
     try {
-      const centering = process.platform === "win32" && current.config.launchWindow.mode === "centered";
-      let baseline: number[] | undefined;
-      if (centering) {
-        const before = await listTopLevelWindows(process.platform, process.env);
-        baseline = before ? before.windows.map((window) => window.hwnd) : undefined;
-      }
       const spawnedPid = await execute(tile.action);
-      const outcome = centering ? await centerAfterLaunch(tile.action, spawnedPid, baseline) : "skipped";
+      const outcome =
+        centering && watch ? await centerAfterLaunch(tile.action, spawnedPid, watch, serial) : "skipped";
       if (outcome === "missed") hideWindow();
       return { ok: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Launch failed";
       return { ok: false, error: message };
+    } finally {
+      watch?.close();
     }
   });
 

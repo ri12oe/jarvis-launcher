@@ -15,6 +15,12 @@ const MIN_PLACE_HEIGHT = 120;
 /** How long the one PowerShell helper polls for the new window. */
 export const LAUNCH_WINDOW_WATCH_MS = 4000;
 
+/**
+ * An already-open match is eligible after this many looks with no new window,
+ * even if it never becomes the foreground window.
+ */
+export const EXISTING_MATCH_SAMPLES = 4;
+
 export interface WindowRect {
   x: number;
   y: number;
@@ -33,7 +39,9 @@ export interface ObservedWindow {
   exe: string;
   /** Packaged app id, when the process has one. */
   aumid: string;
-  /** Physical pixels. Compared as DIP using `dpi`. */
+  /** Physical pixels from GetWindowRect. Width and height are compared as DIP using `dpi`. */
+  x: number;
+  y: number;
   width: number;
   height: number;
   /** GetDpiForWindow. 96 means the physical size is already the logical size. */
@@ -53,6 +61,11 @@ export interface LaunchTarget {
   exePath?: string;
   exeName?: string;
   aumid?: string;
+  /**
+   * Store AppsFolder, a shortcut, or an Update.exe-style stub.
+   * A new window may belong to a different executable.
+   */
+  stub?: boolean;
 }
 
 export interface PickRequest {
@@ -79,6 +92,8 @@ export interface CenterLaunchOptions {
   spawnedPid?: number;
   baseline?: readonly number[];
   target?: LaunchTarget;
+  /** Called when a new foreground window appears, before it is necessarily the one we move. */
+  onNewForeground?: () => void;
   /** DIP rect to physical pixels. The helper is per-monitor DPI aware, so it must not be scaled again. */
   toScreenRect?: (rect: WindowRect) => WindowRect;
   /** Undefined when the watch has ended. */
@@ -125,6 +140,8 @@ function readWindow(value: unknown): ObservedWindow | undefined {
     title: typeof value.title === "string" ? value.title : "",
     exe: typeof value.exe === "string" ? value.exe : "",
     aumid: typeof value.aumid === "string" ? value.aumid : "",
+    x: readInt(value.x) ?? 0,
+    y: readInt(value.y) ?? 0,
     width,
     height,
     dpi: dpi !== undefined && dpi >= 96 ? dpi : 96,
@@ -183,9 +200,20 @@ export function windowMatchesTarget(window: ObservedWindow, target: LaunchTarget
   return false;
 }
 
+/** Update.exe, updater.exe, and other stub names that start a different process. */
+export function isStubExeName(name: string): boolean {
+  return /^(update|updater|launcher)(\.exe)?$/i.test(name) || /update\.exe$/i.test(name);
+}
+
+function withStub(target: LaunchTarget, exeName: string | undefined): LaunchTarget {
+  if (exeName && isStubExeName(exeName)) return { ...target, stub: true };
+  return target;
+}
+
 /**
  * The executable or Store id a tile is aiming at.
  * A folder has neither: only a window created by that click is eligible.
+ * A shortcut, AppsFolder, or Update.exe-style launcher is a stub: the real window may use another exe.
  */
 export function targetFromAction(
   action: LaunchAction,
@@ -199,18 +227,24 @@ export function targetFromAction(
     const folderArg = action.args.find((arg) => arg.toLowerCase().startsWith("shell:appsfolder\\"));
     if (folderArg) {
       const aumid = folderArg.slice(folderArg.indexOf("\\") + 1).trim();
-      return aumid ? { aumid } : {};
+      return aumid ? { aumid, stub: true } : { stub: true };
     }
     const exeName = windowBaseName(action.command);
-    if (/\.exe$/i.test(exeName)) return { exePath: action.command, exeName };
+    if (/\.exe$/i.test(exeName)) return withStub({ exePath: action.command, exeName }, exeName);
     return {};
   }
   if (/\.lnk$/i.test(action.path)) {
     const resolved = readShortcut?.(action.path);
-    if (resolved && /\.exe$/i.test(resolved)) return { exePath: resolved, exeName: windowBaseName(resolved) };
-    return {};
+    if (resolved && /\.exe$/i.test(resolved)) {
+      const exeName = windowBaseName(resolved);
+      return { exePath: resolved, exeName, stub: true };
+    }
+    return { stub: true };
   }
-  if (/\.exe$/i.test(action.path)) return { exePath: action.path, exeName: windowBaseName(action.path) };
+  if (/\.exe$/i.test(action.path)) {
+    const exeName = windowBaseName(action.path);
+    return withStub({ exePath: action.path, exeName }, exeName);
+  }
   return {};
 }
 
@@ -248,15 +282,69 @@ function isNewWindow(window: ObservedWindow, baseline: ReadonlySet<number> | und
   return !baseline.has(window.hwnd);
 }
 
-function isAllowed(
+function hasKnownTarget(target: LaunchTarget | undefined): boolean {
+  if (!target) return false;
+  return Boolean(target.exePath || target.exeName || target.aumid);
+}
+
+/** File Explorer's own window. An old Explorer window is never the one this click opened. */
+function isExplorerTarget(target: LaunchTarget | undefined): boolean {
+  if (!target || target.stub || target.aumid) return false;
+  return target.exeName?.toLowerCase() === "explorer.exe";
+}
+
+/**
+ * A new window from another exe is only the launched app when we have no exe to match,
+ * or the tile is a stub that starts something else.
+ */
+function allowsDifferentExe(target: LaunchTarget | undefined): boolean {
+  if (!hasKnownTarget(target)) return true;
+  return target?.stub === true;
+}
+
+function exeAgrees(window: ObservedWindow, target: LaunchTarget | undefined): boolean {
+  if (allowsDifferentExe(target)) return true;
+  if (!window.exe && !window.aumid) return false;
+  return windowMatchesTarget(window, target);
+}
+
+function newWindowAllowed(
   window: ObservedWindow,
   request: PickRequest,
   baseline: ReadonlySet<number> | undefined,
 ): boolean {
   if (!isPlaceableWindow(window, request.launcherHwnd, request.launcherPid)) return false;
-  if (request.spawnedPid && request.spawnedPid > 0 && belongsToSpawn(window, request.spawnedPid)) return true;
-  if (isNewWindow(window, baseline)) return true;
-  return windowMatchesTarget(window, request.target);
+  if (!isNewWindow(window, baseline)) return false;
+  if (request.spawnedPid && request.spawnedPid > 0 && belongsToSpawn(window, request.spawnedPid)) {
+    if (allowsDifferentExe(request.target) || !window.exe) return true;
+    return windowMatchesTarget(window, request.target);
+  }
+  return exeAgrees(window, request.target);
+}
+
+function sawNewWindow(samples: readonly WindowSnapshot[], baseline: ReadonlySet<number>): boolean {
+  return samples.some((sample) => sample.windows.some((window) => isNewWindow(window, baseline)));
+}
+
+/**
+ * An existing match is not taken on the first look.
+ * It has to be the foreground window, or several looks must pass with nothing new.
+ * explorer.exe never uses this path.
+ */
+function existingMatchReady(request: PickRequest, baseline: ReadonlySet<number> | undefined): boolean {
+  if (!baseline || isExplorerTarget(request.target) || !hasKnownTarget(request.target)) return false;
+  const sample = request.samples[request.samples.length - 1];
+  if (!sample) return false;
+  const matches = sample.windows.filter(
+    (window) =>
+      isPlaceableWindow(window, request.launcherHwnd, request.launcherPid) &&
+      windowMatchesTarget(window, request.target) &&
+      !isNewWindow(window, baseline),
+  );
+  if (matches.length === 0) return false;
+  if (matches.some((window) => window.hwnd === sample.foreground)) return true;
+  if (sawNewWindow(request.samples, baseline)) return false;
+  return request.samples.length >= EXISTING_MATCH_SAMPLES;
 }
 
 /** Foreground wins. A single remaining window is used. Several with no foreground is not a guess. */
@@ -269,25 +357,30 @@ function chooseOne(matches: readonly ObservedWindow[], foreground: number): Obse
 }
 
 /**
- * A new window, or an existing one whose exe or AUMID matches the tile.
+ * A new window whose exe agrees with the tile, or an existing match that has
+ * come to the foreground or sat alone through several looks.
  * A window that was already open and does not match is never moved.
+ * explorer.exe is only moved when the window itself is new.
  */
 export function pickLaunchedWindow(request: PickRequest): ObservedWindow | undefined {
   const sample = request.samples[request.samples.length - 1];
   if (!sample) return undefined;
   const baseline = request.baseline ? new Set(request.baseline) : undefined;
-  const allowed = sample.windows.filter((window) => isAllowed(window, request, baseline));
+  const fresh = sample.windows.filter((window) => newWindowAllowed(window, request, baseline));
   const spawnedPid = request.spawnedPid;
   if (spawnedPid && spawnedPid > 0) {
-    const byPid = allowed.filter((window) => belongsToSpawn(window, spawnedPid));
+    const byPid = fresh.filter((window) => belongsToSpawn(window, spawnedPid));
     if (byPid.length > 0) return chooseOne(byPid, sample.foreground);
   }
-  const fresh = allowed.filter((window) => isNewWindow(window, baseline));
   if (fresh.length > 1 && !fresh.some((window) => window.hwnd === sample.foreground)) return undefined;
   const chosenFresh = chooseOne(fresh, sample.foreground);
   if (chosenFresh) return chosenFresh;
-  const existing = allowed.filter(
-    (window) => windowMatchesTarget(window, request.target) && !isNewWindow(window, baseline),
+  if (!existingMatchReady(request, baseline)) return undefined;
+  const existing = sample.windows.filter(
+    (window) =>
+      isPlaceableWindow(window, request.launcherHwnd, request.launcherPid) &&
+      windowMatchesTarget(window, request.target) &&
+      !isNewWindow(window, baseline),
   );
   return chooseOne(existing, sample.foreground);
 }
@@ -342,7 +435,9 @@ export async function centerLaunchedWindow(options: CenterLaunchOptions): Promis
   } catch {
     return false;
   }
+  let baseline = options.baseline;
   const samples: WindowSnapshot[] = [];
+  let announced = false;
   while (true) {
     let snap: WindowSnapshot | undefined;
     try {
@@ -351,13 +446,28 @@ export async function centerLaunchedWindow(options: CenterLaunchOptions): Promis
       return false;
     }
     if (!snap) return false;
+    if (baseline === undefined) {
+      baseline = snap.windows.map((window) => window.hwnd);
+      continue;
+    }
     samples.push(snap);
+    const foreground = snap.windows.find((window) => window.hwnd === snap.foreground);
+    if (
+      !announced &&
+      foreground &&
+      foreground.hwnd !== options.launcherHwnd &&
+      !baseline.includes(foreground.hwnd) &&
+      isPlaceableWindow(foreground, options.launcherHwnd, options.launcherPid)
+    ) {
+      announced = true;
+      options.onNewForeground?.();
+    }
     const picked = pickLaunchedWindow({
       samples,
       launcherHwnd: options.launcherHwnd,
       launcherPid: options.launcherPid,
       spawnedPid: options.spawnedPid,
-      baseline: options.baseline,
+      baseline,
       target: options.target,
     });
     if (!picked || picked.hwnd === options.launcherHwnd) continue;

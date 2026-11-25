@@ -122,6 +122,10 @@ public static class JarvisWindows {
     Rows.Append(Json(exe));
     Rows.Append(",\"aumid\":");
     Rows.Append(Json(aumid));
+    Rows.Append(",\"x\":");
+    Rows.Append(bounds.Left);
+    Rows.Append(",\"y\":");
+    Rows.Append(bounds.Top);
     Rows.Append(",\"width\":");
     Rows.Append(width);
     Rows.Append(",\"height\":");
@@ -285,6 +289,7 @@ export interface WindowRunner {
 }
 
 export interface PlacementProcess {
+  pid?: number;
   stdout: NodeJS.EventEmitter;
   kill(): void;
   on(event: "close", listener: () => void): void;
@@ -314,14 +319,6 @@ export function windowHelperScript(): string {
 
 export function windowListCommand(): string {
   return `${windowHelperScript()}; [JarvisWindows]::List()`;
-}
-
-/** Integers only. Anything else is refused before it can reach PowerShell. */
-export function windowPlaceCommand(hwnd: number, rect: WindowRect): string | undefined {
-  const values = [hwnd, rect.x, rect.y, rect.width, rect.height];
-  if (!values.every((value) => Number.isSafeInteger(value))) return undefined;
-  if (hwnd <= 0 || rect.width <= 0 || rect.height <= 0) return undefined;
-  return `${windowHelperScript()}; if ([JarvisWindows]::Place(${hwnd}, ${rect.x}, ${rect.y}, ${rect.width}, ${rect.height})) { '{"ok":true}' } else { '{"ok":false}' }`;
 }
 
 function psLiteral(value: string): string | undefined {
@@ -367,24 +364,29 @@ export async function listTopLevelWindows(
   }
 }
 
-export async function placeTopLevelWindow(
-  platform: string,
-  env: NodeJS.ProcessEnv,
-  hwnd: number,
-  rect: WindowRect,
-  run: WindowRunner = runPowerShell,
-): Promise<boolean> {
-  if (platform !== "win32") return false;
-  const command = windowPlaceCommand(hwnd, rect);
-  if (!command) return false;
+/** Kill powershell and the csc child it spawned for Add-Type. */
+function killProcessTree(child: PlacementProcess): void {
+  const pid = child.pid;
+  if (process.platform === "win32" && typeof pid === "number" && pid > 0) {
+    const root = process.env.SystemRoot?.trim().replace(/[\\/]+$/, "") || "C:\\Windows";
+    execFile(
+      `${root}\\System32\\taskkill.exe`,
+      ["/T", "/F", "/PID", String(pid)],
+      { windowsHide: true, shell: false },
+      () => {
+        try {
+          child.kill();
+        } catch {
+          // Already exited.
+        }
+      },
+    );
+    return;
+  }
   try {
-    const { stdout } = await run(windowsPowershellPath(env.SystemRoot), powershellArgs(command), {
-      ...RUN_OPTIONS,
-      shell: false,
-    });
-    return stdout.includes('{"ok":true}');
+    child.kill();
   } catch {
-    return false;
+    // Already exited.
   }
 }
 
@@ -428,13 +430,14 @@ export function startWindowWatch(options: WindowWatchOptions): WindowWatch {
   let buffer = "";
   let ended = false;
   let closed = false;
-  const killTimer = setTimeout(() => {
-    try {
-      child.kill();
-    } catch {
-      // The process has already gone.
-    }
-  }, options.timeoutMs + 20_000);
+  let sawSample = false;
+  // Until the first sample, Add-Type may still be compiling. After that, the
+  // poll itself lasts timeoutMs, so the fallback is only a short grace.
+  let killTimer = setTimeout(() => killProcessTree(child), 12_000);
+  const armKill = (delayMs: number) => {
+    clearTimeout(killTimer);
+    killTimer = setTimeout(() => killProcessTree(child), delayMs);
+  };
 
   const pushLine = (line: string | undefined) => {
     const waiter = waiters.shift();
@@ -451,7 +454,12 @@ export function startWindowWatch(options: WindowWatchOptions): WindowWatch {
     buffer += typeof chunk === "string" ? chunk : chunk.toString("utf8");
     let nl = buffer.indexOf("\n");
     while (nl >= 0) {
-      pushLine(buffer.slice(0, nl).replace(/\r$/, "").trim());
+      const line = buffer.slice(0, nl).replace(/\r$/, "").trim();
+      if (!sawSample && line.startsWith('{"foreground"')) {
+        sawSample = true;
+        armKill(options.timeoutMs + 1_500);
+      }
+      pushLine(line);
       buffer = buffer.slice(nl + 1);
       nl = buffer.indexOf("\n");
     }
@@ -501,11 +509,7 @@ export function startWindowWatch(options: WindowWatchOptions): WindowWatch {
       if (closed) return;
       closed = true;
       clearTimeout(killTimer);
-      try {
-        child.kill();
-      } catch {
-        // Already exited.
-      }
+      killProcessTree(child);
       if (!ownsFile) return;
       try {
         fs.rmSync(signalPath, { force: true });

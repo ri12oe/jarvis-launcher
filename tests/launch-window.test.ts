@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   centerLaunchedWindow,
   centeredWindowRect,
+  EXISTING_MATCH_SAMPLES,
   parseWindowSnapshot,
   pickLaunchedWindow,
   targetFromAction,
@@ -20,6 +21,8 @@ function app(partial: Partial<ObservedWindow> & Pick<ObservedWindow, "hwnd">): O
     title: "Notes",
     exe: "",
     aumid: "",
+    x: 0,
+    y: 0,
     width: 900,
     height: 700,
     dpi: 96,
@@ -114,20 +117,44 @@ describe("window picking", () => {
     ).toBeUndefined();
   });
 
-  it("restores an already-open window when its exe matches the tile", () => {
+  it("restores an already-open match only once it is in front, or after several quiet looks", () => {
     const existing = app({
       hwnd: 1,
       pid: 80,
       exe: "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
       title: "Edge",
     });
+    const behind = sample(LAUNCHER_HWND, [existing]);
     expect(
       pickLaunchedWindow({
         ...request,
         baseline: [1],
-        samples: [sample(LAUNCHER_HWND, [existing])],
+        samples: [behind],
+      }),
+    ).toBeUndefined();
+    expect(
+      pickLaunchedWindow({
+        ...request,
+        baseline: [1],
+        samples: [sample(1, [existing])],
       })?.hwnd,
     ).toBe(1);
+    const quiet = Array.from({ length: EXISTING_MATCH_SAMPLES }, () => behind);
+    expect(
+      pickLaunchedWindow({
+        ...request,
+        baseline: [1],
+        samples: quiet,
+      })?.hwnd,
+    ).toBe(1);
+    const updater = app({ hwnd: 9, exe: "C:\\Program Files\\Edge\\updater.exe", title: "Update" });
+    expect(
+      pickLaunchedWindow({
+        ...request,
+        baseline: [1],
+        samples: [sample(9, [existing, updater]), behind, behind, behind],
+      }),
+    ).toBeUndefined();
   });
 
   it("restores an already-open Store app when the AUMID matches", () => {
@@ -206,6 +233,74 @@ describe("window picking", () => {
     ).toBe(70);
   });
 
+  it("does not move an old Explorer window, even when it is in front", () => {
+    const explorer = app({
+      hwnd: 4,
+      pid: 900,
+      className: "CabinetWClass",
+      exe: "C:\\Windows\\explorer.exe",
+      title: "File Explorer",
+    });
+    const target = { exePath: "C:\\Windows\\explorer.exe", exeName: "explorer.exe" };
+    const quiet = sample(4, [explorer]);
+    expect(
+      pickLaunchedWindow({
+        ...request,
+        target,
+        baseline: [4],
+        samples: Array.from({ length: EXISTING_MATCH_SAMPLES }, () => quiet),
+      }),
+    ).toBeUndefined();
+    const opened = app({
+      hwnd: 71,
+      pid: 901,
+      className: "CabinetWClass",
+      exe: "C:\\Windows\\explorer.exe",
+      title: "File Explorer",
+    });
+    expect(
+      pickLaunchedWindow({
+        ...request,
+        target,
+        baseline: [4],
+        samples: [sample(71, [explorer, opened])],
+      })?.hwnd,
+    ).toBe(71);
+  });
+
+  it("rejects a new window from an unrelated exe", () => {
+    const updater = app({
+      hwnd: 9,
+      pid: 60,
+      ancestors: [60, 50],
+      exe: "C:\\Program Files\\Vendor\\updater.exe",
+      title: "Update",
+    });
+    expect(
+      pickLaunchedWindow({
+        ...request,
+        spawnedPid: 50,
+        baseline: [],
+        samples: [sample(9, [updater])],
+      }),
+    ).toBeUndefined();
+    const host = app({
+      hwnd: 12,
+      exe: "C:\\Windows\\System32\\ApplicationFrameHost.exe",
+      className: "ApplicationFrameWindow",
+      title: "Copilot",
+    });
+    expect(
+      pickLaunchedWindow({
+        launcherHwnd: LAUNCHER_HWND,
+        launcherPid: LAUNCHER_PID,
+        baseline: [],
+        target: { aumid: "Microsoft.Copilot_8wekyb3d8bbwe!App", stub: true },
+        samples: [sample(12, [host])],
+      })?.hwnd,
+    ).toBe(12);
+  });
+
   it("does not treat every window as new when the before-snapshot failed", () => {
     const notepad = app({ hwnd: 5, pid: 40, exe: "C:\\Windows\\notepad.exe", title: "Notepad" });
     expect(
@@ -232,7 +327,14 @@ describe("window picking", () => {
         }),
       ).toBeUndefined();
     }
-    const largeEnough = app({ hwnd: 11, width: 400, height: 300, dpi: 192, title: "Edge" });
+    const largeEnough = app({
+      hwnd: 11,
+      width: 400,
+      height: 300,
+      dpi: 192,
+      exe: edge.exePath,
+      title: "Edge",
+    });
     expect(
       pickLaunchedWindow({
         ...request,
@@ -257,7 +359,7 @@ describe("launch target", () => {
         command: "C:\\Windows\\explorer.exe",
         args: ["shell:AppsFolder\\Microsoft.Copilot_8wekyb3d8bbwe!App"],
       }),
-    ).toEqual({ aumid: "Microsoft.Copilot_8wekyb3d8bbwe!App" });
+    ).toEqual({ aumid: "Microsoft.Copilot_8wekyb3d8bbwe!App", stub: true });
     expect(
       targetFromAction({ type: "spawn", command: "C:\\Windows\\explorer.exe", args: [] }),
     ).toEqual({ exePath: "C:\\Windows\\explorer.exe", exeName: "explorer.exe" });
@@ -265,7 +367,8 @@ describe("launch target", () => {
       targetFromAction({ type: "openPath", path: "C:\\Start\\Cursor.lnk" }, (filePath) =>
         filePath.endsWith(".lnk") ? "C:\\Program Files\\Cursor\\Cursor.exe" : undefined,
       ),
-    ).toEqual({ exePath: "C:\\Program Files\\Cursor\\Cursor.exe", exeName: "Cursor.exe" });
+    ).toEqual({ exePath: "C:\\Program Files\\Cursor\\Cursor.exe", exeName: "Cursor.exe", stub: true });
+    expect(targetFromAction({ type: "openPath", path: "C:\\Apps\\Update.exe" }).stub).toBe(true);
   });
 });
 
@@ -302,6 +405,8 @@ describe("window snapshot parsing", () => {
         title: "Docs",
         exe: "C:\\Windows\\explorer.exe",
         aumid: "",
+        x: 0,
+        y: 0,
         width: 800,
         height: 600,
         dpi: 120,
@@ -379,8 +484,27 @@ describe("centerLaunchedWindow", () => {
     expect(tools.reads()).toBe(2);
   });
 
+  it("uses the helper's first sample as the before list and hides on a new foreground", async () => {
+    const oldNotepad = app({ hwnd: 2, exe: "C:\\Windows\\notepad.exe", title: "Notepad" });
+    const edge = app({ hwnd: 40, exe: "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe", title: "Edge" });
+    let hid = 0;
+    const tools = run([sample(2, [oldNotepad]), sample(40, [oldNotepad, edge])], {
+      baseline: undefined,
+      onNewForeground: () => {
+        hid += 1;
+      },
+    });
+    expect(await tools.promise).toBe(true);
+    expect(hid).toBe(1);
+    expect(tools.placed).toEqual([{ hwnd: 40, rect: centered }]);
+  });
+
   it("returns false when the move throws", async () => {
-    const edge = app({ hwnd: 41, title: "Edge" });
+    const edge = app({
+      hwnd: 41,
+      exe: "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+      title: "Edge",
+    });
     const tools = run([sample(41, [edge])], {
       placeWindow: async () => {
         throw new Error("denied");

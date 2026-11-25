@@ -3,12 +3,10 @@ import { describe, expect, it } from "vitest";
 import { windowsPowershellPath } from "../src/discovery/start-apps";
 import {
   listTopLevelWindows,
-  placeTopLevelWindow,
   powershellArgs,
   startWindowWatch,
   windowHelperScript,
   windowListCommand,
-  windowPlaceCommand,
   windowServeCommand,
   type PlacementProcess,
   type WindowRunOptions,
@@ -57,13 +55,9 @@ describe("window helper command", () => {
     expect(windowServeCommand(1000, "C:\\Temp\\bad\npath.txt")).toBeUndefined();
   });
 
-  it("puts only integers into the place command", () => {
-    const place = windowPlaceCommand(50, { x: -1920, y: 40, width: 800, height: 600 });
-    expect(place).toMatch(/\[JarvisWindows\]::Place\(50, -1920, 40, 800, 600\)/);
-    expect(place).toContain(windowListCommand().slice(0, 40));
-    expect(windowPlaceCommand(1.5, { x: 0, y: 0, width: 10, height: 10 })).toBeUndefined();
-    expect(windowPlaceCommand(10, { x: 0, y: 0, width: 0, height: 10 })).toBeUndefined();
-    expect(windowPlaceCommand(0, { x: 0, y: 0, width: 10, height: 10 })).toBeUndefined();
+  it("keeps the one-shot list command on the helper", () => {
+    expect(windowListCommand()).toContain("[JarvisWindows]::List()");
+    expect(windowListCommand().split("Add-Type").length).toBe(2);
   });
 
   it("does not run PowerShell off Windows", async () => {
@@ -73,7 +67,6 @@ describe("window helper command", () => {
       return { stdout: "" };
     };
     expect(await listTopLevelWindows("linux", { SystemRoot: "C:\\Windows" }, run)).toBeUndefined();
-    expect(await placeTopLevelWindow("linux", {}, 10, { x: 0, y: 0, width: 10, height: 10 }, run)).toBe(false);
     expect(called).toBe(false);
     const watch = startWindowWatch({ platform: "linux", timeoutMs: 1000 });
     expect(await watch.nextSample()).toBeUndefined();
@@ -84,8 +77,7 @@ describe("window helper command", () => {
     const seen: Array<{ file: string; args: string[]; options: WindowRunOptions }> = [];
     const run = async (file: string, args: string[], options: WindowRunOptions) => {
       seen.push({ file, args, options });
-      const place = args[3]?.includes("::Place(");
-      return { stdout: place ? '{"ok":true}' : '{"foreground":0,"windows":[]}' };
+      return { stdout: '{"foreground":0,"windows":[]}' };
     };
     const env = { SystemRoot: "D:\\Windows\\" };
     const listed = await listTopLevelWindows("win32", env, run);
@@ -95,11 +87,6 @@ describe("window helper command", () => {
     expect(seen[0]?.args[3]).toContain("[JarvisWindows]::List()");
     expect(seen[0]?.options.shell).toBe(false);
     expect(seen[0]?.options.windowsHide).toBe(true);
-
-    const moved = await placeTopLevelWindow("win32", env, 50, { x: 10, y: 20, width: 30, height: 40 }, run);
-    expect(moved).toBe(true);
-    expect(seen[1]?.args[3]).toContain("Place(50, 10, 20, 30, 40)");
-    expect(seen[1]?.options.shell).toBe(false);
   });
 
   it("returns a quiet miss when PowerShell fails", async () => {
@@ -107,9 +94,6 @@ describe("window helper command", () => {
       throw new Error("missing");
     };
     expect(await listTopLevelWindows("win32", { SystemRoot: "C:\\Windows" }, run)).toBeUndefined();
-    expect(
-      await placeTopLevelWindow("win32", { SystemRoot: "C:\\Windows" }, 4, { x: 1, y: 2, width: 3, height: 4 }, run),
-    ).toBe(false);
   });
 
   it("tells the same process which new window to move", async () => {
@@ -162,6 +146,9 @@ describe("window helper command", () => {
     );
     const snap = await pending;
     expect(snap?.windows[0]?.hwnd).toBe(40);
+    expect(await watch.place(0, { x: 10, y: 20, width: 800, height: 600 })).toBe(false);
+    expect(await watch.place(40, { x: 10, y: 20, width: 0, height: 600 })).toBe(false);
+    expect(signal).toBe("");
     expect(await watch.place(40, { x: 10, y: 20, width: 800, height: 600 })).toBe(true);
     expect(signal).toBe("PLACE 40 10 20 800 600");
     watch.close();
