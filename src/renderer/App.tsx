@@ -214,7 +214,7 @@ function absBox(box: Aabb): CSSProperties {
 
 function plateWidth(place: RingPlacement): number {
   if (place.zone === "segment") return Math.max(48, (place.width ?? 80) - 12);
-  if (place.zone === "tab") return Math.max(24, (place.width ?? 40) - 4);
+  if (place.zone === "tab") return Math.max(24, place.width ?? 40);
   return Math.max(40, (place.width ?? 40) - 34);
 }
 
@@ -224,7 +224,7 @@ function fittedFont(place: RingPlacement, label: string): number {
   const longest = words.reduce((best, word) => (word.length > best.length ? word : best), words[0] ?? "");
   let px = place.zone === "segment" ? Math.min(13, Math.max(10, (place.height ?? 36) * 0.28)) : 12;
   const min = place.zone === "tab" ? 7 : 9;
-  while (px > min && measurePlateWidth(longest, px) > width - 10) px -= 0.5;
+  while (px > min && measurePlateWidth(longest, px) > width - 4) px -= 0.5;
   return px;
 }
 

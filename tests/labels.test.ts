@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { displayLabel, labelLines, plateTexts } from "../src/shared/labels";
+import { displayLabel, estimateWidth, labelLines, plateTexts, renderedLabel } from "../src/shared/labels";
 import { measurePlateWidth } from "../src/renderer/measure";
-import { layoutHud } from "../src/shared/ring";
+import { layoutHud, type RingPlacement } from "../src/shared/ring";
 
 const NAMES = [
   "Microsoft Word",
@@ -85,5 +85,117 @@ describe("plate labels", () => {
   it("marks a line when later words do not fit", () => {
     const text = labelLines("Teams (work or school)", 48, 10, 2).join(" ");
     expect(text.includes("…")).toBe(true);
+  });
+
+  it("does not use a dash as a distinguisher", () => {
+    const shown = renderedLabel(plateTexts([{ label: "Visual Studio Code - Insiders", width: 70, fontPx: 10 }])[0]);
+    expect(shown.endsWith("-")).toBe(false);
+    expect(shown).not.toBe("VISUAL … -");
+  });
+
+  it.each([
+    [["Portal 2", "Portal 2"], 2],
+    [["Tool 2", "Tool 2"], 2],
+    [["App 3", "App 3", "App 3"], 2],
+    [["Steam", "Steam", "Steam 2"], 1],
+  ])("keeps %j distinct on %i line", (labels, maxLines) => {
+    for (const width of [60, 90, 120]) {
+      const texts = plateTexts(labels.map((label) => ({ label, width, fontPx: 10, maxLines })));
+      const shown = texts.map(renderedLabel);
+      expect(new Set(shown).size, `${width}: ${shown.join(" | ")}`).toBe(labels.length);
+      for (const lines of texts) {
+        for (const line of lines) {
+          expect(estimateWidth(line, 10), line).toBeLessThanOrEqual(Math.max(8, width - 4) + 0.01);
+        }
+      }
+    }
+  });
+});
+
+const SWEEP = [
+  "Microsoft Visual Studio 2022 Enterprise",
+  "Microsoft Visual Studio 2022 Professional",
+  "Visual Studio Code",
+  "Visual Studio Code - Insiders",
+  "Microsoft Word",
+  "Microsoft Excel",
+  "Microsoft Outlook",
+  "Microsoft PowerPoint",
+  "Microsoft OneNote",
+  "Microsoft Teams",
+  "Microsoft Teams (work or school)",
+  "Microsoft 365",
+  "Microsoft 365 Copilot",
+  "Adobe Photoshop",
+  "Adobe Photoshop 2024",
+  "Adobe Photoshop 2025",
+  "Adobe Photoshop 2026",
+  "Python",
+  "Python 3",
+  "Python 3.11",
+  "Python 3.12",
+  "Portal 2",
+  "Portal 2",
+  "Tool 2",
+  "Tool 2",
+  "App 3",
+  "App 3",
+  "App 3",
+  "Steam",
+  "Steam",
+  "Steam 2",
+  "DaVinci Resolve 19",
+  "ChatGPT",
+  "Claude",
+  "Cursor",
+  "Grok",
+  "Copilot",
+  "Perplexity",
+  "Ollama",
+  "LM Studio",
+];
+
+function plateFit(place: RingPlacement, label: string): { width: number; fontPx: number; maxLines: number } {
+  const width =
+    place.zone === "segment"
+      ? Math.max(48, (place.width ?? 80) - 12)
+      : place.zone === "tab"
+        ? Math.max(24, place.width ?? 40)
+        : Math.max(40, (place.width ?? 40) - 34);
+  const words = displayLabel(label).toUpperCase().split(/\s+/).filter(Boolean);
+  const longest = words.reduce((best, word) => (word.length > best.length ? word : best), words[0] ?? "");
+  let fontPx = place.zone === "segment" ? Math.min(13, Math.max(10, (place.height ?? 36) * 0.28)) : 12;
+  const min = place.zone === "tab" ? 7 : 9;
+  while (fontPx > min && estimateWidth(longest, fontPx) > width - 4) fontPx -= 0.5;
+  return { width, fontPx, maxLines: place.zone === "tab" ? 1 : 2 };
+}
+
+describe("rendered label sweep", () => {
+  it.each(
+    [
+      [853, 480],
+      [911, 480],
+      [1093, 614],
+      [1366, 768],
+      [1920, 1080],
+    ].flatMap(([width, height]) => [false, true].map((voice) => [width, height, voice] as const)),
+  )("has no duplicate or overflowing labels at %ix%i voice %s", (width, height, voice) => {
+    const tiles = SWEEP.map((label, index) => ({ id: `sweep-${index}`, label, kind: "app" as const }));
+    const layout = layoutHud(tiles, { width, height }, undefined, { subtitle: voice });
+    const entries = layout.segments.map((place) => ({
+      label: tiles[place.index].label,
+      ...plateFit(place, tiles[place.index].label),
+    }));
+    const texts = plateTexts(entries, estimateWidth);
+    const shown = texts.map(renderedLabel);
+    const dupes = shown.filter((text, index) => shown.indexOf(text) !== index);
+    expect(dupes, dupes.join(" | ")).toEqual([]);
+    texts.forEach((lines, index) => {
+      for (const line of lines) {
+        expect(estimateWidth(line, entries[index].fontPx), `${entries[index].label}: ${line}`).toBeLessThanOrEqual(
+          Math.max(8, entries[index].width - 4) + 0.01,
+        );
+      }
+    });
   });
 });

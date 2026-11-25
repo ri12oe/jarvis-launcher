@@ -44,7 +44,7 @@ export function measurePlateWidth(text: string, fontPx: number): number {
   context.font = `600 ${fontPx}px Arial, "Liberation Sans", "DejaVu Sans", sans-serif`;
   const measured = context.measureText(text).width;
   const width = Number.isFinite(measured) && measured > 0 ? measured : text.length * fontPx * 0.62;
-  return width * 1.03;
+  return width * 1.22;
 }
 
 /** Canvas measurement of the HUD font. Falls back to the pure monospace estimate. */

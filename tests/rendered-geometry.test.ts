@@ -117,7 +117,11 @@ describe("rendered geometry", () => {
           }
         }
         const plates = [...document.querySelectorAll(".tile")].map((node) => ({
-          shown: (node.querySelector(".label")?.textContent ?? "").replace(/\s+/g, " ").trim(),
+          shown: [...node.querySelectorAll(".label-line")]
+            .map((line) => (line.textContent ?? "").trim())
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim(),
           full: (node.getAttribute("aria-label") ?? "").replace(/^microsoft\s+/i, "").trim(),
         }));
         const dupes = plates.map((plate) => plate.shown).filter((label, index, all) => all.indexOf(label) !== index);

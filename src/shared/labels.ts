@@ -17,14 +17,15 @@ export function estimateWidth(text: string, fontPx: number): number {
 }
 
 function fits(text: string, width: number, fontPx: number, measure: MeasureWidth): boolean {
-  return measure(text, fontPx) <= Math.max(8, width - 8);
+  return measure(text, fontPx) <= Math.max(8, width - 4);
 }
 
 function ellipsizeWord(word: string, width: number, fontPx: number, measure: MeasureWidth): string {
   if (fits(word, width, fontPx, measure)) return word;
   let cut = word;
-  while (cut.length > 4 && !fits(`${cut}…`, width, fontPx, measure)) cut = cut.slice(0, -1);
-  return cut.length < word.length ? `${cut}…` : cut;
+  while (cut.length > 1 && !fits(`${cut}…`, width, fontPx, measure)) cut = cut.slice(0, -1);
+  if (cut.length > 0 && fits(`${cut}…`, width, fontPx, measure)) return `${cut}…`;
+  return fits(cut, width, fontPx, measure) ? cut : "…";
 }
 
 /** Keep a cut line from looking finished when later words were dropped. */
@@ -78,7 +79,7 @@ export function labelLines(
     index += taken;
     if (more && lines.length === maxLines) break;
   }
-  if (index < words.length && lines.length > 0 && !lines[lines.length - 1].endsWith("…")) {
+  if (index < words.length && lines.length > 0 && !lines[lines.length - 1].includes("…")) {
     lines[lines.length - 1] = markCut(lines[lines.length - 1], width, fontPx, measure);
   }
   return lines.slice(0, maxLines);
@@ -88,15 +89,19 @@ function wordsOf(label: string): string[] {
   return displayLabel(label).toUpperCase().split(/\s+/).filter(Boolean);
 }
 
-function lastToken(lines: readonly string[]): string {
-  const flat = lines.join(" ").replace(/…/g, "").trim().split(/\s+/).filter(Boolean);
-  return flat[flat.length - 1] ?? "";
+/** What a reader sees: the lines joined, with the gap between lines kept. */
+export function renderedLabel(lines: readonly string[]): string {
+  return lines.join(" ").replace(/\s+/g, " ").trim();
 }
 
-/** A word this label has that the others do not. A real word beats a number. */
+function hasToken(word: string): boolean {
+  return /[A-Z0-9]/.test(word);
+}
+
+/** A word this label has that the others do not. A dash is not a word. */
 function distinguisher(label: string, others: readonly string[]): string | null {
-  const mine = wordsOf(label);
-  const unique = mine.filter((word) => !others.every((other) => wordsOf(other).includes(word)));
+  const mine = wordsOf(label).filter(hasToken);
+  const unique = mine.filter((word) => !others.every((other) => wordsOf(other).filter(hasToken).includes(word)));
   return unique.find((word) => !/^\d/.test(word)) ?? unique.find((word) => /^\d/.test(word)) ?? null;
 }
 
@@ -129,40 +134,57 @@ function withSuffix(
     index += 1;
   }
   const dropped = index < words.length;
+  const fitted = fits(suffix, width, fontPx, measure) ? suffix : ellipsizeWord(suffix, width, fontPx, measure);
   if (!dropped) {
-    lines.push(kept.length > 0 ? `${kept.join(" ")} ${suffix}` : suffix);
+    lines.push(kept.length > 0 ? `${kept.join(" ")} ${fitted}` : fitted);
     return lines.slice(0, maxLines);
   }
-  while (kept.length > 0 && !fits(`${kept.join(" ")}… ${suffix}`, width, fontPx, measure)) kept.pop();
-  const tail = kept.length > 0 ? `${kept.join(" ")}… ${suffix}` : fits(`… ${suffix}`, width, fontPx, measure) ? `… ${suffix}` : suffix;
+  while (kept.length > 0 && !fits(`${kept.join(" ")}… ${fitted}`, width, fontPx, measure)) kept.pop();
+  const tail = kept.length > 0 ? `${kept.join(" ")}… ${fitted}` : fits(`… ${fitted}`, width, fontPx, measure) ? `… ${fitted}` : fitted;
   lines.push(tail);
   return lines.slice(0, maxLines);
 }
 
-/** Visible lines for every tile. A duplicate keeps its name and gains a suffix. */
+function specOf(entry: { width: number; fontPx?: number; maxLines?: number }): { width: number; fontPx: number; maxLines: number } {
+  return { width: entry.width, fontPx: entry.fontPx ?? 10, maxLines: entry.maxLines ?? 2 };
+}
+
+/**
+ * Visible lines for every tile. Dedupe compares the final rendered string,
+ * at each plate's own font, and retries until those strings are unique.
+ */
 export function plateTexts(
   entries: readonly { label: string; width: number; fontPx?: number; maxLines?: number }[],
   measure: MeasureWidth = estimateWidth,
 ): string[][] {
-  const font = (index: number) => entries[index].fontPx ?? 10;
-  const lines = entries.map((entry) =>
-    labelLines(entry.label, entry.width, entry.fontPx ?? 10, entry.maxLines ?? 2, measure),
-  );
-  const key = (row: string[]) => row.join("\n");
-  const groups = new Map<string, number[]>();
-  lines.forEach((row, index) => {
-    const id = key(row);
-    groups.set(id, [...(groups.get(id) ?? []), index]);
+  const lines = entries.map((entry) => {
+    const spec = specOf(entry);
+    return labelLines(entry.label, spec.width, spec.fontPx, spec.maxLines, measure);
   });
-  for (const indexes of groups.values()) {
-    if (indexes.length < 2) continue;
-    const labels = indexes.map((index) => entries[index].label);
-    indexes.forEach((index, nth) => {
-      const others = labels.filter((_, other) => other !== nth);
-      const suffix = distinguisher(entries[index].label, others) ?? (nth === 0 ? null : String(nth + 1));
-      if (!suffix || lastToken(lines[index]) === suffix) return;
-      lines[index] = withSuffix(entries[index].label, suffix, entries[index].width, font(index), entries[index].maxLines ?? 2, measure);
-    });
+  for (let round = 0; round < 6; round++) {
+    const keys = lines.map(renderedLabel);
+    const groups = new Map<string, number[]>();
+    keys.forEach((id, index) => groups.set(id, [...(groups.get(id) ?? []), index]));
+    let changed = false;
+    for (const indexes of groups.values()) {
+      if (indexes.length < 2) continue;
+      indexes.forEach((index, nth) => {
+        const others = indexes.filter((other) => other !== index).map((other) => entries[other].label);
+        const token = distinguisher(entries[index].label, others);
+        if (!token && nth === 0) return;
+        const fallback = String(nth + 1 + round);
+        const { width, fontPx, maxLines } = specOf(entries[index]);
+        let next = withSuffix(entries[index].label, token ?? fallback, width, fontPx, maxLines, measure);
+        if (renderedLabel(next) === keys[index]) {
+          next = labelLines(`${renderedLabel(lines[index])} ${fallback}`, width, fontPx, maxLines, measure);
+        }
+        if (renderedLabel(next) !== keys[index]) {
+          lines[index] = next;
+          changed = true;
+        }
+      });
+    }
+    if (!changed) break;
   }
   return lines;
 }
