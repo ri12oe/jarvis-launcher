@@ -20,7 +20,9 @@ npm run dev
 
 That starts the renderer, compiles the Electron main process, and opens the launcher. The default hotkey is **Ctrl+Alt+J** (`CommandOrControl+Alt+J` in the config). Press it again, or Esc, to hide the window. The process keeps running so the hotkey still works. Quit from the tray icon or the QUIT control.
 
-The tray menu is Show, Hide, Refresh, and Quit. The footer REFRESH control runs that same reload. A second click does nothing while a reload is already running, and the control reads REFRESHING until it finishes. Opening the window uses the list already in memory. Saving `config.json` re-reads it too.
+Arrow keys move through the tiles as they are laid out. Enter launches the focused tile. Typing filters the grid by name, and the footer shows that text (`FILTER  EDGE`). Backspace edits it. A space activates the focused button. Esc clears the filter, and hides the window when the filter is already empty. Hiding from the hotkey clears the filter too. A failed launch stays in the footer as `LAUNCH FAILED` plus the reason until the next key, click, or refresh.
+
+The tray menu is Show, Hide, Refresh, and Quit. The footer REFRESH control runs that same reload. A second click does nothing while a reload is already running, and the control reads REFRESHING until it finishes. The first scan, and any later scan that is not a button click, shows SCANNING in the footer until the list is ready. A reload that throws shows REFRESH FAILED and leaves the previous list in place. Opening the window uses the list already in memory. Saving `config.json` re-reads it too.
 
 `npm test` runs the unit tests. `npm run typecheck` typechecks the main process and the renderer.
 
@@ -88,7 +90,11 @@ A broken file is left as it is. The launcher uses defaults in memory until the J
 - `extraTiles` adds a tile that opens a file, shortcut, or folder. `kind` is `"app"` or `"folder"` and only affects the label on the tile.
 - `disabled` removes a tile. Built-in ids: `edge`, `explorer`, `desktop`, `documents`, `downloads`, `pictures`. Discovered ids: `chatgpt`, `claude`, `cursor`, `grok`, `copilot`, `perplexity`, `ollama`, `lm-studio`.
 - `order` pulls those ids to the front. Anything you leave out stays in the default order after them.
-- `labels` renames a tile. Ids and paths must be absolute (`C:\...`, `\\server\share`, or `/...`). Custom ids cannot reuse a built-in or discovered id.
+- `labels` renames a tile. A custom id cannot reuse a built-in or discovered id.
+- An id is 1 to 64 characters. It starts with a letter or digit. The rest can be letters, digits, `.`, `_`, or `-`.
+- A path is absolute (`C:\...`, `\\server\share`, or `/...`).
+- A label is 1 to 80 characters after trimming.
+- `hotkey` is an Electron accelerator with at least one modifier. Shift cannot be the only modifier.
 
 Discovered apps are added automatically when a Start Menu shortcut, a packaged Start app, or an uninstall entry matches. You do not have to list them.
 
@@ -118,7 +124,20 @@ Fixed tiles:
 | Desktop, Documents, Downloads, Pictures | Opens that folder |
 | Pinned folder | Opens the path from the config |
 
-A tile shows the file icon when the platform can read one. A Store app has no file to read, and Microsoft Edge uses a small placeholder when `msedge.exe` is not in the usual install folders.
+A tile shows the file icon at 32px inside a thin cyan ring when the platform can read one. A Store app uses the placeholder. `Get-StartApps` does not return a logo path, and the launcher does not open the package folder. Microsoft Edge uses that same placeholder when `msedge.exe` is not in the usual install folders.
+
+## Windows smoke test
+
+Check both `JarvisLauncher-Setup.exe` and `JarvisLauncher-portable.exe` where it applies:
+
+- ChatGPT or Copilot is listed when it is installed, and a click opens it
+- File Explorer opens
+- Microsoft Edge opens
+- Desktop, Documents, Downloads, and Pictures open those folders
+- Ctrl+Alt+J shows and hides the window
+- Autostart works for the NSIS install and the portable exe (`openAtLogin`, or a shortcut in the Startup folder)
+- REFRESH reloads the list. The footer reads SCANNING during the first scan, and REFRESH FAILED if a reload throws
+- Arrow keys move across the tiles, Enter launches the focused tile, Esc clears a filter and then hides, and typing filters the grid
 
 ## Tests
 
@@ -126,4 +145,4 @@ A tile shows the file icon when the platform can read one. A Store app has no fi
 npm test
 ```
 
-Matching, config validation, shortcut scanning, registry-output parsing, and launch plans are covered. Launch tests mock `openPath`, `openExternal`, and `spawn`, so they do not need Windows.
+Matching, config validation, shortcut scanning, registry parsing, Start menu app parsing, launch plans, the refresh gate, footer hints, and grid navigation are covered. Launch tests mock `openPath`, `openExternal`, and `spawn`, so they do not need Windows.

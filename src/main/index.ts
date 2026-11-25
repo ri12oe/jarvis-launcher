@@ -20,6 +20,7 @@ import { hotkeyRegistrationWarnings } from "../shared/hotkey";
 import { tileFallbackIcon, tileIconFile } from "../shared/icons";
 import { defaultEdgeCandidates, runLaunch, spawnDetached, windowsExplorerPath } from "../shared/launch";
 import { loginItemOptions } from "../shared/login-item";
+import { createRefreshGate, isMainFrameSender } from "../shared/refresh";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, JarvisConfig, LauncherState, LauncherTileView, ResolvedTile } from "../shared/types";
 
@@ -31,7 +32,8 @@ let activeHotkey = "";
 let appliedHotkeyRequest = "";
 let appliedLogin: boolean | null = null;
 let hotkeyWarnings: string[] = [];
-let refreshSerial = 0;
+let scanning = true;
+let refreshFailed = false;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let configWatchStarted = false;
 let configFilePath = "";
@@ -113,7 +115,7 @@ async function fileIcon(target: string | undefined): Promise<string | undefined>
   if (!target) return undefined;
   try {
     if (!fs.existsSync(target)) return undefined;
-    const image = await app.getFileIcon(target, { size: "small" });
+    const image = await app.getFileIcon(target, { size: "large" });
     if (image.isEmpty()) return undefined;
     return image.toDataURL();
   } catch {
@@ -132,31 +134,13 @@ async function tileViews(tiles: readonly ResolvedTile[]): Promise<LauncherTileVi
   );
 }
 
-let refreshTask: Promise<void> | null = null;
-let refreshQueued = false;
-
-/** One discovery at a time. Callers that arrive mid-run share it and do not start another. */
-function requestRefresh(): Promise<void> {
-  if (refreshTask) return refreshTask;
-  const task = refreshSession().finally(() => {
-    refreshTask = null;
-    if (!refreshQueued) return;
-    refreshQueued = false;
-    void requestRefresh();
-  });
-  refreshTask = task;
-  return task;
-}
+const refreshGate = createRefreshGate(() => refreshSession());
 
 function scheduleRefresh(): void {
   if (refreshTimer) clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
-    if (refreshTask) {
-      refreshQueued = true;
-      return;
-    }
-    void requestRefresh();
+    refreshGate.queueConfigEdit();
   }, 300);
 }
 
@@ -171,38 +155,48 @@ function startConfigWatch(filePath: string): void {
 }
 
 async function refreshSession(): Promise<void> {
-  const serial = ++refreshSerial;
-  const loaded = loadConfig(app.getPath("userData"));
-  let discovered: DiscoveredApp[] = [];
-  try {
-    const discovery = await discoverInstalledApps({
-      platform: process.platform,
-      readTarget: readShortcutTarget,
-    });
-    if (serial !== refreshSerial) return;
-    discovered = discovery.apps;
-    loaded.warnings.push(...discovery.warnings);
-  } catch {
-    if (serial !== refreshSerial) return;
-    loaded.warnings.push("App discovery failed; showing built-in tiles only");
-  }
-  const tiles = composeTiles(loaded.config, discovered, {
-    platform: process.platform,
-    edgeExecutables: existingEdgeExecutables(),
-    explorerPath: windowsExplorerPath(process.env.SystemRoot),
-    folders: {
-      desktop: app.getPath("desktop"),
-      documents: app.getPath("documents"),
-      downloads: app.getPath("downloads"),
-      pictures: app.getPath("pictures"),
-    },
-  });
-  const view = await tileViews(tiles);
-  if (serial !== refreshSerial) return;
-  const config = applyHostSettings(loaded.config, loaded.warnings);
-  session = { config, tiles, view, warnings: loaded.warnings };
+  scanning = true;
+  refreshFailed = false;
   publishState();
-  startConfigWatch(loaded.filePath);
+  try {
+    const loaded = loadConfig(app.getPath("userData"));
+    let discovered: DiscoveredApp[] = [];
+    try {
+      const discovery = await discoverInstalledApps({
+        platform: process.platform,
+        readTarget: readShortcutTarget,
+      });
+      discovered = discovery.apps;
+      loaded.warnings.push(...discovery.warnings);
+    } catch {
+      loaded.warnings.push("App discovery failed; showing built-in tiles only");
+    }
+    const tiles = composeTiles(loaded.config, discovered, {
+      platform: process.platform,
+      edgeExecutables: existingEdgeExecutables(),
+      explorerPath: windowsExplorerPath(process.env.SystemRoot),
+      folders: {
+        desktop: app.getPath("desktop"),
+        documents: app.getPath("documents"),
+        downloads: app.getPath("downloads"),
+        pictures: app.getPath("pictures"),
+      },
+    });
+    const view = await tileViews(tiles);
+    const config = applyHostSettings(loaded.config, loaded.warnings);
+    session = { config, tiles, view, warnings: loaded.warnings };
+    scanning = false;
+    refreshFailed = false;
+    publishState();
+    startConfigWatch(loaded.filePath);
+  } catch (error) {
+    scanning = false;
+    refreshFailed = true;
+    publishState();
+    const fallbackPath = path.join(app.getPath("userData"), "config.json");
+    startConfigWatch(fallbackPath);
+    throw error;
+  }
 }
 
 function currentState(): LauncherState {
@@ -212,6 +206,8 @@ function currentState(): LauncherState {
     platform: process.platform,
     tiles: snapshot?.view ?? [],
     warnings: snapshot?.warnings ?? [],
+    scanning,
+    refreshFailed,
   };
 }
 
@@ -238,7 +234,10 @@ function showWindow(): void {
 }
 
 function hideWindow(): void {
-  mainWindow?.hide();
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return;
+  win.hide();
+  if (!win.webContents.isDestroyed()) win.webContents.send("jarvis:hidden");
 }
 
 function toggleWindow(): void {
@@ -248,10 +247,9 @@ function toggleWindow(): void {
 }
 
 function isAppFrame(event: IpcMainInvokeEvent | IpcMainEvent): boolean {
-  const frame = event.senderFrame;
   const contents = mainWindow?.webContents;
-  if (!frame || !contents || contents.isDestroyed()) return false;
-  return frame === contents.mainFrame;
+  if (!contents || contents.isDestroyed()) return false;
+  return isMainFrameSender(event.senderFrame, contents.mainFrame);
 }
 
 function allowNavigation(url: string): boolean {
@@ -316,7 +314,7 @@ function createTray(): void {
   const menu = Menu.buildFromTemplate([
     { label: "Show", click: () => showWindow() },
     { label: "Hide", click: () => hideWindow() },
-    { label: "Refresh", click: () => void requestRefresh() },
+    { label: "Refresh", click: () => void refreshGate.requestRefresh().catch(() => undefined) },
     { type: "separator" },
     {
       label: "Quit",
@@ -339,7 +337,7 @@ function registerIpc(): void {
 
   ipcMain.handle("jarvis:launch", async (event, tileId: unknown) => {
     if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
-    if (!session) await requestRefresh();
+    if (!session) await refreshGate.requestRefresh();
     if (typeof tileId !== "string") return { ok: false, error: "Unknown tile" };
     const tile = session?.tiles.find((item) => item.id === tileId);
     if (!tile) return { ok: false, error: "Unknown tile" };
@@ -354,7 +352,7 @@ function registerIpc(): void {
 
   ipcMain.handle("jarvis:refresh", (event) => {
     if (!isAppFrame(event)) return;
-    return requestRefresh();
+    return refreshGate.requestRefresh();
   });
 
   ipcMain.on("jarvis:hide", (event) => {
@@ -381,7 +379,9 @@ if (!gotLock) {
     const startHidden = loadConfig(app.getPath("userData")).config.startHidden;
     createWindow(startHidden);
     createTray();
-    await requestRefresh();
+    await refreshGate.requestRefresh().catch(() => {
+      // refreshSession published refreshFailed and cleared scanning.
+    });
   });
 
   app.on("before-quit", () => {

@@ -25,7 +25,7 @@ export async function discoverInstalledApps(options: {
   const env = options.env ?? process.env;
   const roots =
     options.shortcutRoots ?? (options.platform === "win32" ? windowsStartMenuRoots(env) : []);
-  const shortcuts = scanShortcuts(roots, { readTarget: options.readTarget });
+  const shortcuts = await scanShortcuts(roots, { readTarget: options.readTarget });
   const programs = options.programs ?? (await readInstalledPrograms(options.platform));
   const storeRead = await resolveStoreApps(options);
   const warnings = storeRead.warning ? [storeRead.warning] : [];
