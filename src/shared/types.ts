@@ -121,6 +121,8 @@ export interface JarvisBridge {
   launch(tileId: string): Promise<LaunchResult>;
   /** Reloads config, discovery, and icons. The same work as the tray Refresh item. */
   refresh(): Promise<void>;
+  /** Fired when the window hides, including from the global hotkey. */
+  onHidden(listener: () => void): () => void;
   hide(): void;
   quit(): void;
 }

@@ -13,9 +13,9 @@ export function tileIconFile(tile: ResolvedTile): string | undefined {
 }
 
 /**
- * Store apps launch through `shell:AppsFolder` and have no logo path.
- * `Get-StartApps` returns a name and an app id. The package logo is under
- * `WindowsApps`, which a normal account cannot read, so the placeholder stays.
+ * Store apps launch through `shell:AppsFolder`.
+ * `Get-StartApps` does not return a logo path, and this launcher does not
+ * open the package folder, so the placeholder stays.
  * The Edge protocol is only used when `msedge.exe` was not found.
  */
 export function tileFallbackIcon(tile: ResolvedTile): string | undefined {

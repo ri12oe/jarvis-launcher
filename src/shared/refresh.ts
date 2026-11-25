@@ -13,19 +13,6 @@ export function isMainFrameSender(senderFrame: unknown, mainFrame: unknown): boo
   return senderFrame != null && mainFrame != null && senderFrame === mainFrame;
 }
 
-/**
- * Starts a refresh for the main frame. Any other sender is ignored,
- * and the refresh function is not called.
- */
-export function startRefreshIfTrusted(
-  senderFrame: unknown,
-  mainFrame: unknown,
-  requestRefresh: () => Promise<void>,
-): Promise<void> | undefined {
-  if (!isMainFrameSender(senderFrame, mainFrame)) return undefined;
-  return requestRefresh();
-}
-
 export interface RefreshGate {
   /** Starts a refresh, or joins the one already running. */
   requestRefresh(): Promise<void>;

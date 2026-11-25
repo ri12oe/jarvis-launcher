@@ -20,7 +20,7 @@ import { hotkeyRegistrationWarnings } from "../shared/hotkey";
 import { tileFallbackIcon, tileIconFile } from "../shared/icons";
 import { defaultEdgeCandidates, runLaunch, spawnDetached, windowsExplorerPath } from "../shared/launch";
 import { loginItemOptions } from "../shared/login-item";
-import { createRefreshGate, isMainFrameSender, startRefreshIfTrusted } from "../shared/refresh";
+import { createRefreshGate, isMainFrameSender } from "../shared/refresh";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, JarvisConfig, LauncherState, LauncherTileView, ResolvedTile } from "../shared/types";
 
@@ -193,6 +193,8 @@ async function refreshSession(): Promise<void> {
     scanning = false;
     refreshFailed = true;
     publishState();
+    const fallbackPath = path.join(app.getPath("userData"), "config.json");
+    startConfigWatch(fallbackPath);
     throw error;
   }
 }
@@ -232,7 +234,10 @@ function showWindow(): void {
 }
 
 function hideWindow(): void {
-  mainWindow?.hide();
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return;
+  win.hide();
+  if (!win.webContents.isDestroyed()) win.webContents.send("jarvis:hidden");
 }
 
 function toggleWindow(): void {
@@ -346,9 +351,8 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("jarvis:refresh", (event) => {
-    const contents = mainWindow?.webContents;
-    const mainFrame = contents && !contents.isDestroyed() ? contents.mainFrame : null;
-    return startRefreshIfTrusted(event.senderFrame, mainFrame, () => refreshGate.requestRefresh());
+    if (!isAppFrame(event)) return;
+    return refreshGate.requestRefresh();
   });
 
   ipcMain.on("jarvis:hide", (event) => {

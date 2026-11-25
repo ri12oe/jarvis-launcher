@@ -246,15 +246,22 @@ time {
   letter-spacing: 0.28em;
 }
 
-.icon {
-  width: 40px;
-  height: 40px;
+.icon-ring {
+  width: 44px;
+  height: 44px;
   flex: 0 0 auto;
+  display: grid;
+  place-items: center;
   border-radius: 50%;
   border: 1px solid rgba(92, 246, 255, 0.8);
   box-shadow: 0 0 8px rgba(92, 246, 255, 0.28);
-  object-fit: contain;
   background: rgba(3, 10, 18, 0.72);
+}
+
+.icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
 }
 
 .label {

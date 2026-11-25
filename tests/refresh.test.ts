@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  acceptRefreshClick,
-  createRefreshGate,
-  isMainFrameSender,
-  refreshControlLabel,
-  startRefreshIfTrusted,
-} from "../src/shared/refresh";
+import { acceptRefreshClick, createRefreshGate, isMainFrameSender, refreshControlLabel } from "../src/shared/refresh";
 
 describe("footer refresh", () => {
   it("accepts a click only when a refresh is idle", () => {
@@ -84,11 +78,7 @@ describe("refresh gate", () => {
 });
 
 describe("sender frame", () => {
-  it("rejects a sender that is not the launcher main frame", async () => {
-    let started = 0;
-    const requestRefresh = async () => {
-      started += 1;
-    };
+  it("rejects a sender that is not the launcher main frame", () => {
     const main = { id: "main" };
     const child = { id: "child" };
 
@@ -96,13 +86,5 @@ describe("sender frame", () => {
     expect(isMainFrameSender(main, null)).toBe(false);
     expect(isMainFrameSender(child, main)).toBe(false);
     expect(isMainFrameSender(main, main)).toBe(true);
-
-    expect(startRefreshIfTrusted(null, main, requestRefresh)).toBeUndefined();
-    expect(startRefreshIfTrusted(main, null, requestRefresh)).toBeUndefined();
-    expect(startRefreshIfTrusted(child, main, requestRefresh)).toBeUndefined();
-    expect(started).toBe(0);
-
-    await startRefreshIfTrusted(main, main, requestRefresh);
-    expect(started).toBe(1);
   });
 });

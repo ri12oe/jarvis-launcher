@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { cloneDefaultConfig, DEFAULT_HOTKEY } from "../shared/config";
-import { columnCountFromOffsets, filterTiles, footerHint, nextGridIndex, type GridKey } from "../shared/grid";
+import {
+  clampIndex,
+  filterTiles,
+  footerHint,
+  isLaunchStatus,
+  launchStatusText,
+  nextVisibleTile,
+  statusAfterPublish,
+  type GridKey,
+  type TilePoint,
+} from "../shared/grid";
 import { tileFallbackIcon } from "../shared/icons";
 import { windowsExplorerPath } from "../shared/launch";
 import { acceptRefreshClick, refreshControlLabel } from "../shared/refresh";
@@ -71,6 +81,13 @@ function isGridKey(key: string): key is GridKey {
   return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown";
 }
 
+function tilePoints(list: HTMLElement | null): TilePoint[] {
+  return [...(list?.children ?? [])].map((node) => {
+    const rect = (node as HTMLElement).getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+}
+
 export function App() {
   const [state, setState] = useState<LauncherState | null>(null);
   const [now, setNow] = useState(() => new Date());
@@ -107,15 +124,18 @@ export function App() {
     const apply = (next: LauncherState) => {
       if (cancel) return;
       setState(next);
-      setStatus((current) => {
-        if (current === "LAUNCH FAILED") return current;
-        if (current === "REFRESH FAILED" && next.refreshFailed) return current;
-        return "";
-      });
+      setStatus((current) => statusAfterPublish(current, next.refreshFailed));
     };
     const stop = bridge.onState((next) => {
       pushed = true;
       apply(next);
+    });
+    const stopHidden = bridge.onHidden(() => {
+      if (cancel) return;
+      queryRef.current = "";
+      activeRef.current = 0;
+      setQuery("");
+      setActiveIndex(0);
     });
     void bridge
       .getState()
@@ -129,15 +149,25 @@ export function App() {
     return () => {
       cancel = true;
       stop();
+      stopHidden();
     };
   }, []);
 
   useEffect(() => {
+    const dismissLaunch = () => {
+      setStatus((current) => (isLaunchStatus(current) ? "" : current));
+    };
     const onKey = (event: KeyboardEvent) => {
       if (event.isComposing) return;
       if (event.key === "Escape") {
-        queryRef.current = "";
-        setQuery("");
+        dismissLaunch();
+        if (queryRef.current) {
+          queryRef.current = "";
+          activeRef.current = 0;
+          setQuery("");
+          setActiveIndex(0);
+          return;
+        }
         window.jarvis?.hide();
         return;
       }
@@ -145,6 +175,7 @@ export function App() {
 
       if (event.key === "Backspace") {
         event.preventDefault();
+        dismissLaunch();
         const next = queryRef.current.slice(0, -1);
         queryRef.current = next;
         activeRef.current = 0;
@@ -156,12 +187,13 @@ export function App() {
 
       if (isGridKey(event.key)) {
         event.preventDefault();
+        dismissLaunch();
         const visible = visibleRef.current;
-        const offsets = [...(listRef.current?.children ?? [])].map((node) => (node as HTMLElement).offsetTop);
-        const columns = columnCountFromOffsets(offsets);
-        const next = nextGridIndex(activeRef.current, visible.length, columns, event.key);
+        const points = tilePoints(listRef.current);
+        const current = clampIndex(activeRef.current, visible.length);
+        const next = nextVisibleTile(current, points, event.key);
         activeRef.current = next;
-        setActiveIndex(next);
+        setActiveIndex(next < 0 ? 0 : next);
         if (next >= 0) tileRefs.current[next]?.focus();
         return;
       }
@@ -169,7 +201,8 @@ export function App() {
       if (event.key === "Enter") {
         const target = event.target;
         if (target instanceof HTMLElement && target.closest("button")) return;
-        const tile = visibleRef.current[activeRef.current] ?? visibleRef.current[0];
+        const visible = visibleRef.current;
+        const tile = visible[clampIndex(activeRef.current, visible.length)];
         if (!tile) return;
         event.preventDefault();
         void launchRef.current(tile.id);
@@ -177,7 +210,9 @@ export function App() {
       }
 
       if (event.key.length !== 1) return;
+      if (event.key === " " && event.target instanceof HTMLElement && event.target.closest("button")) return;
       event.preventDefault();
+      dismissLaunch();
       const next = (queryRef.current + event.key).slice(0, FILTER_LIMIT);
       queryRef.current = next;
       activeRef.current = 0;
@@ -195,6 +230,15 @@ export function App() {
     tileRefs.current[0]?.focus();
   }, [query]);
 
+  useEffect(() => {
+    const count = filterTiles(state?.tiles ?? [], query).length;
+    if (count > 0 && activeIndex >= count) {
+      const next = count - 1;
+      activeRef.current = next;
+      setActiveIndex(next);
+    }
+  }, [state, query, activeIndex]);
+
   const launch = async (id: string) => {
     setPressed(id);
     window.setTimeout(() => setPressed((current) => (current === id ? null : current)), 220);
@@ -202,7 +246,7 @@ export function App() {
     if (!bridge) return;
     const result = await bridge.launch(id);
     if (!result.ok) {
-      setStatus(result.error ?? "LAUNCH FAILED");
+      setStatus(launchStatusText(result.error));
       return;
     }
     bridge.hide();
@@ -215,6 +259,7 @@ export function App() {
     if (!bridge) return;
     refreshingRef.current = true;
     setRefreshing(true);
+    setStatus((current) => (isLaunchStatus(current) ? "" : current));
     void bridge
       .refresh()
       .catch(() => {
@@ -230,6 +275,8 @@ export function App() {
   const tiles = state?.tiles ?? [];
   const visible = filterTiles(tiles, query);
   visibleRef.current = visible;
+  const focusedIndex = clampIndex(activeIndex, visible.length);
+  if (activeRef.current >= visible.length) activeRef.current = focusedIndex;
   tileRefs.current = [];
   const warnings = state?.warnings ?? [];
   const hint = footerHint({
@@ -273,7 +320,7 @@ export function App() {
                 }}
                 className={pressed === tile.id ? "tile pressed" : "tile"}
                 data-kind={tile.kind}
-                tabIndex={index === activeIndex ? 0 : -1}
+                tabIndex={visible.length > 0 && index === focusedIndex ? 0 : -1}
                 onFocus={() => {
                   activeRef.current = index;
                   setActiveIndex(index);
@@ -281,7 +328,11 @@ export function App() {
                 onClick={() => void launch(tile.id)}
               >
                 <span className="kind">
-                  {tile.icon ? <img className="icon" alt="" src={tile.icon} /> : null}
+                  {tile.icon ? (
+                    <span className="icon-ring">
+                      <img className="icon" alt="" src={tile.icon} />
+                    </span>
+                  ) : null}
                   {KIND_LABEL[tile.kind]}
                 </span>
                 <span className="label">{tile.label}</span>

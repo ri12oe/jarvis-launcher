@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { columnCountFromOffsets, filterTiles, footerHint, nextGridIndex } from "../src/shared/grid";
+import {
+  clampIndex,
+  filterTiles,
+  footerHint,
+  launchStatusText,
+  nextVisibleTile,
+  statusAfterPublish,
+  type TilePoint,
+} from "../src/shared/grid";
 
 const tiles = [
   { id: "edge", label: "Microsoft Edge" },
@@ -31,23 +39,38 @@ describe("tile filter", () => {
   });
 });
 
+function row(xs: number[], y: number): TilePoint[] {
+  return xs.map((x) => ({ x, y }));
+}
+
 describe("grid navigation", () => {
-  it("counts the tiles that share the first row's offset", () => {
-    expect(columnCountFromOffsets([])).toBe(1);
-    expect(columnCountFromOffsets([10, 10, 10, 80, 80])).toBe(3);
-    expect(columnCountFromOffsets([0])).toBe(1);
+  const wide = [
+    ...row([0, 100, 200, 300, 400, 500], 0),
+    ...row([200, 300], 100),
+  ];
+  const gapped = [...row([0, 100, 200], 0), ...row([0, 100], 100)];
+
+  it("clamps the focused index when the list shrinks", () => {
+    expect(clampIndex(5, 2)).toBe(1);
+    expect(clampIndex(0, 4)).toBe(0);
+    expect(clampIndex(-1, 4)).toBe(0);
+    expect(clampIndex(3, 0)).toBe(0);
   });
 
-  it("moves by one tile horizontally and by a row vertically", () => {
-    expect(nextGridIndex(-1, 8, 3, "ArrowRight")).toBe(0);
-    expect(nextGridIndex(0, 8, 3, "ArrowRight")).toBe(1);
-    expect(nextGridIndex(1, 8, 3, "ArrowLeft")).toBe(0);
-    expect(nextGridIndex(0, 8, 3, "ArrowLeft")).toBe(0);
-    expect(nextGridIndex(0, 8, 3, "ArrowDown")).toBe(3);
-    expect(nextGridIndex(3, 8, 3, "ArrowUp")).toBe(0);
-    expect(nextGridIndex(5, 8, 3, "ArrowDown")).toBe(5);
-    expect(nextGridIndex(7, 8, 3, "ArrowRight")).toBe(7);
-    expect(nextGridIndex(0, 0, 3, "ArrowDown")).toBe(-1);
+  it("follows the centered last row and stays on a gap", () => {
+    expect(nextVisibleTile(2, wide, "ArrowDown")).toBe(6);
+    expect(nextVisibleTile(3, wide, "ArrowDown")).toBe(7);
+    expect(nextVisibleTile(0, wide, "ArrowDown")).toBe(0);
+    expect(nextVisibleTile(5, wide, "ArrowDown")).toBe(5);
+    expect(nextVisibleTile(6, wide, "ArrowUp")).toBe(2);
+    expect(nextVisibleTile(6, wide, "ArrowRight")).toBe(7);
+    expect(nextVisibleTile(7, wide, "ArrowRight")).toBe(7);
+    expect(nextVisibleTile(5, wide, "ArrowRight")).toBe(5);
+    expect(nextVisibleTile(0, wide, "ArrowRight")).toBe(1);
+    expect(nextVisibleTile(2, gapped, "ArrowDown")).toBe(2);
+    expect(nextVisibleTile(0, gapped, "ArrowDown")).toBe(3);
+    expect(nextVisibleTile(-1, wide, "ArrowDown")).toBe(0);
+    expect(nextVisibleTile(0, [], "ArrowDown")).toBe(-1);
   });
 });
 
@@ -70,5 +93,18 @@ describe("footer hint", () => {
 
   it("keeps a click's REFRESHING label ahead of the scan flag", () => {
     expect(footerHint({ ...hint, refreshing: true, scanning: true })).toBe("REFRESHING");
+  });
+
+  it("shows LAUNCH FAILED with the reason and keeps it across a state publish", () => {
+    const explorer = launchStatusText("spawn C:\\Windows\\explorer.exe ENOENT");
+    const unknown = launchStatusText("Unknown tile");
+    expect(explorer).toBe("LAUNCH FAILED  spawn C:\\Windows\\explorer.exe ENOENT");
+    expect(unknown).toBe("LAUNCH FAILED  Unknown tile");
+    expect(launchStatusText(undefined)).toBe("LAUNCH FAILED");
+    expect(footerHint({ ...hint, status: explorer, scanning: true, query: "edge" })).toBe(explorer);
+    expect(footerHint({ ...hint, status: unknown })).toBe(unknown);
+    expect(statusAfterPublish(explorer, false)).toBe(explorer);
+    expect(statusAfterPublish(unknown, false)).toBe(unknown);
+    expect(statusAfterPublish("SELECT A SYSTEM", false)).toBe("");
   });
 });
