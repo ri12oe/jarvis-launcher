@@ -135,6 +135,8 @@ export interface HudFrame {
   wifi: Aabb;
   tabs: Aabb;
   bounds: Aabb;
+  viewW: number;
+  viewH: number;
 }
 
 export interface HudLayout {
@@ -303,6 +305,8 @@ export function hudFrame(viewport: Viewport, options?: LayoutOptions): HudFrame 
     wifi,
     tabs,
     bounds,
+    viewW: width,
+    viewH: height,
   };
 }
 
@@ -314,6 +318,9 @@ interface SegmentSlot {
   box: Aabb;
   width: number;
   height: number;
+  /** Drawn plate, and the clickable button. Larger than the packed layout box. */
+  faceWidth: number;
+  faceHeight: number;
 }
 
 function rotatedAabb(cx: number, cy: number, boxW: number, boxH: number, angle: number): Aabb {
@@ -334,8 +341,16 @@ function inside(bounds: Aabb, box: Aabb): boolean {
   return box.left >= bounds.left - 0.5 && box.top >= bounds.top - 0.5 && box.right <= bounds.right + 0.5 && box.bottom <= bounds.bottom + 0.5;
 }
 
+/** Chord-wide plate. The button uses this size, so the hit area matches the drawing. */
+export function plateFace(radius: number, count: number): { width: number; height: number } {
+  const chord = 2 * radius * Math.sin(Math.PI / Math.max(3, count));
+  const height = Math.max(36, Math.min(60, radius * 0.16));
+  return { width: Math.max(72, chord * 0.98), height };
+}
+
 function tryRing(frame: HudFrame, count: number, radius: number, boxW: number, boxH: number): SegmentSlot[] | null {
   const slots: SegmentSlot[] = [];
+  const face = plateFace(radius, count);
   for (let slot = 0; slot < count; slot++) {
     const angle = segmentAngle(slot, count);
     const point = segmentPoint(angle, radius);
@@ -346,7 +361,17 @@ function tryRing(frame: HudFrame, count: number, radius: number, boxW: number, b
     for (const prev of slots) {
       if (boxesOverlap(prev.box, box, 1)) return null;
     }
-    slots.push({ angle, rotation: uprightRotation(angle), x, y, box, width: boxW, height: boxH });
+    slots.push({
+      angle,
+      rotation: uprightRotation(angle),
+      x,
+      y,
+      box,
+      width: boxW,
+      height: boxH,
+      faceWidth: face.width,
+      faceHeight: face.height,
+    });
   }
   return slots;
 }
@@ -357,7 +382,7 @@ function ringsClear(outer: readonly SegmentSlot[], inner: readonly SegmentSlot[]
 
 /** Outer and inner plate rings. Twenty tiles fit at 1920 when both rings pack. */
 export function reactorSlots(frame: HudFrame): SegmentSlot[] {
-  const counts = frame.reactor < 420 ? [8, 6] : [12, 10, 8, 6];
+  const counts = frame.reactor < 300 ? [8, 6] : frame.reactor < 520 ? [10, 8, 6] : [12, 10, 8, 6];
   let width = Math.min(frame.segW, 92);
   let height = Math.min(frame.segH, 24);
   for (let shrink = 0; shrink < 8; shrink++) {
@@ -380,7 +405,8 @@ export function reactorSlots(frame: HudFrame): SegmentSlot[] {
   const single = tryRing(frame, 8, frame.segRadius, width, height);
   if (single) return single;
   const box = rotatedAabb(frame.cx, frame.cy, width, height, 0);
-  return [{ angle: 0, rotation: 0, x: frame.cx, y: frame.cy, box, width, height }];
+  const face = plateFace(frame.segRadius, 8);
+  return [{ angle: 0, rotation: 0, x: frame.cx, y: frame.cy, box, width, height, faceWidth: face.width, faceHeight: face.height }];
 }
 
 function rowBoxes(area: Aabb, count: number, gap: number, min: number): Aabb[] | null {
@@ -521,8 +547,8 @@ export function layoutHud<T extends LayoutTile>(
       place.x = geom.x;
       place.y = geom.y;
       place.radius = frame.segRadius;
-      place.width = geom.width;
-      place.height = geom.height;
+      place.width = geom.faceWidth;
+      place.height = geom.faceHeight;
       place.side = labelSide(geom.angle);
     }
     placed[index] = place;
@@ -588,10 +614,11 @@ export function chromeLayout(viewport: Viewport, options?: LayoutOptions & { pag
     const size = roomy ? 168 : 124;
     analog = box(width - size - 12, calendar.bottom + 10, size, size + 16);
   }
-  const disk = compact ? 64 : roomy ? 104 : 84;
+  const disk = compact ? 58 : roomy ? 96 : 80;
+  const diskLabel = 14;
   let diskTop = analog ? analog.bottom + 12 : Math.max(frame.header + 8, calendar.bottom + 8);
-  const ram = box(width - disk - 12, diskTop, disk, disk);
-  const bin = box(width - disk - 12, ram.bottom + 10, disk, disk);
+  const ram = box(width - disk - 12, diskTop, disk, disk + diskLabel);
+  const bin = box(width - disk - 12, ram.bottom + 8, disk, disk + diskLabel);
   const subtitle = options?.subtitle ? subtitlePanelBox(viewport) : undefined;
   let dial: Aabb | undefined;
   if (!compact) {
@@ -599,8 +626,8 @@ export function chromeLayout(viewport: Viewport, options?: LayoutOptions & { pag
     dial = box(width - size - 8, height - size - 4, size, size);
   }
   const rightEdge = dial ? dial.left - 8 : width - 8;
-  const gaugeW = compact ? 120 : roomy ? 200 : 156;
-  const gaugeH = Math.round(gaugeW * 0.62);
+  const gaugeW = compact ? 120 : roomy ? 240 : 168;
+  const gaugeH = Math.round(gaugeW * 0.64);
   const gaugeBottom = Math.min(height - frame.footer - 8, dial ? dial.top - 8 : height);
   const gaugeRight = width - 10;
   let gaugeLeft = gaugeRight - gaugeW;
@@ -617,14 +644,14 @@ export function chromeLayout(viewport: Viewport, options?: LayoutOptions & { pag
   const footerH = frame.footer - 16;
   const pages = options?.pages ?? 1;
   const gap = 6;
-  let hintW = 156;
-  let commandW = compact ? 236 : 276;
-  let mediaW = compact ? 168 : 248;
+  let hintW = compact ? 128 : 156;
+  let commandW = compact ? 220 : 276;
+  let mediaW = compact ? 148 : 248;
   const uptimeW = 60;
   const pagerW = pages > 1 ? 140 : 0;
   const edges = 8 + (width - rightEdge);
   const gaps = gap * (pagerW ? 5 : 4);
-  const searchMin = 72;
+  const searchMin = compact ? 104 : 88;
   let used = edges + hintW + commandW + pagerW + mediaW + uptimeW + gaps + searchMin;
   if (used > width) {
     const over = used - width;

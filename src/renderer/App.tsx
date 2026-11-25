@@ -13,7 +13,7 @@ import { SystemButtons } from "./hud/SystemButtons";
 import { Uptime } from "./hud/Uptime";
 import { Weather } from "./hud/Weather";
 import { Wifi } from "./hud/Wifi";
-import { measureHudLabel } from "./measure";
+import { measureHudLabel, measurePlateWidth } from "./measure";
 import { cloneDefaultConfig, DEFAULT_HOTKEY } from "../shared/config";
 import {
   clampIndex,
@@ -42,7 +42,7 @@ import {
   type RingPlacement,
   type Viewport,
 } from "../shared/ring";
-import { plateTexts } from "../shared/labels";
+import { displayLabel, plateTexts } from "../shared/labels";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, LauncherState, LauncherTileView, VoicePhase, VoiceSnapshot } from "../shared/types";
 import { voiceControlLabel } from "../shared/voice-state";
@@ -212,22 +212,20 @@ function absBox(box: Aabb): CSSProperties {
   };
 }
 
-function plateFont(place: RingPlacement): number {
-  if (place.zone === "segment") return Math.max(9, Math.min(12, (place.height ?? 18) * 0.38));
-  return 11;
-}
-
 function plateWidth(place: RingPlacement): number {
-  if (place.zone === "segment") return Math.max(16, (place.width ?? 40) - 16);
-  if (place.zone === "tab") return Math.max(20, (place.width ?? 40) - 8);
-  return Math.max(24, (place.width ?? 40) - 44);
+  if (place.zone === "segment") return Math.max(48, (place.width ?? 80) - 12);
+  if (place.zone === "tab") return Math.max(24, (place.width ?? 40) - 6);
+  return Math.max(40, (place.width ?? 40) - 34);
 }
 
-function plateLineCount(place: RingPlacement): number {
-  if (place.zone !== "segment") return 1;
-  const font = plateFont(place);
-  if ((place.height ?? 20) < font * 2.4) return 1;
-  return 2;
+function fittedFont(place: RingPlacement, label: string): number {
+  const width = plateWidth(place);
+  const words = displayLabel(label).toUpperCase().split(/\s+/).filter(Boolean);
+  const longest = words.reduce((best, word) => (word.length > best.length ? word : best), words[0] ?? "");
+  let px = place.zone === "segment" ? Math.min(13, Math.max(10, (place.height ?? 36) * 0.28)) : 12;
+  const min = place.zone === "tab" ? 8 : 9;
+  while (px > min && measurePlateWidth(longest, px) > width - 6) px -= 0.5;
+  return px;
 }
 
 function tileStyle(place: RingPlacement): CSSProperties {
@@ -238,7 +236,7 @@ function tileStyle(place: RingPlacement): CSSProperties {
       width: place.width,
       height: place.height,
       transform: `translate(-50%, -50%) rotate(${place.rotation ?? 0}deg)`,
-      fontSize: plateFont(place),
+      fontSize: 11,
     };
   }
   return {
@@ -577,12 +575,15 @@ export function App() {
   layoutRef.current = layout;
   const plateCopy = useMemo(() => {
     const lines = new Array<string[]>(tiles.length);
-    const entries = layout.segments.map((place) => ({
-      label: tiles[place.index]?.label ?? "",
-      width: plateWidth(place),
-      fontPx: plateFont(place),
-      maxLines: plateLineCount(place),
-    }));
+    const entries = layout.segments.map((place) => {
+      const label = tiles[place.index]?.label ?? "";
+      return {
+        label,
+        width: plateWidth(place),
+        fontPx: fittedFont(place, label),
+        maxLines: place.zone === "tab" ? 1 : 2,
+      };
+    });
     const texts = plateTexts(entries);
     layout.segments.forEach((place, index) => {
       lines[place.index] = texts[index] ?? [];
@@ -760,7 +761,7 @@ export function App() {
                 ]
                   .filter(Boolean)
                   .join(" ")}
-                style={tileStyle(place)}
+                style={{ ...tileStyle(place), fontSize: fittedFont(place, tile.label) }}
                 data-kind={tile.kind}
                 data-zone={place.zone}
                 data-side={place.side}

@@ -1,5 +1,5 @@
 import type { VoicePhase } from "../../shared/types";
-import { reactorSlots, type HudFrame } from "../../shared/ring";
+import { plateFace, reactorSlots, type HudFrame } from "../../shared/ring";
 
 function arc(radius: number, start: number, end: number): string {
   const a = ((start - 90) * Math.PI) / 180;
@@ -32,20 +32,19 @@ export function ReactorFace({
     >
       {slots.map((slot, index) => {
         const ringCount = index < half ? half : Math.max(1, slots.length - half);
+        if (used.has(index)) return null;
         const radius = Math.hypot(slot.x - frame.cx, slot.y - frame.cy);
-        const chord = 2 * radius * Math.sin(Math.PI / Math.max(3, ringCount));
-        const plateH = Math.max(32, Math.min(64, radius * 0.16));
+        const face = plateFace(radius, ringCount);
         return (
           <span
             key={index}
             className={index < half ? "plate-face" : "plate-face inner"}
-            data-filled={used.has(index) ? "yes" : "no"}
             aria-hidden="true"
             style={{
               left: size / 2 + (slot.x - frame.cx),
               top: size / 2 + (slot.y - frame.cy),
-              width: chord * 1.02,
-              height: plateH,
+              width: face.width,
+              height: face.height,
               transform: `translate(-50%, -50%) rotate(${slot.rotation}deg)`,
             }}
           />
@@ -112,6 +111,7 @@ export function ReactorFace({
           );
         })}
       </svg>
+      <div className="ring glow" />
       <div className="ring hatch spin" />
       <div className="ring solid" />
       <div className="ring hatch inner spin-rev" />

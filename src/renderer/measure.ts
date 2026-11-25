@@ -33,6 +33,20 @@ function canvasMetrics(text: string): LabelMetrics | null {
   };
 }
 
+/** Canvas width of uppercase plate text in the HUD face font. */
+export function measurePlateWidth(text: string, fontPx: number): number {
+  if (typeof document === "undefined") return text.length * fontPx * 0.58;
+  if (context === undefined) {
+    const canvas = document.createElement("canvas");
+    context = canvas.getContext("2d");
+  }
+  if (!context) return text.length * fontPx * 0.58;
+  context.font = `600 ${fontPx}px "Segoe UI", "Arial Narrow", "Helvetica Neue", sans-serif`;
+  const measured = context.measureText(text).width;
+  const width = Number.isFinite(measured) && measured > 0 ? measured : text.length * fontPx * 0.62;
+  return width * 1.03;
+}
+
 /** Canvas measurement of the HUD font. Falls back to the pure monospace estimate. */
 export function measureHudLabel(text: string): LabelMetrics {
   const cached = cache.get(text);

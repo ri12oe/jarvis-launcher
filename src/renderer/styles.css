@@ -254,10 +254,10 @@ button {
 
 .clock-reflect {
   display: block;
-  margin-top: 0.02em;
+  margin-top: 0;
   font-family: "Arial Black", Impact, "Arial Narrow", sans-serif;
   font-weight: 900;
-  font-size: calc(var(--clock-w) * 0.32);
+  font-size: calc(var(--clock-w) * 0.2);
   line-height: 0.8;
   letter-spacing: -0.04em;
   color: rgba(230, 240, 245, 0.82);
@@ -378,10 +378,8 @@ button {
   stroke-width: 0.9;
 }
 
-.plate-face {
-  position: absolute;
-  z-index: 2;
-  pointer-events: none;
+.plate-face,
+.tile-segment {
   background: linear-gradient(180deg, #8b97a4 0%, #3a4450 8%, #1a212b 42%, #10151c 100%);
   border: 1px solid #c5ced6;
   box-shadow:
@@ -389,6 +387,12 @@ button {
     inset 0 -4px 0 rgba(0, 0, 0, 0.72),
     0 2px 0 rgba(0, 0, 0, 0.45);
   clip-path: polygon(7% 0, 93% 0, 100% 100%, 0 100%);
+}
+
+.plate-face {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
 }
 
 .plate-face.inner {
@@ -467,6 +471,17 @@ button {
   box-shadow: 0 0 22px #bff8ff, 0 0 48px rgba(40, 170, 255, 0.95), inset 0 0 16px #7af3ff;
 }
 
+.ring.glow {
+  width: 86%;
+  height: 86%;
+  border-radius: 50%;
+  box-shadow:
+    0 0 22px rgba(120, 235, 255, 0.95),
+    0 0 48px rgba(40, 160, 255, 0.75),
+    inset 0 0 28px rgba(80, 210, 255, 0.35);
+  pointer-events: none;
+}
+
 .ring.hatch {
   width: 84%;
   height: 84%;
@@ -475,7 +490,6 @@ button {
     rgba(210, 252, 255, 1) 0 1.6deg,
     transparent 1.6deg 4.2deg
   );
-  filter: drop-shadow(0 0 10px rgba(90, 230, 255, 0.95));
   -webkit-mask: radial-gradient(circle, transparent 72%, #000 76% 96%, transparent 99%);
   mask: radial-gradient(circle, transparent 72%, #000 76% 96%, transparent 99%);
 }
@@ -488,7 +502,6 @@ button {
     rgba(170, 240, 255, 0.95) 0 1.5deg,
     transparent 1.5deg 4.6deg
   );
-  filter: drop-shadow(0 0 8px rgba(80, 210, 255, 0.9));
   -webkit-mask: radial-gradient(circle, transparent 70%, #000 74% 94%, transparent 98%);
   mask: radial-gradient(circle, transparent 70%, #000 74% 94%, transparent 98%);
 }
@@ -513,11 +526,11 @@ button {
   height: 34%;
   border-radius: 50%;
   background:
-    radial-gradient(circle, rgba(8, 18, 32, 0.15) 0 36%, rgba(120, 230, 255, 0.85) 58%, rgba(20, 80, 140, 0.2) 72%);
+    radial-gradient(circle, rgba(10, 24, 40, 0.1) 0 34%, rgba(170, 245, 255, 0.95) 56%, rgba(30, 120, 200, 0.35) 74%);
   box-shadow:
-    0 0 28px rgba(140, 240, 255, 1),
-    0 0 70px rgba(40, 150, 255, 0.9),
-    inset 0 0 22px rgba(210, 250, 255, 0.55);
+    0 0 36px rgba(170, 245, 255, 1),
+    0 0 80px rgba(40, 160, 255, 0.95),
+    inset 0 0 26px rgba(220, 252, 255, 0.7);
 }
 
 .core-ticks {
@@ -613,6 +626,12 @@ button {
   z-index: 2;
   pointer-events: none;
   min-width: 0;
+}
+
+@media (max-width: 1600px) {
+  .weather {
+    display: none;
+  }
 }
 
 .weather {
@@ -720,13 +739,14 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 2px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .meter-ring {
-  width: 82%;
+  width: 100%;
+  flex: none;
   aspect-ratio: 1;
   border-radius: 50%;
   border: 3px solid rgba(170, 210, 230, 0.75);
@@ -747,8 +767,10 @@ button {
 }
 
 .meter-name {
+  flex: none;
   font-size: 11px;
-  letter-spacing: 0.08em;
+  line-height: 1;
+  letter-spacing: 0.06em;
   color: #d5e7ef;
 }
 
@@ -766,7 +788,18 @@ button {
 
 .gauge svg {
   width: 100%;
-  height: 78%;
+  height: 100%;
+  display: block;
+}
+
+.gauge-num {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 6%;
+  text-align: center;
+  font-size: 16px;
+  line-height: 1;
 }
 
 .gauge-arc,
@@ -906,19 +939,15 @@ button {
   flex-direction: column;
   justify-content: center;
   gap: 1px;
-  padding: 2px 8px;
+  padding: 1px 3px;
   background: linear-gradient(180deg, #465266, #1a212c 42%, #0d1218);
   clip-path: polygon(10% 0, 90% 0, 100% 100%, 0 100%);
-  font-size: clamp(8px, 0.62vw, 11px);
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
 }
 
 .tile-segment {
   justify-content: center;
-  padding: 0 4px;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
+  padding: 0 6px;
   letter-spacing: 0;
   color: #e7eef3;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.85);
@@ -1156,7 +1185,8 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 12px;
+  padding: 0 10px;
+  overflow: visible;
   border-radius: 999px;
   background: rgba(8, 14, 20, 0.9);
   border: 1px solid rgba(140, 170, 185, 0.35);

@@ -18,7 +18,7 @@ export function Gauge({ style, readout = true }: { style?: CSSProperties; readou
         <line className="needle" x1="60" y1="66" x2="28" y2="58" />
         <circle cx="60" cy="66" r="3.5" />
       </svg>
-      {readout ? <span>--</span> : null}
+      {readout ? <span className="gauge-num">--</span> : null}
     </div>
   );
 }
