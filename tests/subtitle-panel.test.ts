@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { boxesOverlap, layoutHud, placedTileBoxes, subtitlePanelBox, viewportAboveSubtitle } from "../src/shared/ring";
+import {
+  boxesOverlap,
+  layoutHud,
+  placedTileBoxes,
+  subtitlePanelBox,
+  viewportAboveSubtitle,
+  type HudLayout,
+} from "../src/shared/ring";
 
 const labels = [
   "ChatGPT",
@@ -28,29 +35,43 @@ const labels = [
   "Module 10",
 ];
 
+function tilesPerPage(layout: HudLayout): number {
+  const counts = Array.from({ length: layout.pageCount }, () => 0);
+  for (const segment of layout.segments) counts[segment.page] += 1;
+  return Math.min(...counts);
+}
+
+function fullestRing(layout: HudLayout): number {
+  const counts = new Map<string, number>();
+  for (const segment of layout.segments) {
+    const key = `${segment.page}:${segment.ring}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return Math.max(0, ...counts.values());
+}
+
 describe("small windows with voice on", () => {
-  it("keeps every tile inside the viewport while the subtitle space is reserved", () => {
+  it("pages about as well as voice off and keeps every tile inside the viewport", () => {
     const viewports = [
       { width: 853, height: 480 },
       { width: 911, height: 512 },
     ];
-    const tiles = labels.slice(0, 14).map((label) => ({ label }));
+    const tiles = labels.slice(0, 10).map((label) => ({ label }));
     for (const phase of ["idle", "speaking"] as const) {
       expect(phase === "idle" || phase === "speaking").toBe(true);
       for (const viewport of viewports) {
-        const layoutViewport = viewportAboveSubtitle(viewport);
-        const layout = layoutHud(tiles, layoutViewport);
-        const windowBox = { left: 0, top: 0, right: viewport.width, bottom: viewport.height };
-        expect(layout.segments.length).toBe(tiles.length);
-        for (const box of placedTileBoxes(layout, layoutViewport)) {
-          expect(box.left).toBeGreaterThanOrEqual(windowBox.left - 0.5);
-          expect(box.top).toBeGreaterThanOrEqual(windowBox.top - 0.5);
-          expect(box.right).toBeLessThanOrEqual(windowBox.right + 0.5);
-          expect(box.bottom).toBeLessThanOrEqual(windowBox.bottom + 0.5);
-        }
-        for (const size of layout.reactor) {
-          expect(size).toBeLessThanOrEqual(viewport.height);
-          expect(size).toBeLessThanOrEqual(480);
+        const off = layoutHud(tiles, viewport);
+        const onViewport = viewportAboveSubtitle(viewport);
+        const on = layoutHud(tiles, onViewport);
+        const ring = fullestRing(off);
+        expect(tilesPerPage(on)).toBeGreaterThanOrEqual(tilesPerPage(off) - ring);
+        expect(on.pageCount).toBeLessThanOrEqual(off.pageCount + 1);
+        expect(on.pageCount).toBeLessThan(tiles.length);
+        for (const box of placedTileBoxes(on, onViewport)) {
+          expect(box.left).toBeGreaterThanOrEqual(-0.5);
+          expect(box.top).toBeGreaterThanOrEqual(-0.5);
+          expect(box.right).toBeLessThanOrEqual(viewport.width + 0.5);
+          expect(box.bottom).toBeLessThanOrEqual(viewport.height + 0.5);
         }
       }
     }

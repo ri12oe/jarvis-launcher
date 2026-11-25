@@ -31,6 +31,35 @@ export const MAX_RINGS = 3;
 /** Icon centers stay outside the reactor and the page controls. */
 const MIN_INNER = 136;
 
+interface Fit {
+  icon: number;
+  gap: number;
+  minInner: number;
+  labelMax: number;
+  labelLine: number;
+  font: number;
+  charWidth: number;
+}
+
+const FULL_FIT: Fit = {
+  icon: ICON_SIZE,
+  gap: LABEL_GAP,
+  minInner: MIN_INNER,
+  labelMax: LABEL_MAX_WIDTH,
+  labelLine: LABEL_LINE,
+  font: LABEL_FONT,
+  charWidth: LABEL_CHAR_WIDTH,
+};
+
+/** Smaller ring used only when the full size would leave about one tile per page. */
+const COMPACT_FITS: readonly Fit[] = [
+  { icon: 36, gap: 6, minInner: 88, labelMax: 128, labelLine: 16, font: 11, charWidth: 6.6 },
+  { icon: 32, gap: 4, minInner: 64, labelMax: 104, labelLine: 14, font: 10, charWidth: 5.6 },
+  { icon: 28, gap: 4, minInner: 48, labelMax: 84, labelLine: 13, font: 9, charWidth: 4.8 },
+];
+
+let fit: Fit = FULL_FIT;
+
 const FOOTER_BLOCK = 72;
 
 /** Matches `.subtitle` max-height. The panel scrolls past this. */
@@ -124,6 +153,12 @@ export interface HudLayout {
   pageCount: number;
   /** Reactor diameter in CSS pixels, one entry per page. */
   reactor: number[];
+  /** Icon ring diameter. The stage uses this so the drawn tiles match the boxes. */
+  icon: number;
+  gap: number;
+  labelFont: number;
+  labelLine: number;
+  labelMax: number;
 }
 
 /** Pure fallback used when canvas measurement is unavailable, including unit tests. */
@@ -155,7 +190,7 @@ export type LabelMeasurer = (text: string) => LabelMetrics;
  * and the icon is the span when the label points outward.
  */
 export function minArcSpacing(metrics: LabelMetrics): number {
-  return Math.max(ICON_SIZE, metrics.width) + LABEL_GAP;
+  return Math.max(fit.icon, metrics.width) + fit.gap;
 }
 
 export function radiusForArcSpacing(count: number, spacing: number): number {
@@ -200,28 +235,28 @@ export function boxesOverlap(a: Aabb, b: Aabb, pad = 0): boolean {
 }
 
 function boxesAt(x: number, y: number, side: LabelSide, metrics: LabelMetrics): { icon: Aabb; label: Aabb } {
-  const half = ICON_SIZE / 2;
+  const half = fit.icon / 2;
   const icon: Aabb = { left: x - half, top: y - half, right: x + half, bottom: y + half };
   const label: Aabb = { left: 0, top: 0, right: 0, bottom: 0 };
   if (side === "right") {
-    label.left = icon.right + LABEL_GAP;
+    label.left = icon.right + fit.gap;
     label.right = label.left + metrics.width;
     label.top = y - metrics.height / 2;
     label.bottom = y + metrics.height / 2;
   } else if (side === "left") {
-    label.right = icon.left - LABEL_GAP;
+    label.right = icon.left - fit.gap;
     label.left = label.right - metrics.width;
     label.top = y - metrics.height / 2;
     label.bottom = y + metrics.height / 2;
   } else if (side === "bottom") {
     label.left = x - metrics.width / 2;
     label.right = x + metrics.width / 2;
-    label.top = icon.bottom + LABEL_GAP;
+    label.top = icon.bottom + fit.gap;
     label.bottom = label.top + metrics.height;
   } else {
     label.left = x - metrics.width / 2;
     label.right = x + metrics.width / 2;
-    label.bottom = icon.top - LABEL_GAP;
+    label.bottom = icon.top - fit.gap;
     label.top = label.bottom - metrics.height;
   }
   return { icon, label };
@@ -263,7 +298,7 @@ function segmentsCollide(segments: ReadonlyArray<{ icon: Aabb; label: Aabb }>, p
 }
 
 function radiusFromPairs(items: readonly LabelMetrics[]): number {
-  if (items.length <= 1) return MIN_INNER;
+  if (items.length <= 1) return fit.minInner;
   let radius = 0;
   for (let i = 0; i < items.length; i++) {
     const span = (minArcSpacing(items[i]) + minArcSpacing(items[(i + 1) % items.length])) / 2;
@@ -278,9 +313,9 @@ function ringClear(items: readonly LabelMetrics[], radius: number): boolean {
 
 /** Smallest icon radius whose boxes clear each other, seeded by the arc spacing. */
 function minimumRadius(items: readonly LabelMetrics[]): number {
-  if (items.length === 0) return MIN_INNER;
-  const hinted = Math.max(MIN_INNER, radiusFromPairs(items));
-  let lo = MIN_INNER;
+  if (items.length === 0) return fit.minInner;
+  const hinted = Math.max(fit.minInner, radiusFromPairs(items));
+  let lo = fit.minInner;
   let hi = hinted;
   if (!ringClear(items, hi)) {
     lo = hi;
@@ -293,7 +328,7 @@ function minimumRadius(items: readonly LabelMetrics[]): number {
     if (ringClear(items, mid)) hi = mid;
     else lo = mid;
   }
-  return Math.max(hi, items.length > 1 ? 0 : MIN_INNER);
+  return Math.max(hi, items.length > 1 ? 0 : fit.minInner);
 }
 
 function furthest(segments: ReadonlyArray<{ icon: Aabb; label: Aabb }>): number {
@@ -397,13 +432,13 @@ function tryCounts(
   const radii = groups.map((group, ring) => {
     const min = minimumRadius(group);
     if (!Number.isFinite(min)) return Number.POSITIVE_INFINITY;
-    return ring === 0 ? Math.max(min, MIN_INNER) : min;
+    return ring === 0 ? Math.max(min, fit.minInner) : min;
   });
   if (radii.some((radius) => !Number.isFinite(radius))) return null;
 
   for (let ring = 1; ring < radii.length; ring++) {
     const prev = ringSegments(groups[ring - 1], radii[ring - 1]);
-    radii[ring] = Math.max(radii[ring], furthest(prev) + LABEL_GAP + ICON_SIZE / 2);
+    radii[ring] = Math.max(radii[ring], furthest(prev) + fit.gap + fit.icon / 2);
   }
 
   const minimum = buildAt(groups, radii);
@@ -438,7 +473,7 @@ function placeOneInside(metrics: LabelMetrics, bounds: Aabb, obstacles: readonly
   const clear = placeSlice([metrics], bounds, []);
   if (clear) return clear;
   let best: Built | null = null;
-  for (let radius = 0; radius <= MIN_INNER; radius += 2) {
+  for (let radius = 0; radius <= fit.minInner; radius += 2) {
     const segments = buildAt([[metrics]], [radius]);
     if (!layoutFits(segments, bounds, [])) continue;
     best = { radii: [radius], groups: [[metrics]], reach: reachOf(segments) };
@@ -495,9 +530,10 @@ function materialize(built: Built, page: number, indexBase: number): RingPlaceme
 export function reactorDiameter(segments: readonly RingPlacement[]): number {
   const inner = segments.reduce((min, segment) => Math.min(min, segment.radius), Number.POSITIVE_INFINITY);
   if (!Number.isFinite(inner)) return 96;
-  const sized = Math.max(72, Math.min(inner * 0.7, Math.max(0, inner - 88)));
-  // A radius that escaped the stage must not inflate the core.
-  return Math.min(sized, 480);
+  const raw = Math.min(inner * 0.7, inner - 88);
+  if (raw >= 72) return Math.min(raw, 480);
+  // A reduced ring is smaller than the usual core. Keep the core inside the icons.
+  return Math.max(36, Math.min(inner * 0.5, Math.max(0, inner - 24)));
 }
 
 /**
@@ -513,7 +549,54 @@ export function layoutHud<T extends { label: string }>(
   if (viewport.width < 320 || viewport.height < 240) {
     return layoutHud(tiles, { width: Math.max(viewport.width, 1366), height: Math.max(viewport.height, 768) }, measure);
   }
-  const metrics = tiles.map((tile) => measure(tile.label));
+  const measured = tiles.map((tile) => measure(tile.label));
+  const full = layoutFitted(measured, viewport, FULL_FIT);
+  // Shrink only after the full size has already fallen to one tile per page.
+  // A window that still holds a real ring keeps its labels and reactor.
+  if (full.pageCount <= 1 || minTilesOnPage(full) > 1) return full;
+  let bestPages = full.pageCount;
+  const ranked: HudLayout[] = [full];
+  for (const candidate of COMPACT_FITS) {
+    const next = layoutFitted(scaleMetrics(measured, candidate), viewport, candidate);
+    ranked.push(next);
+    if (next.pageCount < bestPages) bestPages = next.pageCount;
+  }
+  for (const layout of ranked) {
+    if (layout.pageCount <= bestPages + 1) return layout;
+  }
+  return full;
+}
+
+function minTilesOnPage(layout: HudLayout): number {
+  if (layout.pageCount === 0) return 0;
+  const counts = Array.from({ length: layout.pageCount }, () => 0);
+  for (const segment of layout.segments) counts[segment.page] += 1;
+  return Math.min(...counts);
+}
+
+function scaleMetrics(metrics: readonly LabelMetrics[], next: Fit): LabelMetrics[] {
+  const ratio = next.font / FULL_FIT.font;
+  return metrics.map((metric) => {
+    const raw = metric.width * ratio;
+    return {
+      width: Math.min(raw, next.labelMax),
+      height: next.labelLine,
+      ellipsis: raw > next.labelMax + 0.5,
+    };
+  });
+}
+
+function layoutFitted(metrics: readonly LabelMetrics[], viewport: Viewport, next: Fit): HudLayout {
+  const previous = fit;
+  fit = next;
+  try {
+    return layoutAt(metrics, viewport);
+  } finally {
+    fit = previous;
+  }
+}
+
+function layoutAt(metrics: readonly LabelMetrics[], viewport: Viewport): HudLayout {
   const bounds = allowedBounds(viewport);
   const obstacles = [clockObstacle(viewport)];
   const pages: RingPlacement[][] = [];
@@ -545,6 +628,11 @@ export function layoutHud<T extends { label: string }>(
     segments: pages.flat(),
     pageCount: Math.max(1, pages.length),
     reactor: (pages.length > 0 ? pages : [[]]).map((page) => reactorDiameter(page)),
+    icon: fit.icon,
+    gap: fit.gap,
+    labelFont: fit.font,
+    labelLine: fit.labelLine,
+    labelMax: fit.labelMax,
   };
 }
 

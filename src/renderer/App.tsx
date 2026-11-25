@@ -191,7 +191,16 @@ export function App() {
   const pageRef = useRef(0);
   const tilesRef = useRef<LauncherTileView[]>([]);
   const placementsRef = useRef<RingPlacement[]>([]);
-  const layoutRef = useRef<HudLayout>({ segments: [], pageCount: 1, reactor: [96] });
+  const layoutRef = useRef<HudLayout>({
+    segments: [],
+    pageCount: 1,
+    reactor: [96],
+    icon: 44,
+    gap: 8,
+    labelFont: 12,
+    labelLine: 18,
+    labelMax: 176,
+  });
   const pageCountRef = useRef(1);
   const selectableRef = useRef<boolean[]>([]);
   const tileRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -316,7 +325,18 @@ export function App() {
   useEffect(() => {
     const node = subtitleRef.current;
     if (!node) return;
-    node.scrollTop = node.scrollHeight;
+    const reply = node.querySelector(".reply");
+    const heard = node.querySelector(".heard");
+    const target = reply ?? heard;
+    if (!(target instanceof HTMLElement)) {
+      node.scrollTop = 0;
+      return;
+    }
+    const start = target.offsetTop - node.clientTop;
+    const line = 18;
+    const snapped = Math.round(Math.max(0, start) / line) * line;
+    const fits = target.offsetTop + target.offsetHeight <= node.clientHeight + 1;
+    node.scrollTop = fits ? 0 : snapped;
   }, [voice.phase, voice.heard, voice.reply]);
 
   useEffect(() => {
@@ -560,7 +580,19 @@ export function App() {
 
       <Clock />
 
-      <main className="stage">
+      <main
+        className="stage"
+        style={
+          {
+            "--icon": `${layout.icon / 2}px`,
+            "--hud-icon": `${layout.icon}px`,
+            "--hud-gap": `${layout.gap}px`,
+            "--hud-label": `${layout.labelFont}px`,
+            "--hud-line": `${layout.labelLine}px`,
+            "--hud-label-max": `${layout.labelMax}px`,
+          } as CSSProperties
+        }
+      >
         {orbits.map((orbit) => (
           <div
             key={orbit.ring}

@@ -210,7 +210,7 @@ On a machine with a microphone and `XAI_API_KEY` set in the environment the app 
 - The footer reads `VOICE ON`. With the variable removed and the app restarted, it reads `VOICE: NO KEY` and Jarvis does not crash
 - Hide the window, say "hey jarvis", and the HUD comes back. The reactor shows listening, then thinking, then speaking. The subtitle shows what you said and the reply
 - "open edge" opens Microsoft Edge in the centered window, and Jarvis says it is opening
-- "hide" hides the window. "refresh" reloads the tiles. "stop" or "cancel", said after the wake word instead of a question, ends the turn. Saying "hey jarvis" again while a reply is playing cuts it off and listens again
+- "hide" hides the window. "refresh" reloads the tiles. "stop" or "cancel", said after the wake word instead of a question, ends the turn. Saying "hey jarvis" again, including while a reply is still being written or played, is heard on this PC and starts a new listen. That second phrase is not uploaded by itself
 - A question that is not a command gets a spoken answer
 - `VOICE OFF` stops the microphone and survives a restart. `VOICE ON` starts it again
 - A rejected key shows `VOICE FAILED` in the footer and the key itself is not on screen
