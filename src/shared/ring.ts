@@ -81,16 +81,28 @@ export interface HudLayout {
   reactor: number[];
 }
 
+/** Pure fallback used when canvas measurement is unavailable, including unit tests. */
 export function measureLabel(text: string): LabelMetrics {
-  const chars = Math.max(1, [...text.toUpperCase()].length);
+  return metricsFromAdvance(text, () => LABEL_CHAR_WIDTH);
+}
+
+/** Shared cap and tracking. `advance` is the width of one uppercase glyph. */
+export function metricsFromAdvance(text: string, advance: (char: string) => number): LabelMetrics {
+  const chars = [...text.toUpperCase()];
+  const count = Math.max(1, chars.length);
   const tracking = LABEL_FONT * LABEL_TRACKING_EM;
-  const raw = chars * LABEL_CHAR_WIDTH + Math.max(0, chars - 1) * tracking;
+  let raw = 0;
+  if (chars.length === 0) raw = advance(" ");
+  else for (const char of chars) raw += advance(char);
+  raw += Math.max(0, count - 1) * tracking;
   return {
     width: Math.min(raw, LABEL_MAX_WIDTH),
     height: LABEL_LINE,
     ellipsis: raw > LABEL_MAX_WIDTH + 0.5,
   };
 }
+
+export type LabelMeasurer = (text: string) => LabelMetrics;
 
 /**
  * Minimum center-to-center distance along the ring for one segment.
@@ -426,11 +438,15 @@ export function reactorDiameter(segments: readonly RingPlacement[]): number {
  * the icon, then grow until the ring fills the stage. Tiles that still do not
  * fit move to the next page, in order.
  */
-export function layoutHud<T extends { label: string }>(tiles: readonly T[], viewport: Viewport): HudLayout {
+export function layoutHud<T extends { label: string }>(
+  tiles: readonly T[],
+  viewport: Viewport,
+  measure: LabelMeasurer = measureLabel,
+): HudLayout {
   if (viewport.width < 320 || viewport.height < 240) {
-    return layoutHud(tiles, { width: Math.max(viewport.width, 1366), height: Math.max(viewport.height, 768) });
+    return layoutHud(tiles, { width: Math.max(viewport.width, 1366), height: Math.max(viewport.height, 768) }, measure);
   }
-  const metrics = tiles.map((tile) => measureLabel(tile.label));
+  const metrics = tiles.map((tile) => measure(tile.label));
   const bounds = allowedBounds(viewport);
   const obstacles = [clockObstacle(viewport)];
   const pages: RingPlacement[][] = [];
@@ -530,4 +546,34 @@ export function nextRingTile(
     return best.index;
   }
   return index;
+}
+
+export type HudKey = GridKey | "PageUp" | "PageDown";
+
+export interface HudFocus {
+  index: number;
+  page: number;
+}
+
+/** The key step the HUD uses for arrows and PageUp/PageDown. */
+export function stepHud(
+  layout: HudLayout,
+  focus: HudFocus,
+  key: HudKey,
+  selectable?: readonly boolean[],
+): HudFocus {
+  if (key === "PageUp" || key === "PageDown") {
+    if (layout.pageCount <= 1) return focus;
+    const direction = key === "PageDown" ? 1 : -1;
+    const page = (focus.page + direction + layout.pageCount) % layout.pageCount;
+    const onPage = layout.segments.filter((segment) => segment.page === page);
+    const lit = onPage.filter((segment) => !selectable || selectable[segment.index]);
+    const index = lit[0]?.index ?? onPage[0]?.index ?? focus.index;
+    return { index, page };
+  }
+  const visible = layout.segments.filter((segment) => segment.page === focus.page);
+  const next = nextRingTile(focus.index, visible, key, selectable);
+  if (next < 0) return focus;
+  const segment = layout.segments.find((place) => place.index === next);
+  return { index: next, page: segment?.page ?? focus.page };
 }

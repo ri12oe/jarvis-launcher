@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Clock } from "./Clock";
+import { measureHudLabel } from "./measure";
 import { cloneDefaultConfig, DEFAULT_HOTKEY } from "../shared/config";
 import {
   clampIndex,
@@ -14,7 +15,7 @@ import {
 import { tileFallbackIcon } from "../shared/icons";
 import { windowsExplorerPath } from "../shared/launch";
 import { acceptRefreshClick, refreshControlLabel } from "../shared/refresh";
-import { layoutHud, nextRingTile, type RingPlacement, type Viewport } from "../shared/ring";
+import { layoutHud, stepHud, type HudKey, type HudLayout, type RingPlacement, type Viewport } from "../shared/ring";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, LauncherState, LauncherTileView } from "../shared/types";
 
@@ -128,11 +129,12 @@ export function App() {
   const pageRef = useRef(0);
   const tilesRef = useRef<LauncherTileView[]>([]);
   const placementsRef = useRef<RingPlacement[]>([]);
+  const layoutRef = useRef<HudLayout>({ segments: [], pageCount: 1, reactor: [96] });
   const pageCountRef = useRef(1);
   const selectableRef = useRef<boolean[]>([]);
   const tileRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const launchRef = useRef<(id: string) => Promise<void>>(async () => {});
-  const changePageRef = useRef<(direction: number) => void>(() => {});
+  const changePageRef = useRef<(key: HudKey, focusTile: boolean) => void>(() => {});
 
   useEffect(() => {
     let cancel = false;
@@ -203,11 +205,9 @@ export function App() {
         dismissLaunch();
         if (queryRef.current) {
           queryRef.current = "";
-          activeRef.current = 0;
-          pageRef.current = 0;
           setQuery("");
-          setActiveIndex(0);
-          setPage(0);
+          const index = activeRef.current;
+          tileRefs.current[index]?.focus();
           return;
         }
         window.jarvis?.hide();
@@ -218,7 +218,7 @@ export function App() {
       if (event.key === "PageUp" || event.key === "PageDown") {
         event.preventDefault();
         dismissLaunch();
-        changePageRef.current(event.key === "PageDown" ? 1 : -1);
+        changePageRef.current(event.key, true);
         return;
       }
 
@@ -232,12 +232,17 @@ export function App() {
       if (isGridKey(event.key)) {
         event.preventDefault();
         dismissLaunch();
-        const visible = placementsRef.current.filter((place) => place.page === pageRef.current);
-        const next = nextRingTile(activeRef.current, visible, event.key, selectableRef.current);
-        if (next < 0) return;
-        activeRef.current = next;
-        setActiveIndex(next);
-        tileRefs.current[next]?.focus();
+        const next = stepHud(
+          layoutRef.current,
+          { index: activeRef.current, page: pageRef.current },
+          event.key,
+          selectableRef.current,
+        );
+        activeRef.current = next.index;
+        pageRef.current = next.page;
+        setActiveIndex(next.index);
+        setPage(next.page);
+        tileRefs.current[next.index]?.focus();
         return;
       }
 
@@ -325,7 +330,11 @@ export function App() {
   };
 
   const tiles = state?.tiles ?? [];
-  const layout = layoutHud(tiles, viewport);
+  const layout = useMemo(
+    () => layoutHud(tiles, viewport, measureHudLabel),
+    [tiles, viewport, page],
+  );
+  layoutRef.current = layout;
   const selectable = tiles.map((tile) => tileMatches(tile.label, query));
   const pageCount = layout.pageCount;
   const safePage = Math.min(page, Math.max(0, pageCount - 1));
@@ -362,20 +371,22 @@ export function App() {
     if (!orbits.some((orbit) => orbit.ring === place.ring)) orbits.push({ ring: place.ring, radius: place.radius });
   }
 
-  const changePage = (direction: number) => {
-    if (pageCount <= 1) return;
-    const next = (pageRef.current + direction + pageCount) % pageCount;
-    const onPage = layout.segments.filter((place) => place.page === next);
-    const lit = onPage.filter((place) => selectable[place.index]);
-    const target = lit[0]?.index ?? onPage[0]?.index ?? -1;
-    pageRef.current = next;
-    setPage(next);
+  const changePage = (key: HudKey, focusTile: boolean) => {
+    const next = stepHud(
+      layout,
+      { index: activeRef.current, page: pageRef.current },
+      key,
+      selectable,
+    );
+    const pageChanged = next.page !== pageRef.current;
+    pageRef.current = next.page;
+    activeRef.current = next.index;
+    setPage(next.page);
+    setActiveIndex(next.index);
     setStatus((current) => clearLaunchStatus(current));
-    if (target >= 0) {
-      activeRef.current = target;
-      pendingFocus.current = target;
-      setActiveIndex(target);
-    }
+    if (!focusTile || next.index < 0) return;
+    if (pageChanged) pendingFocus.current = next.index;
+    else tileRefs.current[next.index]?.focus();
   };
   changePageRef.current = changePage;
 
@@ -399,23 +410,56 @@ export function App() {
         {orbits.map((orbit) => (
           <div
             key={orbit.ring}
-            className={orbit.ring === 0 ? "orbit" : "orbit orbit-outer"}
-            style={{ width: orbit.radius * 2, height: orbit.radius * 2, animationDuration: orbit.ring > 1 ? "110s" : undefined }}
+            className="orbit-anchor"
+            style={{ width: orbit.radius * 2, height: orbit.radius * 2 }}
             aria-hidden="true"
-          />
+          >
+            <div
+              className={orbit.ring === 0 ? "orbit" : "orbit orbit-outer"}
+              style={orbit.ring > 1 ? { animationDuration: "110s" } : undefined}
+            />
+          </div>
         ))}
-        <Reactor size={reactor} />
+        <Reactor key={reactor} size={reactor} />
         {pageCount > 1 ? (
           <div className="pager" style={{ "--reactor": `${reactor}px` } as CSSProperties}>
-            <button type="button" className="arc-btn arc-prev" aria-label="Previous page" onClick={() => changePage(-1)}>
+            <button
+              type="button"
+              className="arc-btn arc-prev"
+              aria-label="Previous page"
+              onClick={(event) => {
+                changePage("PageUp", false);
+                event.currentTarget.focus();
+              }}
+            >
               ‹
             </button>
             <p className="page-readout">
-              {String(safePage + 1).padStart(2, "0")}
-              <span> / </span>
-              {String(pageCount).padStart(2, "0")}
+              {Array.from({ length: pageCount }, (_, index) => {
+                const hit = filtering && layout.segments.some((place) => place.page === index && selectable[place.index]);
+                const miss = filtering && !hit;
+                return (
+                  <span
+                    key={index}
+                    className={["page-mark", index === safePage ? "current" : "", hit ? "hit" : "", miss ? "miss" : ""]
+                      .filter(Boolean)
+                      .join(" ")}
+                    aria-current={index === safePage ? "page" : undefined}
+                  >
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                );
+              })}
             </p>
-            <button type="button" className="arc-btn arc-next" aria-label="Next page" onClick={() => changePage(1)}>
+            <button
+              type="button"
+              className="arc-btn arc-next"
+              aria-label="Next page"
+              onClick={(event) => {
+                changePage("PageDown", false);
+                event.currentTarget.focus();
+              }}
+            >
               ›
             </button>
           </div>

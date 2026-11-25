@@ -1,22 +1,31 @@
 import { describe, expect, it } from "vitest";
-import type { GridKey } from "../src/shared/grid";
 import {
   HUD_FILL,
   ICON_SIZE,
+  LABEL_CHAR_WIDTH,
+  LABEL_FONT,
+  LABEL_TRACKING_EM,
   boxesOverlap,
   labelSide,
   layoutHud,
   measureLabel,
+  metricsFromAdvance,
   minArcSpacing,
   nextRingTile,
   radiusForArcSpacing,
   segmentAngle,
   segmentPoint,
+  stepHud,
   type Aabb,
+  type HudFocus,
+  type HudKey,
   type HudLayout,
+  type LabelMetrics,
   type RingPlacement,
   type Viewport,
 } from "../src/shared/ring";
+
+const CJK = /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/;
 
 const NAMES = [
   "ChatGPT",
@@ -33,9 +42,15 @@ const NAMES = [
   "Perplexity",
   "Ollama",
   "LM Studio",
-  "Visual Studio Code",
-  "Windows Terminal",
+  "聊天",
+  "文件资源管理器",
+  "终端",
 ];
+
+/** Wider advance for CJK, injected into the layout instead of the ASCII fallback. */
+function wideMeasure(text: string): LabelMetrics {
+  return metricsFromAdvance(text, (char) => (CJK.test(char) ? LABEL_FONT : LABEL_CHAR_WIDTH));
+}
 
 function tiles(count: number): Array<{ label: string }> {
   return Array.from({ length: count }, (_, index) => ({
@@ -68,28 +83,16 @@ function overlapOnPage(layout: HudLayout): string | null {
 
 function reachable(layout: HudLayout): number {
   if (layout.segments.length === 0) return 0;
-  const byPage = new Map<number, RingPlacement[]>();
-  for (const segment of layout.segments) {
-    const list = byPage.get(segment.page) ?? [];
-    list.push(segment);
-    byPage.set(segment.page, list);
-  }
   const seen = new Set<number>();
-  const queue = [layout.segments[0].index];
-  const keys: GridKey[] = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
+  const queue: HudFocus[] = [{ index: layout.segments[0].index, page: layout.segments[0].page }];
+  const keys: HudKey[] = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "PageUp", "PageDown"];
   while (queue.length > 0) {
-    const index = queue.pop();
-    if (index == null || seen.has(index)) continue;
-    seen.add(index);
-    const segment = layout.segments[index];
-    const visible = byPage.get(segment.page) ?? [];
+    const focus = queue.pop();
+    if (!focus || seen.has(focus.index)) continue;
+    seen.add(focus.index);
     for (const key of keys) {
-      const next = nextRingTile(index, visible, key);
-      if (next >= 0) queue.push(next);
-    }
-    for (const direction of [-1, 1]) {
-      const neighbor = byPage.get(segment.page + direction);
-      if (neighbor && neighbor.length > 0) queue.push(neighbor[0].index);
+      const next = stepHud(layout, focus, key);
+      if (!seen.has(next.index)) queue.push(next);
     }
   }
   return seen.size;
@@ -154,14 +157,16 @@ describe("arc spacing", () => {
 describe("ring layout", () => {
   const viewports: Array<Viewport & { name: string }> = [
     { name: "1366x768", width: 1366, height: 768 },
-    { name: "1280x720@1.5x", width: 1280, height: 720 },
-    { name: "1280x720 logical 150%", width: 1280 / 1.5, height: 720 / 1.5 },
+    // 150% scaling on a 1280×720 panel: CSS pixels are the logical size.
+    { name: "1280x720@1.5x", width: 1280 / 1.5, height: 720 / 1.5 },
   ];
 
   it("keeps every label and icon apart for N = 1..40, and every tile reachable", () => {
+    expect(wideMeasure("文件").width).toBeGreaterThan(measureLabel("文件").width);
+    expect(LABEL_FONT * LABEL_TRACKING_EM).toBeGreaterThan(0);
     for (const viewport of viewports) {
       for (let count = 1; count <= 40; count++) {
-        const layout = layoutHud(tiles(count), viewport);
+        const layout = layoutHud(tiles(count), viewport, wideMeasure);
         expect(layout.segments.map((segment) => segment.index), viewport.name).toEqual(
           Array.from({ length: count }, (_, index) => index),
         );
@@ -174,7 +179,7 @@ describe("ring layout", () => {
 
   it("uses more than one page when the viewport cannot hold the labels", () => {
     const crowded = Array.from({ length: 18 }, (_, index) => ({ label: `Project Folder ${index} Documents` }));
-    const layout = layoutHud(crowded, { width: 1280 / 1.5, height: 720 / 1.5 });
+    const layout = layoutHud(crowded, { width: 1280 / 1.5, height: 720 / 1.5 }, wideMeasure);
     expect(layout.pageCount).toBeGreaterThan(1);
     expect(overlapOnPage(layout)).toBeNull();
     expect(reachable(layout)).toBe(crowded.length);
