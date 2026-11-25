@@ -49,10 +49,11 @@ export function planExtraLaunch(tile: ExtraTile | PinnedFolder): LaunchAction {
 export interface LaunchDeps {
   openPath(targetPath: string): Promise<string>;
   openExternal(url: string): Promise<void>;
-  spawn(command: string, args: readonly string[]): void | Promise<void>;
+  spawn(command: string, args: readonly string[]): void | number | undefined | Promise<void | number | undefined>;
 }
 
 export interface SpawnedChild {
+  pid?: number;
   once(event: "error", listener: (error: Error) => void): void;
   once(event: "spawn", listener: () => void): void;
   unref(): void;
@@ -72,7 +73,7 @@ export function spawnDetached(
   command: string,
   args: readonly string[],
   spawnImpl: (command: string, args: string[], options: DetachedSpawnOptions) => SpawnedChild,
-): Promise<void> {
+): Promise<number | undefined> {
   return new Promise((resolve, reject) => {
     let child: SpawnedChild;
     try {
@@ -87,24 +88,29 @@ export function spawnDetached(
     }
     child.once("error", (error) => reject(error));
     child.once("spawn", () => {
+      const pid = child.pid;
       child.unref();
-      resolve();
+      resolve(typeof pid === "number" && pid > 0 ? pid : undefined);
     });
   });
 }
 
-/** Performs a launch plan. `openPath` returns an error string, empty when it worked. */
-export async function runLaunch(action: LaunchAction, deps: LaunchDeps): Promise<void> {
+/**
+ * Performs a launch plan. `openPath` returns an error string, empty when it worked.
+ * A spawn resolves with the child pid when the platform reports one.
+ */
+export async function runLaunch(action: LaunchAction, deps: LaunchDeps): Promise<number | undefined> {
   if (action.type === "openPath") {
     const errorMessage = await deps.openPath(action.path);
     if (errorMessage) throw new Error(errorMessage);
-    return;
+    return undefined;
   }
   if (action.type === "openExternal") {
     await deps.openExternal(action.url);
-    return;
+    return undefined;
   }
-  await deps.spawn(action.command, action.args);
+  const spawned = await deps.spawn(action.command, action.args);
+  return typeof spawned === "number" && spawned > 0 ? spawned : undefined;
 }
 
 export function planBuiltinLaunch(builtin: BuiltinId, env: LaunchEnvironment): LaunchAction {

@@ -60,6 +60,41 @@ describe("config parsing", () => {
     expect(parsed.warnings.length).toBeGreaterThan(0);
   });
 
+  it("defaults launchWindow to a centered 70 percent window", () => {
+    expect(parseConfig({}).config.launchWindow).toEqual({ mode: "centered", widthPct: 70, heightPct: 70 });
+    expect(parseConfig({}).warnings).toEqual([]);
+    expect(parseConfig({ launchWindow: { mode: "default" } }).config.launchWindow).toEqual({
+      mode: "default",
+      widthPct: 70,
+      heightPct: 70,
+    });
+    const sized = parseConfig({ launchWindow: { mode: "centered", widthPct: 80, heightPct: 60.4 } });
+    expect(sized.warnings).toEqual([]);
+    expect(sized.config.launchWindow).toEqual({ mode: "centered", widthPct: 80, heightPct: 60 });
+    expect(parseConfig({ launchWindow: { widthPct: 10, heightPct: 100 } }).config.launchWindow).toEqual({
+      mode: "centered",
+      widthPct: 10,
+      heightPct: 100,
+    });
+  });
+
+  it("drops a bad launchWindow and keeps the other fields", () => {
+    const parsed = parseConfig({
+      hotkey: "Ctrl+Alt+K",
+      launchWindow: { mode: "fullscreen", widthPct: 9, heightPct: "70" },
+    });
+    expect(parsed.config.hotkey).toBe("Ctrl+Alt+K");
+    expect(parsed.config.launchWindow).toEqual({ mode: "centered", widthPct: 70, heightPct: 70 });
+    expect(parsed.warnings).toEqual([
+      'launchWindow.mode must be "centered" or "default"; using centered',
+      "launchWindow.widthPct must be a number from 10 to 100; using 70",
+      "launchWindow.heightPct must be a number from 10 to 100; using 70",
+    ]);
+    const broken = parseConfig({ launchWindow: [] });
+    expect(broken.config.launchWindow).toEqual({ mode: "centered", widthPct: 70, heightPct: 70 });
+    expect(broken.warnings).toEqual(["launchWindow must be an object; using the centered default"]);
+  });
+
   it("accepts POSIX and UNC paths", () => {
     const parsed = parseConfig({
       pinnedFolders: [

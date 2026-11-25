@@ -60,6 +60,17 @@ export interface ExtraTile {
   kind: "app" | "folder";
 }
 
+export type LaunchWindowMode = "centered" | "default";
+
+/** How a launched app's top-level window is placed on Windows. */
+export interface LaunchWindowConfig {
+  /** `centered` resizes the new window. `default` leaves the app's own size. */
+  mode: LaunchWindowMode;
+  /** Percent of the work area on the display Jarvis is using. 10 to 100. */
+  widthPct: number;
+  heightPct: number;
+}
+
 export interface JarvisConfig {
   /** Electron accelerator. At least one modifier is required. */
   hotkey: string;
@@ -67,6 +78,8 @@ export interface JarvisConfig {
   openAtLogin: boolean;
   /** When true, the window stays hidden until the hotkey or tray shows it. */
   startHidden: boolean;
+  /** Windows only. Other platforms launch the app and leave its window alone. */
+  launchWindow: LaunchWindowConfig;
   pinnedFolders: PinnedFolder[];
   extraTiles: ExtraTile[];
   /** Tile ids to leave out (a discovered app id, a builtin id, or a custom id). */

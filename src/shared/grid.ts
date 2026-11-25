@@ -88,6 +88,11 @@ export function isLaunchStatus(status: string): boolean {
   return status === "LAUNCH FAILED" || status.startsWith("LAUNCH FAILED ");
 }
 
+/** A tile click and a hide clear a launch failure. Other statuses stay. */
+export function clearLaunchStatus(status: string): string {
+  return isLaunchStatus(status) ? "" : status;
+}
+
 /** A published state must not wipe a launch failure. The next user action does that. */
 export function statusAfterPublish(current: string, refreshFailed: boolean): string {
   if (current === "LINK LOST" || isLaunchStatus(current)) return current;

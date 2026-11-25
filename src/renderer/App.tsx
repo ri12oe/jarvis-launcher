@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { cloneDefaultConfig, DEFAULT_HOTKEY } from "../shared/config";
 import {
   clampIndex,
+  clearLaunchStatus,
   filterTiles,
   footerHint,
-  isLaunchStatus,
   launchStatusText,
   nextVisibleTile,
   statusAfterPublish,
@@ -136,6 +136,7 @@ export function App() {
       activeRef.current = 0;
       setQuery("");
       setActiveIndex(0);
+      setStatus((current) => clearLaunchStatus(current));
     });
     void bridge
       .getState()
@@ -155,7 +156,7 @@ export function App() {
 
   useEffect(() => {
     const dismissLaunch = () => {
-      setStatus((current) => (isLaunchStatus(current) ? "" : current));
+      setStatus((current) => clearLaunchStatus(current));
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.isComposing) return;
@@ -242,14 +243,11 @@ export function App() {
   const launch = async (id: string) => {
     setPressed(id);
     window.setTimeout(() => setPressed((current) => (current === id ? null : current)), 220);
+    setStatus((current) => clearLaunchStatus(current));
     const bridge = window.jarvis;
     if (!bridge) return;
     const result = await bridge.launch(id);
-    if (!result.ok) {
-      setStatus(launchStatusText(result.error));
-      return;
-    }
-    bridge.hide();
+    if (!result.ok) setStatus(launchStatusText(result.error));
   };
   launchRef.current = launch;
 
@@ -259,7 +257,7 @@ export function App() {
     if (!bridge) return;
     refreshingRef.current = true;
     setRefreshing(true);
-    setStatus((current) => (isLaunchStatus(current) ? "" : current));
+    setStatus((current) => clearLaunchStatus(current));
     void bridge
       .refresh()
       .catch(() => {

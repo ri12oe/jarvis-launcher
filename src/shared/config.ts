@@ -1,12 +1,19 @@
-import type { ExtraTile, JarvisConfig, PinnedFolder } from "./types";
+import type { ExtraTile, JarvisConfig, LaunchWindowConfig, PinnedFolder } from "./types";
 import { AI_APP_IDS, BUILTIN_IDS } from "./types";
 
 export const DEFAULT_HOTKEY = "CommandOrControl+Alt+J";
+
+export const DEFAULT_LAUNCH_WINDOW: LaunchWindowConfig = {
+  mode: "centered",
+  widthPct: 70,
+  heightPct: 70,
+};
 
 export const DEFAULT_CONFIG: JarvisConfig = {
   hotkey: DEFAULT_HOTKEY,
   openAtLogin: false,
   startHidden: false,
+  launchWindow: { ...DEFAULT_LAUNCH_WINDOW },
   pinnedFolders: [],
   extraTiles: [],
   disabled: [],
@@ -35,6 +42,7 @@ export function cloneDefaultConfig(): JarvisConfig {
     hotkey: DEFAULT_CONFIG.hotkey,
     openAtLogin: DEFAULT_CONFIG.openAtLogin,
     startHidden: DEFAULT_CONFIG.startHidden,
+    launchWindow: { ...DEFAULT_LAUNCH_WINDOW },
     pinnedFolders: [],
     extraTiles: [],
     disabled: [],
@@ -57,6 +65,33 @@ export function isAbsolutePath(value: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readPercent(value: unknown, warnings: string[], label: string): number {
+  if (value === undefined) return 70;
+  if (typeof value === "number" && Number.isFinite(value) && value >= 10 && value <= 100) {
+    return Math.round(value);
+  }
+  warnings.push(`${label} must be a number from 10 to 100; using 70`);
+  return 70;
+}
+
+function readLaunchWindow(value: unknown, warnings: string[]): LaunchWindowConfig {
+  if (value === undefined) return { ...DEFAULT_LAUNCH_WINDOW };
+  if (!isRecord(value)) {
+    warnings.push("launchWindow must be an object; using the centered default");
+    return { ...DEFAULT_LAUNCH_WINDOW };
+  }
+  let mode = DEFAULT_LAUNCH_WINDOW.mode;
+  if (value.mode !== undefined) {
+    if (value.mode === "centered" || value.mode === "default") mode = value.mode;
+    else warnings.push('launchWindow.mode must be "centered" or "default"; using centered');
+  }
+  return {
+    mode,
+    widthPct: readPercent(value.widthPct, warnings, "launchWindow.widthPct"),
+    heightPct: readPercent(value.heightPct, warnings, "launchWindow.heightPct"),
+  };
 }
 
 function readBoolean(value: unknown, fallback: boolean, warnings: string[], label: string): boolean {
@@ -229,6 +264,7 @@ export function parseConfig(input: unknown): ParsedConfig {
     hotkey,
     openAtLogin: readBoolean(input.openAtLogin, false, warnings, "openAtLogin"),
     startHidden: readBoolean(input.startHidden, false, warnings, "startHidden"),
+    launchWindow: readLaunchWindow(input.launchWindow, warnings),
     pinnedFolders,
     extraTiles,
     disabled: readIdList(input.disabled, warnings, "disabled"),

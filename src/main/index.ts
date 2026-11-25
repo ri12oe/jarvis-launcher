@@ -8,6 +8,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  screen,
   shell,
   Tray,
   type IpcMainEvent,
@@ -19,10 +20,12 @@ import { DEFAULT_HOTKEY } from "../shared/config";
 import { hotkeyRegistrationWarnings } from "../shared/hotkey";
 import { tileFallbackIcon, tileIconFile } from "../shared/icons";
 import { defaultEdgeCandidates, runLaunch, spawnDetached, windowsExplorerPath } from "../shared/launch";
+import { centerLaunchedWindow } from "../shared/launch-window";
 import { loginItemOptions } from "../shared/login-item";
 import { createRefreshGate, isMainFrameSender } from "../shared/refresh";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, JarvisConfig, LauncherState, LauncherTileView, ResolvedTile } from "../shared/types";
+import { listTopLevelWindows, placeTopLevelWindow } from "./window-snapshot";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -36,6 +39,7 @@ let scanning = true;
 let refreshFailed = false;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let configWatchStarted = false;
+let placeSerial = 0;
 let configFilePath = "";
 let session: { config: JarvisConfig; tiles: ResolvedTile[]; view: LauncherTileView[]; warnings: string[] } | null =
   null;
@@ -217,19 +221,67 @@ function publishState(): void {
   contents.send("jarvis:state", currentState());
 }
 
-async function execute(action: ResolvedTile["action"]): Promise<void> {
-  await runLaunch(action, {
+async function execute(action: ResolvedTile["action"]): Promise<number | undefined> {
+  return runLaunch(action, {
     openPath: (targetPath) => shell.openPath(targetPath),
     openExternal: (url) => shell.openExternal(url),
     spawn: (command, args) => spawnDetached(command, args, (cmd, cmdArgs, options) => spawnProcess(cmd, cmdArgs, options)),
   });
 }
 
+function browserHwnd(win: BrowserWindow): number | undefined {
+  try {
+    const buf = win.getNativeWindowHandle();
+    const value = buf.length >= 8 ? buf.readBigUInt64LE(0) : buf.length >= 4 ? BigInt(buf.readUInt32LE(0)) : 0n;
+    if (value <= 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) return undefined;
+    return Number(value);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Move the new window in front of Jarvis. A miss is ignored; the app is already open. */
+function centerAfterLaunch(spawnedPid: number | undefined): void {
+  const win = mainWindow;
+  const launchWindow = session?.config.launchWindow;
+  if (!win || win.isDestroyed() || !launchWindow) return;
+  if (process.platform !== "win32" || launchWindow.mode !== "centered") return;
+  win.setAlwaysOnTop(false);
+  const launcherHwnd = browserHwnd(win);
+  if (!launcherHwnd) return;
+  let workArea: Electron.Rectangle;
+  try {
+    workArea = screen.getDisplayMatching(win.getBounds()).workArea;
+  } catch {
+    return;
+  }
+  const platform = process.platform;
+  const env = process.env;
+  const serial = ++placeSerial;
+  void centerLaunchedWindow({
+    platform,
+    mode: launchWindow.mode,
+    widthPct: launchWindow.widthPct,
+    heightPct: launchWindow.heightPct,
+    workArea,
+    launcherHwnd,
+    launcherPid: process.pid,
+    spawnedPid,
+    toScreenRect: (rect) => screen.dipToScreenRect(win, rect),
+    listWindows: () => (serial === placeSerial ? listTopLevelWindows(platform, env) : Promise.resolve(undefined)),
+    placeWindow: (hwnd, rect) =>
+      serial === placeSerial ? placeTopLevelWindow(platform, env, hwnd, rect) : Promise.resolve(false),
+  }).catch(() => undefined);
+}
+
 function showWindow(): void {
   const win = mainWindow;
   if (!win || win.isDestroyed()) return;
+  // Full screen, but not topmost, so a launched app can sit in front of Jarvis.
+  win.setAlwaysOnTop(false);
   win.show();
   win.setFullScreen(true);
+  win.setAlwaysOnTop(false);
   win.focus();
 }
 
@@ -265,6 +317,7 @@ function allowNavigation(url: string): boolean {
 function createWindow(startHidden: boolean): void {
   mainWindow = new BrowserWindow({
     fullscreen: true,
+    alwaysOnTop: false,
     frame: false,
     show: false,
     backgroundColor: "#03060a",
@@ -342,7 +395,8 @@ function registerIpc(): void {
     const tile = session?.tiles.find((item) => item.id === tileId);
     if (!tile) return { ok: false, error: "Unknown tile" };
     try {
-      await execute(tile.action);
+      const spawnedPid = await execute(tile.action);
+      centerAfterLaunch(spawnedPid);
       return { ok: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Launch failed";
