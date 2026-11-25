@@ -502,6 +502,14 @@ describe("centerLaunchedWindow", () => {
     expect(tools.placed).toEqual([{ hwnd: 40, rect: { x: 2208, y: 172, width: 1344, height: 756 } }]);
   });
 
+  it("misses immediately when the before list never arrived", async () => {
+    const edge = app({ hwnd: 40, exe: "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe", title: "Edge" });
+    const tools = run([sample(40, [edge])], { baseline: undefined });
+    expect(await tools.promise).toBe(false);
+    expect(tools.reads()).toBe(0);
+    expect(tools.placed).toEqual([]);
+  });
+
   it("keeps looking until the samples end when nothing qualifies", async () => {
     const notepad = app({ hwnd: 2, exe: "C:\\Windows\\notepad.exe", title: "Notepad" });
     const tools = run([sample(2, [notepad])], { baseline: [2], target: { exeName: "msedge.exe" } });

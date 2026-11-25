@@ -250,7 +250,7 @@ type PlacementOutcome = "placed" | "missed" | "skipped" | "cancelled";
 
 /**
  * Move the new window in front of Jarvis.
- * The watch is already running. Its first sample is the before list.
+ * The before list was taken at the click, before the app was launched.
  * `missed` means no window was found or the move failed, and Jarvis should hide.
  * A placed window stays in front of the full-screen launcher, which is not always on top.
  */
@@ -301,7 +301,6 @@ async function centerAfterLaunch(
 function showWindow(): void {
   const win = mainWindow;
   if (!win || win.isDestroyed()) return;
-  if (process.platform === "win32") placementHelper.start();
   win.show();
   win.setFullScreen(true);
   win.focus();
@@ -310,7 +309,6 @@ function showWindow(): void {
 function hideWindow(): void {
   const win = mainWindow;
   if (!win || win.isDestroyed()) return;
-  if (process.platform === "win32") placementHelper.stop();
   win.hide();
   if (!win.webContents.isDestroyed()) win.webContents.send("jarvis:hidden");
 }
@@ -424,7 +422,17 @@ function registerIpc(): void {
     let baseline: number[] | undefined;
     if (centering) {
       const before = await placementHelper.sample(LAUNCH_BASELINE_WAIT_MS);
-      baseline = before?.windows.map((window) => window.hwnd);
+      if (!before) {
+        try {
+          await execute(tile.action);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Launch failed";
+          return { ok: false, error: message };
+        }
+        hideWindow();
+        return { ok: true };
+      }
+      baseline = before.windows.map((window) => window.hwnd);
     }
     try {
       const spawnedPid = await execute(tile.action);
@@ -466,6 +474,7 @@ if (!gotLock) {
   app.setPath("userData", path.join(app.getPath("appData"), "jarvis-launcher"));
   app.on("second-instance", () => showWindow());
   app.whenReady().then(async () => {
+    if (process.platform === "win32") placementHelper.start();
     app.setAppUserModelId("com.mario.jarvis-launcher");
     registerIpc();
     // Paint before discovery. Get-StartApps can use its full timeout.

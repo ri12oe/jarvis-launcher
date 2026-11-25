@@ -416,6 +416,8 @@ function roundRect(rect: WindowRect): WindowRect {
 export async function centerLaunchedWindow(options: CenterLaunchOptions): Promise<boolean> {
   if (options.platform !== "win32" || options.mode !== "centered") return false;
   if (!Number.isSafeInteger(options.launcherHwnd) || options.launcherHwnd <= 0) return false;
+  // No before list means the helper was not ready. Miss without watching.
+  if (!options.baseline) return false;
   let target: WindowRect;
   try {
     const dip = centeredWindowRect(options.workArea, options.widthPct, options.heightPct);

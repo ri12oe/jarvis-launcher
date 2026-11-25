@@ -1,7 +1,4 @@
 import { execFile, spawn } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { windowsPowershellPath } from "../discovery/start-apps";
 import {
   parseWindowSnapshot,
@@ -10,11 +7,12 @@ import {
 } from "../shared/launch-window";
 
 /**
- * One Windows PowerShell helper for as long as Jarvis is visible.
- * Add-Type runs once, at start. SAMPLE emits one list. SERVE polls until
- * its deadline or a place file appears. It sets per-monitor v2 DPI awareness
- * before any GetWindowRect or SetWindowPos, so those calls use physical
- * pixels and Windows does not scale them a second time.
+ * One Windows PowerShell helper for the whole life of Jarvis.
+ * Add-Type runs once, at process start. Commands arrive as lines on stdin
+ * and results leave as JSON lines on stdout. Idle waits on stdin. The process
+ * exits on stdin EOF or when the parent pid is gone.
+ * It sets per-monitor v2 DPI awareness before any GetWindowRect or SetWindowPos,
+ * so those calls use physical pixels and Windows does not scale them a second time.
  * The C# is C# 5. It sits in a PowerShell single-quoted string, so it has
  * no character literals. It does not start, stop, or reconfigure explorer.exe.
  */
@@ -24,7 +22,10 @@ $ProgressPreference = 'SilentlyContinue';
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
 Add-Type -TypeDefinition '
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Text;
+using System.Threading;
 using System.Runtime.InteropServices;
 public static class JarvisWindows {
   public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
@@ -47,6 +48,7 @@ public static class JarvisWindows {
   [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out int value, int size);
   [DllImport("kernel32.dll")] public static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
   [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr handle);
+  [DllImport("kernel32.dll")] public static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
   [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] public static extern bool QueryFullProcessImageName(IntPtr process, int flags, StringBuilder name, ref int size);
   [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] public static extern int GetApplicationUserModelId(IntPtr process, ref int length, StringBuilder id);
   [DllImport("ntdll.dll")] public static extern int NtQueryInformationProcess(IntPtr handle, int infoClass, ref ProcessBasicInformation info, int length, out int returned);
@@ -57,12 +59,10 @@ public static class JarvisWindows {
   }
   static StringBuilder Rows;
   static bool FirstRow;
-  static volatile bool PlaceRequested;
-  static long PlaceHwnd;
-  static int PlaceX;
-  static int PlaceY;
-  static int PlaceW;
-  static int PlaceH;
+  static readonly object Gate = new object();
+  static readonly Queue<string> Pending = new Queue<string>();
+  static bool StdinEof;
+  static int OwnerPid;
   static void BecomeDpiAware() {
     try { SetThreadDpiAwarenessContext((IntPtr)(-4)); } catch { }
   }
@@ -76,9 +76,6 @@ public static class JarvisWindows {
     EnumWindows(OnWindow, IntPtr.Zero);
     Rows.Append("]}");
     return Rows.ToString();
-  }
-  public static void EmitList() {
-    try { Console.WriteLine(List()); Console.Out.Flush(); } catch { }
   }
   static bool OnWindow(IntPtr hwnd, IntPtr param) {
     if (!IsWindowVisible(hwnd)) return true;
@@ -152,36 +149,161 @@ public static class JarvisWindows {
     SetForegroundWindow(handle);
     return moved;
   }
-  public static bool ReadPlace(string path) {
-    try {
-      if (path == null || path.Length == 0 || !System.IO.File.Exists(path)) return false;
-      string text = System.IO.File.ReadAllText(path).Trim();
-      string[] parts = text.Split(new char[] { (char)32 });
-      if (parts.Length != 6 || parts[0] != "PLACE") return false;
-      long hwnd = long.Parse(parts[1]);
-      int x = int.Parse(parts[2]);
-      int y = int.Parse(parts[3]);
-      int width = int.Parse(parts[4]);
-      int height = int.Parse(parts[5]);
-      if (hwnd <= 0 || width <= 0 || height <= 0) return false;
-      PlaceHwnd = hwnd;
-      PlaceX = x;
-      PlaceY = y;
-      PlaceW = width;
-      PlaceH = height;
-      PlaceRequested = true;
-      try { System.IO.File.Delete(path); } catch { }
-      return true;
-    } catch { return false; }
-  }
-  public static void EmitResult() {
-    bool ok = false;
-    if (PlaceRequested) {
-      PlaceRequested = false;
-      ok = Place(PlaceHwnd, PlaceX, PlaceY, PlaceW, PlaceH);
+  public static void Run(int parentPid) {
+    BecomeDpiAware();
+    if (parentPid > 0) {
+      OwnerPid = parentPid;
+      Thread watcher = new Thread(WatchParent);
+      watcher.IsBackground = true;
+      watcher.Start();
     }
-    Console.WriteLine(ok ? "{\"placed\":true}" : "{\"placed\":false}");
-    Console.Out.Flush();
+    Thread reader = new Thread(ReadStdin);
+    reader.IsBackground = true;
+    reader.Start();
+    while (true) {
+      string line = Take();
+      if (line == null) return;
+      if (!Dispatch(line)) return;
+    }
+  }
+  static void WatchParent() {
+    try {
+      IntPtr handle = OpenProcess(1048576, false, (uint)OwnerPid);
+      if (handle == IntPtr.Zero) return;
+      uint waited = WaitForSingleObject(handle, 4294967295);
+      CloseHandle(handle);
+      if (waited != 0) return;
+    } catch { return; }
+    Environment.Exit(0);
+  }
+  static void ReadStdin() {
+    try {
+      StreamReader reader = new StreamReader(Console.OpenStandardInput(), Encoding.UTF8);
+      string line;
+      while ((line = reader.ReadLine()) != null) {
+        string trimmed = line.Trim();
+        if (trimmed.Length == 0) continue;
+        lock (Gate) {
+          Pending.Enqueue(trimmed);
+          Monitor.Pulse(Gate);
+        }
+      }
+    } catch { }
+    lock (Gate) {
+      StdinEof = true;
+      Monitor.PulseAll(Gate);
+    }
+  }
+  static string Take() {
+    lock (Gate) {
+      while (Pending.Count == 0 && !StdinEof) Monitor.Wait(Gate);
+      if (Pending.Count == 0) return null;
+      return Pending.Dequeue();
+    }
+  }
+  static string Poll(int ms) {
+    lock (Gate) {
+      if (Pending.Count == 0 && !StdinEof) Monitor.Wait(Gate, ms);
+      if (Pending.Count == 0) return null;
+      return Pending.Dequeue();
+    }
+  }
+  static void RequeueFront(string line) {
+    lock (Gate) {
+      string[] rest = new string[Pending.Count];
+      int count = 0;
+      while (Pending.Count > 0) { rest[count] = Pending.Dequeue(); count++; }
+      Pending.Enqueue(line);
+      for (int i = 0; i < count; i++) Pending.Enqueue(rest[i]);
+      Monitor.Pulse(Gate);
+    }
+  }
+  static bool Dispatch(string line) {
+    if (line == "QUIT") return false;
+    if (line.StartsWith("SAMPLE ")) { Sample(line); return true; }
+    if (line.StartsWith("SERVE ")) { Serve(line); return true; }
+    return true;
+  }
+  static void Sample(string line) {
+    int id;
+    if (!int.TryParse(line.Substring(7).Trim(), out id)) return;
+    if (id <= 0) return;
+    EmitList(id);
+  }
+  static void Serve(string line) {
+    string rest = line.Substring(6).Trim();
+    int space = rest.IndexOf((char)32);
+    if (space < 1) return;
+    int id;
+    int ms;
+    if (!int.TryParse(rest.Substring(0, space), out id)) return;
+    if (!int.TryParse(rest.Substring(space + 1).Trim(), out ms)) return;
+    if (id <= 0 || ms < 1) return;
+    DateTime deadline = DateTime.UtcNow.AddMilliseconds(ms);
+    while (DateTime.UtcNow < deadline) {
+      EmitList(id);
+      int left = (int)(deadline - DateTime.UtcNow).TotalMilliseconds;
+      if (left < 1) break;
+      int slice = 200;
+      if (left < slice) slice = left;
+      string next = Poll(slice);
+      if (next == null) {
+        if (StdinEof) { EmitPlaced(id, false); return; }
+        continue;
+      }
+      if (next == "QUIT") { EmitPlaced(id, false); Environment.Exit(0); return; }
+      if (next.StartsWith("PLACE ")) {
+        bool moved;
+        if (TryApplyPlace(next, id, out moved)) { EmitPlaced(id, moved); return; }
+        continue;
+      }
+      EmitPlaced(id, false);
+      RequeueFront(next);
+      return;
+    }
+    EmitPlaced(id, false);
+  }
+  static bool TryApplyPlace(string line, int serveId, out bool moved) {
+    moved = false;
+    string rest = line.Substring(6).Trim();
+    string[] parts = rest.Split(new char[] { (char)32 });
+    if (parts.Length != 6) return false;
+    int id;
+    long hwnd;
+    int x;
+    int y;
+    int width;
+    int height;
+    if (!int.TryParse(parts[0], out id)) return false;
+    if (id != serveId) return false;
+    if (!long.TryParse(parts[1], out hwnd)) return false;
+    if (!int.TryParse(parts[2], out x)) return false;
+    if (!int.TryParse(parts[3], out y)) return false;
+    if (!int.TryParse(parts[4], out width)) return false;
+    if (!int.TryParse(parts[5], out height)) return false;
+    moved = Place(hwnd, x, y, width, height);
+    return true;
+  }
+  static void EmitList(int id) {
+    try {
+      string body = List();
+      if (body.Length < 2 || body[0] != (char)123) return;
+      Console.Write("{\"id\":");
+      Console.Write(id);
+      Console.Write(",");
+      Console.WriteLine(body.Substring(1));
+      Console.Out.Flush();
+    } catch { }
+  }
+  static void EmitPlaced(int id, bool ok) {
+    try {
+      Console.Write("{\"id\":");
+      Console.Write(id);
+      Console.Write(",\"placed\":");
+      Console.Write(ok ? "true" : "false");
+      Console.WriteLine("}");
+      Console.Out.Flush();
+    } catch { }
   }
   static uint DpiOf(IntPtr hwnd) {
     try {
@@ -279,9 +401,14 @@ public static class JarvisWindows {
 
 export interface PlacementProcess {
   pid?: number;
+  stdin: {
+    write(chunk: string): void;
+    end(): void;
+    on?(event: "error", listener: (error: Error) => void): void;
+  };
   stdout: NodeJS.EventEmitter;
   kill(): void;
-  on(event: "close", listener: () => void): void;
+  on(event: "close", listener: (code: number | null) => void): void;
   on(event: "error", listener: (error: Error) => void): void;
 }
 
@@ -291,27 +418,20 @@ export interface WindowWatch {
   close(): void;
 }
 
-let watchSerial = 0;
-
 /** One line, so execFile can pass it as a single argument with no shell. */
 export function windowHelperScript(): string {
   return HELPER_SOURCE.replace(/\s+/g, " ").trim();
 }
 
-function psLiteral(value: string): string | undefined {
-  if (value.includes("\0") || /[\r\n]/.test(value)) return undefined;
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
 /**
- * One long-lived process. Add-Type runs at start. SAMPLE emits one list.
- * SERVE <ms> polls until that deadline or a place file appears.
+ * The helper blocks on stdin. SAMPLE <id> prints one list.
+ * SERVE <id> <ms> prints lists until PLACE <id> ... or the deadline, then prints placed.
+ * QUIT and stdin EOF both end the process. A command that arrives during SERVE is kept
+ * and run next, after the in-flight serve reports that it placed nothing.
  */
-export function windowSessionCommand(commandPath: string, placePath: string): string | undefined {
-  const command = psLiteral(commandPath);
-  const place = psLiteral(placePath);
-  if (!command || !place) return undefined;
-  return `${windowHelperScript()}; $cmdFile = ${command}; $placeFile = ${place}; while ($true) { if (-not (Test-Path -LiteralPath $cmdFile)) { Start-Sleep -Milliseconds 30; continue }; $text = ''; try { $fs = [System.IO.File]::Open($cmdFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None); $n = [int]$fs.Length; $buf = New-Object byte[] $n; [void]$fs.Read($buf, 0, $n); $text = [System.Text.Encoding]::UTF8.GetString($buf).Trim(); $fs.SetLength(0); $fs.Close() } catch { continue }; if ($text -eq '') { Start-Sleep -Milliseconds 30; continue }; if ($text -eq 'QUIT') { break }; if ($text -eq 'SAMPLE') { [JarvisWindows]::EmitList(); continue }; if ($text.StartsWith('SERVE ')) { $ms = 4000; try { $ms = [int]$text.Substring(6).Trim() } catch { $ms = 4000 }; if ($ms -lt 1) { continue }; $deadline = (Get-Date).AddMilliseconds($ms); while ((Get-Date) -lt $deadline) { [JarvisWindows]::EmitList(); if ([JarvisWindows]::ReadPlace($placeFile)) { break }; if (Test-Path -LiteralPath $cmdFile) { $peek = ''; try { $peek = [System.IO.File]::ReadAllText($cmdFile).Trim() } catch { $peek = '' }; if ($peek -eq 'QUIT') { break } }; Start-Sleep -Milliseconds 200 }; [JarvisWindows]::ReadPlace($placeFile) | Out-Null; [JarvisWindows]::EmitResult() } }`;
+export function windowSessionCommand(parentPid: number): string | undefined {
+  if (!Number.isSafeInteger(parentPid) || parentPid < 0) return undefined;
+  return `${windowHelperScript()}; [JarvisWindows]::Run(${parentPid})`;
 }
 
 export function powershellArgs(command: string): string[] {
@@ -319,7 +439,12 @@ export function powershellArgs(command: string): string[] {
 }
 
 function defaultSpawn(file: string, args: string[]): PlacementProcess {
-  return spawn(file, args, { shell: false, windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
+  const child = spawn(file, args, { shell: false, windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
+  if (!child.stdin || !child.stdout) {
+    child.kill();
+    throw new Error("window helper stdio was not piped");
+  }
+  return child as unknown as PlacementProcess;
 }
 
 /** Kill powershell and the csc child it spawned for Add-Type. */
@@ -351,10 +476,8 @@ function killProcessTree(child: PlacementProcess): void {
 export interface WindowSessionOptions {
   platform: string;
   env?: NodeJS.ProcessEnv;
+  parentPid?: number;
   spawnImpl?: (file: string, args: string[]) => PlacementProcess;
-  commandPath?: string;
-  placePath?: string;
-  writeFile?: (filePath: string, text: string) => void;
 }
 
 const idleWatch = (): WindowWatch => ({
@@ -363,101 +486,99 @@ const idleWatch = (): WindowWatch => ({
   close: () => undefined,
 });
 
+interface ServeState {
+  id: number;
+  snapshots: WindowSnapshot[];
+  readers: Array<(snap: WindowSnapshot | undefined) => void>;
+  placeWaiter?: (ok: boolean) => void;
+  done: boolean;
+}
+
 export interface WindowSession {
-  /** Compile once and wait for SAMPLE / SERVE commands. Safe to call again. */
+  /** Compile once and wait on stdin. Safe to call again. */
   start(): void;
-  /** Ask the process to exit. Kills the tree only if it is still running. */
-  stop(): void;
+  /** QUIT plus stdin EOF. Kills the tree only if it has not already exited. */
+  stop(): Promise<number | null>;
   /** One fresh snapshot. Undefined if the helper has not produced one in time. */
   sample(timeoutMs: number): Promise<WindowSnapshot | undefined>;
   /** Poll and place on the same process. `close` does not kill it. */
   serve(timeoutMs: number): WindowWatch;
 }
 
+function lineId(line: string): { id?: number; placed?: boolean } {
+  try {
+    const value = JSON.parse(line) as { id?: unknown; placed?: unknown };
+    const id = typeof value.id === "number" && Number.isSafeInteger(value.id) ? value.id : undefined;
+    const placed = typeof value.placed === "boolean" ? value.placed : undefined;
+    return { id, placed };
+  } catch {
+    return {};
+  }
+}
+
 /**
- * One helper for as long as Jarvis is visible. Add-Type runs at start, not on each click.
+ * One helper for as long as Jarvis is running. Add-Type runs at start, not on each click.
  */
 export function createWindowSession(options: WindowSessionOptions): WindowSession {
   const disabled = options.platform !== "win32";
-  const ownsFiles = options.commandPath === undefined;
-  const commandPath =
-    options.commandPath ?? path.join(os.tmpdir(), `jarvis-cmd-${process.pid}-${++watchSerial}.txt`);
-  const placePath = options.placePath ?? path.join(os.tmpdir(), `jarvis-place-${process.pid}-${watchSerial}.txt`);
-  const writeFile =
-    options.writeFile ??
-    ((filePath: string, text: string) => {
-      fs.writeFileSync(filePath, text, "utf8");
-    });
+  const parentPid = options.parentPid ?? process.pid;
   let child: PlacementProcess | undefined;
   let generation = 0;
   let ended = false;
+  let exitCode: number | null = null;
   let stopRequested = false;
   let grace: ReturnType<typeof setTimeout> | undefined;
   let buffer = "";
-  let ignoreSnapshot = false;
-  let serveDone = false;
-  let sampleWaiter: ((snap: WindowSnapshot | undefined) => void) | undefined;
-  let placeWaiter: ((ok: boolean) => void) | undefined;
-  const snapshots: WindowSnapshot[] = [];
-  const sampleReaders: Array<(snap: WindowSnapshot | undefined) => void> = [];
+  let nextId = 1;
+  let activeServe: ServeState | undefined;
+  const sampleWaiters = new Map<number, (snap: WindowSnapshot | undefined) => void>();
 
-  const writeCommand = (text: string) => {
-    let last: unknown;
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      try {
-        writeFile(commandPath, text);
-        return;
-      } catch (error) {
-        last = error;
-      }
-    }
-    throw last;
+  const writeLine = (text: string) => {
+    const current = child;
+    if (!current || ended) throw new Error("window helper is not running");
+    current.stdin.write(`${text}\n`);
   };
 
-  const deliverSample = (snap: WindowSnapshot | undefined) => {
-    const waiter = sampleReaders.shift();
-    if (waiter) waiter(snap);
-    else if (snap) snapshots.push(snap);
+  const finishServe = (serve: ServeState, placed: boolean | undefined) => {
+    if (serve.done) return;
+    serve.done = true;
+    const waiter = serve.placeWaiter;
+    serve.placeWaiter = undefined;
+    if (placed !== undefined) waiter?.(placed);
+    else waiter?.(false);
+    while (serve.readers.length > 0) serve.readers.shift()?.(undefined);
   };
 
-  const finish = () => {
+  const finish = (code: number | null) => {
     if (ended) return;
     ended = true;
+    exitCode = code;
     if (grace) clearTimeout(grace);
-    sampleWaiter?.(undefined);
-    sampleWaiter = undefined;
-    placeWaiter?.(false);
-    placeWaiter = undefined;
-    while (sampleReaders.length > 0) deliverSample(undefined);
-  };
-
-  const onSnapshot = (snap: WindowSnapshot) => {
-    if (ignoreSnapshot) {
-      ignoreSnapshot = false;
-      return;
-    }
-    if (sampleWaiter) {
-      const waiter = sampleWaiter;
-      sampleWaiter = undefined;
-      waiter(snap);
-      return;
-    }
-    deliverSample(snap);
+    for (const waiter of sampleWaiters.values()) waiter(undefined);
+    sampleWaiters.clear();
+    if (activeServe) finishServe(activeServe, undefined);
   };
 
   const onLine = (line: string) => {
-    if (line.startsWith('{"placed":')) {
-      serveDone = true;
-      const ok = line.startsWith('{"placed":true');
-      const waiter = placeWaiter;
-      placeWaiter = undefined;
-      waiter?.(ok);
-      while (sampleReaders.length > 0) deliverSample(undefined);
+    const header = lineId(line);
+    if (header.placed !== undefined && header.id !== undefined && activeServe && header.id === activeServe.id) {
+      finishServe(activeServe, header.placed);
       return;
     }
-    if (!line.startsWith('{"foreground"')) return;
+    if (header.id === undefined) return;
     const snap = parseWindowSnapshot(line);
-    if (snap) onSnapshot(snap);
+    if (!snap) return;
+    const sampleWaiter = sampleWaiters.get(header.id);
+    if (sampleWaiter) {
+      sampleWaiters.delete(header.id);
+      sampleWaiter(snap);
+      return;
+    }
+    if (activeServe && header.id === activeServe.id && !activeServe.done) {
+      const reader = activeServe.readers.shift();
+      if (reader) reader(snap);
+      else activeServe.snapshots.push(snap);
+    }
   };
 
   const takeBuffer = (chunk: Buffer | string) => {
@@ -478,9 +599,10 @@ export function createWindowSession(options: WindowSessionOptions): WindowSessio
       if (child && !ended) killProcessTree(child);
       const generationId = ++generation;
       ended = false;
+      exitCode = null;
       stopRequested = false;
       buffer = "";
-      const command = windowSessionCommand(commandPath, placePath);
+      const command = windowSessionCommand(parentPid);
       if (!command) return;
       try {
         const spawnImpl = options.spawnImpl ?? defaultSpawn;
@@ -494,105 +616,107 @@ export function createWindowSession(options: WindowSessionOptions): WindowSessio
       current.stdout.on("data", (chunk) => {
         if (generationId === generation) takeBuffer(chunk);
       });
-      current.on("error", () => {
-        if (generationId === generation) finish();
+      current.stdin.on?.("error", () => {
+        if (generationId === generation) finish(exitCode);
       });
-      current.on("close", () => {
+      current.on("error", () => {
+        if (generationId === generation) finish(exitCode);
+      });
+      current.on("close", (code) => {
         if (generationId !== generation) return;
         if (buffer.trim()) onLine(buffer.trim());
         buffer = "";
-        finish();
+        finish(code);
       });
     },
     stop() {
-      if (disabled) return;
-      if (!child || ended) return;
-      if (stopRequested) return;
+      if (disabled || !child || ended) return Promise.resolve(exitCode);
+      if (stopRequested) return Promise.resolve(exitCode);
       stopRequested = true;
+      const current = child;
       try {
-        writeCommand("QUIT");
+        current.stdin.write("QUIT\n");
+        current.stdin.end();
       } catch {
         // The process may already be gone.
       }
-      const current = child;
-      grace = setTimeout(() => {
-        if (!ended) killProcessTree(current);
-      }, 400);
-    },
-    sample(timeoutMs: number) {
-      if (disabled || !child || ended) return Promise.resolve(undefined);
-      try {
-        writeCommand("SAMPLE");
-      } catch {
-        return Promise.resolve(undefined);
+      if (!ended) {
+        grace = setTimeout(() => {
+          if (!ended) killProcessTree(current);
+        }, 400);
       }
       return new Promise((resolve) => {
+        const done = () => resolve(exitCode);
+        if (ended) {
+          done();
+          return;
+        }
+        current.on("close", () => done());
+      });
+    },
+    sample(timeoutMs: number) {
+      if (disabled || !child || ended || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+        return Promise.resolve(undefined);
+      }
+      const id = nextId++;
+      return new Promise((resolve) => {
         const timer = setTimeout(() => {
-          if (sampleWaiter) {
-            sampleWaiter = undefined;
-            ignoreSnapshot = true;
-            resolve(undefined);
-          }
+          if (!sampleWaiters.has(id)) return;
+          sampleWaiters.delete(id);
+          resolve(undefined);
         }, timeoutMs);
-        sampleWaiter = (snap) => {
+        sampleWaiters.set(id, (snap) => {
           clearTimeout(timer);
           resolve(snap);
-        };
+        });
+        try {
+          writeLine(`SAMPLE ${id}`);
+        } catch {
+          clearTimeout(timer);
+          sampleWaiters.delete(id);
+          resolve(undefined);
+        }
       });
     },
     serve(timeoutMs: number) {
       if (disabled || !child || ended || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) return idleWatch();
-      ignoreSnapshot = false;
-      serveDone = false;
-      snapshots.splice(0);
+      if (activeServe && !activeServe.done) finishServe(activeServe, undefined);
+      const id = nextId++;
+      const serve: ServeState = { id, snapshots: [], readers: [], done: false };
+      activeServe = serve;
       try {
-        if (ownsFiles) fs.rmSync(placePath, { force: true });
+        writeLine(`SERVE ${id} ${timeoutMs}`);
       } catch {
-        // No previous place request.
-      }
-      try {
-        writeCommand(`SERVE ${timeoutMs}`);
-      } catch {
+        serve.done = true;
         return idleWatch();
       }
-      const deadlineAt = Date.now() + timeoutMs + 8_000;
       return {
         async nextSample() {
-          if (snapshots.length > 0) return snapshots.shift();
-          if (serveDone || ended) return undefined;
+          if (serve.snapshots.length > 0) return serve.snapshots.shift();
+          if (serve.done || ended) return undefined;
           return new Promise((resolve) => {
-            const waiter = (snap: WindowSnapshot | undefined) => {
-              clearTimeout(timer);
-              resolve(snap);
-            };
-            const timer = setTimeout(() => {
-              const index = sampleReaders.indexOf(waiter);
-              if (index >= 0) sampleReaders.splice(index, 1);
-              serveDone = true;
-              resolve(undefined);
-            }, Math.max(0, deadlineAt - Date.now()));
-            sampleReaders.push(waiter);
+            serve.readers.push(resolve);
           });
         },
         async place(hwnd, rect) {
           if (!Number.isSafeInteger(hwnd) || hwnd <= 0) return false;
           if (![rect.x, rect.y, rect.width, rect.height].every((value) => Number.isSafeInteger(value))) return false;
           if (rect.width <= 0 || rect.height <= 0) return false;
+          if (serve.done || ended) return false;
           return new Promise((resolve) => {
-            placeWaiter = resolve;
+            serve.placeWaiter = resolve;
             try {
-              writeFile(placePath, `PLACE ${hwnd} ${rect.x} ${rect.y} ${rect.width} ${rect.height}`);
+              writeLine(`PLACE ${id} ${hwnd} ${rect.x} ${rect.y} ${rect.width} ${rect.height}`);
             } catch {
-              if (placeWaiter === resolve) placeWaiter = undefined;
+              if (serve.placeWaiter === resolve) serve.placeWaiter = undefined;
               resolve(false);
             }
           });
         },
         close() {
-          // The helper stays up for the next click. Hiding Jarvis stops it.
+          // The helper stays up for the next click. Quitting Jarvis stops it.
         },
       };
     },
   };
 }
-

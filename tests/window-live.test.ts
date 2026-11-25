@@ -75,7 +75,8 @@ describe("live window list", () => {
     const session = createWindowSession({ platform: process.platform, env: process.env });
     session.start();
     const snap = await session.sample(20_000);
-    session.stop();
+    const code = await session.stop();
+    expect(code).toBe(0);
     expect(snap).toBeDefined();
     if (!snap) return;
     expect(snap.foreground).toBeGreaterThanOrEqual(0);
@@ -134,7 +135,8 @@ describe("live window list", () => {
         expect(found).toBeDefined();
       } finally {
         watch.close();
-        session.stop();
+        const code = await session.stop();
+        expect(code).toBe(0);
         probe.stop();
       }
     },
