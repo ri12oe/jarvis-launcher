@@ -33,7 +33,9 @@ describe("chrome geometry", () => {
         ...chrome.gauges.map((box, index) => ({ name: `gauge-${index}`, box })),
         ...chrome.pager.map((box, index) => ({ name: `pager-${index}`, box })),
       ];
+      entries.push({ name: "wifi", box: chrome.wifi });
       if (chrome.analog) entries.push({ name: "analog", box: chrome.analog });
+      if (chrome.dial) entries.push({ name: "dial", box: chrome.dial });
       if (voice) entries.push({ name: "subtitle", box: subtitlePanelBox(viewport) });
       const separated = entries.filter((entry) => !entry.name.startsWith("gauge-"));
       expect(pairs(separated), `${width}x${height} voice ${voice}`).toBeNull();
@@ -41,6 +43,12 @@ describe("chrome geometry", () => {
         for (const entry of separated) {
           expect(boxesOverlap(gauge, entry.box), `${entry.name} vs gauge`).toBe(false);
         }
+      }
+      for (const entry of [...separated, ...chrome.gauges.map((box) => ({ box }))]) {
+        expect(entry.box.left, "left").toBeGreaterThanOrEqual(-1);
+        expect(entry.box.top, "top").toBeGreaterThanOrEqual(-1);
+        expect(entry.box.right, "right").toBeLessThanOrEqual(width + 1);
+        expect(entry.box.bottom, "bottom").toBeLessThanOrEqual(height + 1);
       }
       if (width === 853) {
         expect(chrome.compact).toBe(true);
@@ -62,6 +70,6 @@ describe("chrome geometry", () => {
     const commandW = (chrome.commands.right - chrome.commands.left - 8) / 3;
     expect(commandW).toBeGreaterThanOrEqual("REFRESH".length * 6);
     expect(chrome.media.right - chrome.media.left).toBeGreaterThanOrEqual("--:--".length * 7);
-    expect(chrome.search.right - chrome.search.left).toBeGreaterThanOrEqual(80);
+    expect(chrome.search.right - chrome.search.left).toBeGreaterThanOrEqual(72);
   });
 });

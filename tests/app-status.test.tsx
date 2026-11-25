@@ -84,7 +84,7 @@ describe("App launch status", () => {
     await renderApp();
     const tile = host?.querySelector(".tile");
     expect(tile?.getAttribute("aria-label")).toBe("Microsoft Edge");
-    expect(tile?.textContent).toContain("Edge");
+    expect(tile?.textContent?.toUpperCase()).toContain("EDGE");
 
     await act(async () => {
       tile?.dispatchEvent(new MouseEvent("click", { bubbles: true }));

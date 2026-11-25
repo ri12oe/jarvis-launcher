@@ -5,7 +5,9 @@ import {
   LABEL_TRACKING_EM,
   boxesOverlap,
   labelSide,
+  hudFrame,
   layoutHud,
+  reactorSlots,
   measureLabel,
   metricsFromAdvance,
   nextRingTile,
@@ -175,6 +177,12 @@ describe("slot layout", () => {
     }
   });
 
+  it("fills an outer and an inner ring, about twenty plates at 1920", () => {
+    expect(reactorSlots(hudFrame({ width: 1920, height: 1080 })).length).toBeGreaterThanOrEqual(20);
+    expect(reactorSlots(hudFrame({ width: 1366, height: 768 })).length).toBeGreaterThanOrEqual(12);
+    expect(reactorSlots(hudFrame({ width: 853, height: 480 })).length).toBeGreaterThanOrEqual(12);
+  });
+
   it("pages segment tiles that do not fit around the reactor", () => {
     const crowded = Array.from({ length: 24 }, (_, index) => ({ label: `Project Folder ${index} Documents` }));
     const layout = layoutHud(crowded, { width: 1280 / 1.5, height: 720 / 1.5 }, wideMeasure);
@@ -231,7 +239,6 @@ function bare(index: number, ring: number, slot: number, count: number): RingPla
     y: point.y,
     icon: empty,
     label: empty,
-    ellipsis: false,
   };
 }
 

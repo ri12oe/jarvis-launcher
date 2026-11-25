@@ -106,7 +106,6 @@ export interface RingPlacement {
   /** Axis-aligned button box, in window coordinates. */
   icon: Aabb;
   label: Aabb;
-  ellipsis: boolean;
   zone?: TileZone;
   /** Shown on every segment page. */
   pinned?: boolean;
@@ -281,7 +280,7 @@ export function hudFrame(viewport: Viewport, options?: LayoutOptions): HudFrame 
   const bounds: Aabb = {
     left: railW + 2,
     top: header + 2,
-    right: width - 6,
+    right: width - clamp(Math.round(width * 0.18), 150, 300),
     bottom: contentBottom - 2,
   };
   return {
@@ -352,24 +351,34 @@ function tryRing(frame: HudFrame, count: number, radius: number, boxW: number, b
   return slots;
 }
 
-/** The beveled buttons around the reactor. Twenty when they fit, fewer on a short window. */
+function ringsClear(outer: readonly SegmentSlot[], inner: readonly SegmentSlot[]): boolean {
+  return inner.every((slot) => outer.every((other) => !boxesOverlap(slot.box, other.box, 1)));
+}
+
+/** Outer and inner plate rings. Twenty tiles fit at 1920 when both rings pack. */
 export function reactorSlots(frame: HudFrame): SegmentSlot[] {
-  let width = frame.segW;
-  let height = frame.segH;
-  let radius = frame.segRadius;
+  const counts = frame.reactor < 420 ? [8, 6] : [12, 10, 8, 6];
+  let width = Math.min(frame.segW, 100);
+  let height = Math.min(frame.segH, 28);
   for (let shrink = 0; shrink < 8; shrink++) {
-    for (let count = 20; count >= 8; count--) {
-      const packed = tryRing(frame, count, radius, width, height);
-      if (packed) return packed;
+    for (const count of counts) {
+      const outer = tryRing(frame, count, frame.segRadius, width, height);
+      if (!outer) continue;
+      const innerW = Math.max(28, width * 0.82);
+      const innerH = Math.max(14, height * 0.8);
+      const minRadius = frame.reactor * 0.2 + Math.hypot(innerW, innerH) / 2 + 6;
+      for (let step = 0; step < 10; step++) {
+        const innerRadius = frame.segRadius * (0.8 - step * 0.035);
+        if (innerRadius < minRadius) break;
+        const inner = tryRing(frame, count, innerRadius, innerW, innerH);
+        if (inner && ringsClear(outer, inner)) return [...outer, ...inner];
+      }
     }
-    width = Math.max(28, width * 0.86);
+    width = Math.max(32, width * 0.84);
     height = Math.max(14, height * 0.88);
-    radius = Math.max(frame.reactor * 0.28, radius * 0.94);
   }
-  for (let count = 7; count >= 1; count--) {
-    const packed = tryRing(frame, count, radius, width, height);
-    if (packed) return packed;
-  }
+  const single = tryRing(frame, 8, frame.segRadius, width, height);
+  if (single) return single;
   const box = rotatedAabb(frame.cx, frame.cy, width, height, 0);
   return [{ angle: 0, rotation: 0, x: frame.cx, y: frame.cy, box, width, height }];
 }
@@ -416,7 +425,7 @@ function fitCount(total: number, area: Aabb, gap: number, min: number, axis: "ro
   return 0;
 }
 
-function placeBox(index: number, zone: TileZone, ring: number, slot: number, count: number, box: Aabb, measure: LabelMetrics, pinned: boolean, page: number): RingPlacement {
+function placeBox(index: number, zone: TileZone, ring: number, slot: number, count: number, box: Aabb, pinned: boolean, page: number): RingPlacement {
   const width = box.right - box.left;
   const height = box.bottom - box.top;
   return {
@@ -432,7 +441,6 @@ function placeBox(index: number, zone: TileZone, ring: number, slot: number, cou
     y: (box.top + box.bottom) / 2,
     icon: box,
     label: box,
-    ellipsis: measure.width > Math.max(12, width - (zone === "segment" ? 8 : 30)) * (zone === "tab" ? 1 : 2),
     zone,
     pinned,
     rotation: 0,
@@ -456,7 +464,6 @@ export function layoutHud<T extends LayoutTile>(
     return layoutHud(tiles, { width: Math.max(viewport.width, 1366), height: Math.max(viewport.height, 768) }, measure, options);
   }
   const frame = hudFrame(viewport, options);
-  const metrics = tiles.map((tile) => measure(tile.label));
   const groups: Record<TileZone, number[]> = { rail: [], tab: [], segment: [] };
   tiles.forEach((tile, index) => {
     groups[tileZone(tile)].push(index);
@@ -483,14 +490,14 @@ export function layoutHud<T extends LayoutTile>(
   railShown.forEach((index, slot) => {
     const box = railBoxes[slot];
     if (!box) return;
-    placed[index] = placeBox(index, "rail", 1, slot, railShown.length, box, metrics[index], true, 0);
+    placed[index] = placeBox(index, "rail", 1, slot, railShown.length, box, true, 0);
   });
 
   const tabBoxes = rowBoxes(frame.tabs, tabShown.length, 4, 46) ?? [];
   tabShown.forEach((index, slot) => {
     const box = tabBoxes[slot];
     if (!box) return;
-    const place = placeBox(index, "tab", 0, slot, tabShown.length, box, metrics[index], true, 0);
+    const place = placeBox(index, "tab", 0, slot, tabShown.length, box, true, 0);
     const spread = tabShown.length <= 1 ? 0 : (slot / (tabShown.length - 1) - 0.5) * 0.6;
     place.angle = spread;
     placed[index] = place;
@@ -507,7 +514,7 @@ export function layoutHud<T extends LayoutTile>(
       right: frame.cx + 20,
       bottom: frame.cy + 10,
     };
-    const place = placeBox(index, "segment", 2, slot, onPage, box, metrics[index], false, page);
+    const place = placeBox(index, "segment", 2, slot, onPage, box, false, page);
     if (geom) {
       place.angle = geom.angle;
       place.rotation = geom.rotation;
@@ -545,11 +552,14 @@ export function placedTileBoxes(layout: HudLayout): Aabb[] {
 export interface ChromeLayout {
   /** Small window: analog clock and the second gauge are omitted. */
   compact: boolean;
+  /** Power buttons show icons only. Their words do not fit at this width. */
+  iconPower: boolean;
   calendar: Aabb;
   analog?: Aabb;
   ram: Aabb;
   bin: Aabb;
   gauges: Aabb[];
+  wifi: Aabb;
   hint: Aabb;
   commands: Aabb;
   search: Aabb;
@@ -557,6 +567,7 @@ export interface ChromeLayout {
   uptime: Aabb;
   /** Previous, page numbers, and next. Empty when there is one page. */
   pager: Aabb[];
+  dial?: Aabb;
 }
 
 function box(left: number, top: number, width: number, height: number): Aabb {
@@ -567,42 +578,61 @@ function box(left: number, top: number, width: number, height: number): Aabb {
 export function chromeLayout(viewport: Viewport, options?: LayoutOptions & { pages?: number }): ChromeLayout {
   const frame = hudFrame(viewport, options);
   const { width, height } = viewport;
-  const compact = width < 1100 || height < 640;
-  const calendar = box(width - frame.calendarW - 8, 4, frame.calendarW, Math.max(36, frame.header - 8));
+  const compact = width < 1000 || height < 640;
+  const iconPower = width < 1400;
+  const dayH = clamp(Math.round(width * 0.058), 48, 110);
+  const calendar = box(width - frame.calendarW - 8, 2, frame.calendarW, dayH + 40);
   let analog: Aabb | undefined;
   if (!compact) {
-    const size = clamp(Math.round(width * 0.1), 128, 188);
-    analog = box(width - size - 12, frame.header + 12, size, size);
+    const size = clamp(Math.round(Math.min(width, height) * 0.1), 110, 170);
+    analog = box(width - size - 12, calendar.bottom + 10, size, size + 18);
   }
-  const disk = compact ? 64 : clamp(Math.round(width * 0.072), 96, 136);
-  let diskTop = analog ? analog.bottom + 14 : frame.header + 10;
+  const disk = compact ? 64 : clamp(Math.round(width * 0.07), 88, 128);
+  let diskTop = analog ? analog.bottom + 12 : Math.max(frame.header + 8, calendar.bottom + 8);
   const ram = box(width - disk - 12, diskTop, disk, disk);
-  diskTop = ram.bottom + 12;
-  const bin = box(width - disk - 12, diskTop, disk, disk);
-  const gaugeW = compact ? 132 : clamp(Math.round(width * 0.16), 180, 260);
-  const gaugeH = Math.round(gaugeW * 0.58);
+  const bin = box(width - disk - 12, ram.bottom + 10, disk, disk);
   const subtitle = options?.subtitle ? subtitlePanelBox(viewport) : undefined;
-  const gaugeBottom = height - frame.footer - 10;
-  const gaugeRight = width - 12;
+  let dial: Aabb | undefined;
+  if (!compact) {
+    const size = clamp(Math.round(Math.min(width, height) * 0.12), 108, 168);
+    dial = box(width - size - 8, height - size - 4, size, size);
+  }
+  const rightEdge = dial ? dial.left - 8 : width - 8;
+  const gaugeW = compact ? 120 : clamp(Math.round(width * 0.14), 160, 230);
+  const gaugeH = Math.round(gaugeW * 0.56);
+  const gaugeBottom = Math.min(height - frame.footer - 8, dial ? dial.top - 8 : height);
+  const gaugeRight = width - 10;
   let gaugeLeft = gaugeRight - gaugeW;
   if (subtitle && gaugeLeft < subtitle.right + 8) gaugeLeft = subtitle.right + 8;
-  const gaugeTop = Math.max(bin.bottom + 12, gaugeBottom - gaugeH);
-  const gauges = [box(gaugeLeft, gaugeTop, Math.min(gaugeW, gaugeRight - gaugeLeft), gaugeH)];
+  const gaugeTop = Math.min(gaugeBottom - gaugeH, Math.max(bin.bottom + 10, gaugeBottom - gaugeH));
+  const fittedH = Math.max(64, gaugeBottom - Math.max(gaugeTop, bin.bottom + 10));
+  const gauges = [box(gaugeLeft, gaugeBottom - fittedH, Math.max(64, gaugeRight - gaugeLeft), fittedH)];
   if (!compact) {
-    const overlap = Math.round(gaugeW * 0.28);
+    const overlap = Math.round(gaugeW * 0.22);
     const left = Math.max(subtitle ? subtitle.right + 8 : 8, gaugeLeft - overlap);
-    gauges.unshift(box(left, gaugeTop, gaugeW, gaugeH));
+    if (left + 48 < gaugeLeft) gauges.unshift(box(left, gaugeBottom - fittedH, gaugeW, fittedH));
   }
   const footerTop = height - frame.footer + 8;
   const footerH = frame.footer - 16;
   const pages = options?.pages ?? 1;
-  const pagerW = pages > 1 ? 118 : 0;
-  const hintW = compact ? 108 : 150;
-  const commandW = compact ? 196 : 230;
-  const mediaW = compact ? 132 : 168;
-  const uptimeW = 64;
-  const gap = 8;
-  let x = 10;
+  const gap = 6;
+  let hintW = 156;
+  let commandW = compact ? 236 : 276;
+  let mediaW = compact ? 168 : 248;
+  const uptimeW = 60;
+  const pagerW = pages > 1 ? 140 : 0;
+  const edges = 8 + (width - rightEdge);
+  const gaps = gap * (pagerW ? 5 : 4);
+  const searchMin = 72;
+  let used = edges + hintW + commandW + pagerW + mediaW + uptimeW + gaps + searchMin;
+  if (used > width) {
+    const over = used - width;
+    const mediaCut = Math.min(over, mediaW - 140);
+    mediaW -= mediaCut;
+    used -= mediaCut;
+  }
+  if (used > width) hintW = Math.max(120, hintW - (used - width));
+  let x = 8;
   const hint = box(x, footerTop, hintW, footerH);
   x += hintW + gap;
   const commands = box(x, footerTop, commandW, footerH);
@@ -610,18 +640,30 @@ export function chromeLayout(viewport: Viewport, options?: LayoutOptions & { pag
   const pager =
     pagerW === 0
       ? []
-      : [
-          box(x, footerTop, 28, footerH),
-          box(x + 32, footerTop, 52, footerH),
-          box(x + 88, footerTop, 28, footerH),
-        ];
+      : [box(x, footerTop, 28, footerH), box(x + 34, footerTop, 72, footerH), box(x + 112, footerTop, 28, footerH)];
   x += pagerW + (pagerW ? gap : 0);
-  const rightBlock = mediaW + gap + uptimeW + 10;
-  const searchW = Math.max(88, width - x - rightBlock);
+  const tail = mediaW + gap + uptimeW;
+  const searchW = Math.max(searchMin, rightEdge - tail - x);
   const search = box(x, footerTop, searchW, footerH);
-  const media = box(width - 10 - uptimeW - gap - mediaW, footerTop, mediaW, footerH);
-  const uptime = box(width - 10 - uptimeW, footerTop, uptimeW, footerH);
-  return { compact, calendar, analog, ram, bin, gauges, hint, commands, search, media, uptime, pager };
+  const media = box(search.right + gap, footerTop, mediaW, footerH);
+  const uptime = box(Math.min(media.right + gap, rightEdge - uptimeW), footerTop, uptimeW, footerH);
+  return {
+    compact,
+    iconPower,
+    calendar,
+    analog,
+    ram,
+    bin,
+    gauges,
+    wifi: frame.wifi,
+    hint,
+    commands,
+    search,
+    media,
+    uptime,
+    pager,
+    dial,
+  };
 }
 
 /**

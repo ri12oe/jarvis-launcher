@@ -114,7 +114,7 @@ describe("HUD ring", () => {
       press("ArrowRight");
     });
     const active = host?.querySelector(".tile.active");
-    expect(active?.textContent).toContain(tiles[next]?.label);
+    expect(active?.textContent?.toUpperCase()).toContain(tiles[next]?.label.toUpperCase());
     expect(document.activeElement).toBe(active);
     expect(buttons()[0]?.classList.contains("active")).toBe(next === 0);
   });
@@ -128,7 +128,7 @@ describe("HUD ring", () => {
 
     const lit = [...(host?.querySelectorAll(".tile.lit") ?? [])];
     const dim = [...(host?.querySelectorAll(".tile.dim") ?? [])];
-    expect(lit.map((node) => node.textContent)).toEqual(["Edge"]);
+    expect(lit.map((node) => node.textContent?.replace(/\s+/g, ""))).toEqual(["EDGE"]);
     expect(lit[0]?.getAttribute("aria-label")).toBe("Microsoft Edge");
     expect(dim).toHaveLength(tiles.length - 1);
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Microsoft Edge");

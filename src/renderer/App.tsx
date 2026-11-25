@@ -42,7 +42,7 @@ import {
   type RingPlacement,
   type Viewport,
 } from "../shared/ring";
-import { displayLabel } from "../shared/labels";
+import { plateTexts } from "../shared/labels";
 import { composeTiles } from "../shared/tiles";
 import type { DiscoveredApp, LauncherState, LauncherTileView, VoicePhase, VoiceSnapshot } from "../shared/types";
 import { voiceControlLabel } from "../shared/voice-state";
@@ -94,10 +94,19 @@ function firstMatchIndex(tiles: readonly { label: string }[], query: string): nu
 function previewState(): LauncherState {
   const home = "/home/mario";
   const config = cloneDefaultConfig();
-  const requested = Number(new URLSearchParams(window.location.search).get("tiles") ?? "0");
+  const params = new URLSearchParams(window.location.search);
+  const named = params.get("labels");
+  const requested = Number(params.get("tiles") ?? "0");
   const previewBase = PREVIEW_APPS.length + 6;
-  const extraCount = requested >= 24 ? 10 : Math.max(0, requested - previewBase);
-  if (extraCount > 0) {
+  const extraCount = named ? 0 : requested >= 24 ? 10 : Math.max(0, requested - previewBase);
+  if (named) {
+    config.extraTiles = named.split("|").filter(Boolean).map((label, index) => ({
+      id: `named${index}`,
+      label,
+      path: `C:\\Tools\\named-${index}.exe`,
+      kind: "app" as const,
+    }));
+  } else if (extraCount > 0) {
     config.extraTiles = Array.from({ length: extraCount }, (_, index) => ({
       id: `module${index + 1}`,
       label: `Module ${index + 1}`,
@@ -203,6 +212,24 @@ function absBox(box: Aabb): CSSProperties {
   };
 }
 
+function plateFont(place: RingPlacement): number {
+  if (place.zone === "segment") return Math.max(9, Math.min(12, (place.height ?? 18) * 0.38));
+  return 11;
+}
+
+function plateWidth(place: RingPlacement): number {
+  if (place.zone === "segment") return Math.max(16, (place.width ?? 40) - 16);
+  if (place.zone === "tab") return Math.max(20, (place.width ?? 40) - 8);
+  return Math.max(24, (place.width ?? 40) - 44);
+}
+
+function plateLineCount(place: RingPlacement): number {
+  if (place.zone !== "segment") return 1;
+  const font = plateFont(place);
+  if ((place.height ?? 20) < font * 2.4) return 1;
+  return 2;
+}
+
 function tileStyle(place: RingPlacement): CSSProperties {
   if (place.zone === "segment") {
     return {
@@ -211,7 +238,7 @@ function tileStyle(place: RingPlacement): CSSProperties {
       width: place.width,
       height: place.height,
       transform: `translate(-50%, -50%) rotate(${place.rotation ?? 0}deg)`,
-      fontSize: Math.max(9, Math.min(14, (place.height ?? 18) * 0.42)),
+      fontSize: plateFont(place),
     };
   }
   return {
@@ -547,8 +574,21 @@ export function App() {
     () => layoutHud(tiles, viewport, measureHudLabel, { subtitle: voiceOn }),
     [tiles, viewport.width, viewport.height, voiceOn],
   );
-  if (layoutRef.current === null) layoutRef.current = layout;
   layoutRef.current = layout;
+  const plateCopy = useMemo(() => {
+    const lines = new Array<string[]>(tiles.length);
+    const entries = layout.segments.map((place) => ({
+      label: tiles[place.index]?.label ?? "",
+      width: plateWidth(place),
+      fontPx: plateFont(place),
+      maxLines: plateLineCount(place),
+    }));
+    const texts = plateTexts(entries);
+    layout.segments.forEach((place, index) => {
+      lines[place.index] = texts[index] ?? [];
+    });
+    return lines;
+  }, [layout, tiles]);
   const selectable = tiles.map((tile) => tileMatches(tile.label, query));
   const pageCount = layout.pageCount;
   const safePage = Math.min(page, Math.max(0, pageCount - 1));
@@ -612,24 +652,33 @@ export function App() {
 
   return (
     <NowProvider>
-    <div className="screen" data-density={chrome.compact ? "compact" : "full"} style={frameStyle(layout.frame)}>
+    <div
+      className="screen"
+      data-density={chrome.compact ? "compact" : "full"}
+      data-power={chrome.iconPower ? "icons" : "labels"}
+      style={frameStyle(layout.frame)}
+    >
       <Emblem />
       <SystemButtons />
-      <Calendar />
+      <Calendar style={absBox(chrome.calendar)} />
       <Clock box={layout.frame.clock} />
       <LevelBar />
-      <Wifi />
+      <Wifi style={absBox(chrome.wifi)} />
       <div className="corner-arcs" aria-hidden="true" />
-      <div className="corner-dial" aria-hidden="true" />
-      <ReactorFace frame={layout.frame} phase={voice.phase} />
+      {chrome.dial ? <div className="corner-dial" aria-hidden="true" style={absBox(chrome.dial)} /> : null}
+      <ReactorFace
+        frame={layout.frame}
+        phase={voice.phase}
+        used={new Set(visible.filter((place) => place.zone === "segment").map((place) => place.slot))}
+      />
       <div className="right-stack">
         <Weather />
-        <RoundMeter name="RAM" style={absBox(chrome.ram)} />
-        <RoundMeter name="BIN" style={absBox(chrome.bin)} />
-        {chrome.gauges.map((gauge, index) => (
-          <Gauge key={index} style={absBox(gauge)} />
-        ))}
       </div>
+      <RoundMeter name="RAM" style={absBox(chrome.ram)} />
+      <RoundMeter name="BIN" style={absBox(chrome.bin)} />
+      {chrome.gauges.map((gauge, index) => (
+        <Gauge key={index} style={absBox(gauge)} readout={index === chrome.gauges.length - 1} />
+      ))}
       {chrome.analog ? <AnalogClock style={absBox(chrome.analog)} /> : null}
 
       {pageCount > 1 && chrome.pager.length > 0 ? (
@@ -638,6 +687,8 @@ export function App() {
           style={{
             left: chrome.pager[0].left,
             top: chrome.pager[0].top,
+            width: chrome.pager[chrome.pager.length - 1].right - chrome.pager[0].left,
+            height: chrome.pager[0].bottom - chrome.pager[0].top,
             transform: "none",
           }}
         >
@@ -735,7 +786,11 @@ export function App() {
                   </span>
                 )}
                 <span className="label" title={tile.label}>
-                  {displayLabel(tile.label)}
+                  {(plateCopy[place.index] ?? [tile.label]).map((line, lineIndex) => (
+                    <span key={lineIndex} className="label-line">
+                      {line}
+                    </span>
+                  ))}
                 </span>
               </button>
             </li>

@@ -12,7 +12,15 @@ function arc(radius: number, start: number, end: number): string {
   return `M ${x1} ${y1} A ${radius} ${radius} 0 ${large} 1 ${x2} ${y2}`;
 }
 
-export function ReactorFace({ frame, phase }: { frame: HudFrame; phase: VoicePhase }) {
+export function ReactorFace({
+  frame,
+  phase,
+  used,
+}: {
+  frame: HudFrame;
+  phase: VoicePhase;
+  used: ReadonlySet<number>;
+}) {
   const mark = phase === "idle" ? "standby" : phase;
   const size = frame.reactor;
   const slots = reactorSlots(frame);
@@ -22,32 +30,20 @@ export function ReactorFace({ frame, phase }: { frame: HudFrame; phase: VoicePha
       style={{ width: size, height: size, left: frame.cx - size / 2, top: frame.cy - size / 2 }}
     >
       {slots.map((slot, index) => {
-        const dx = slot.x - frame.cx;
-        const dy = slot.y - frame.cy;
-        const chord = (2 * frame.segRadius * Math.sin(Math.PI / slots.length)) / size;
+        if (used.has(index)) return null;
         return (
-          <span key={`outer-${index}`}>
-            <span
-              className="plate-btn"
-              style={{
-                left: size / 2 + dx,
-                top: size / 2 + dy,
-                width: chord * size * 1.02,
-                height: frame.segH,
-                transform: `translate(-50%, -50%) rotate(${slot.rotation}deg)`,
-              }}
-            />
-            <span
-              className="plate-btn inner"
-              style={{
-                left: size / 2 + dx * 0.84,
-                top: size / 2 + dy * 0.84,
-                width: chord * size * 0.86,
-                height: frame.segH * 0.82,
-                transform: `translate(-50%, -50%) rotate(${slot.rotation}deg)`,
-              }}
-            />
-          </span>
+          <span
+            key={index}
+            className="plate-btn"
+            aria-hidden="true"
+            style={{
+              left: size / 2 + (slot.x - frame.cx),
+              top: size / 2 + (slot.y - frame.cy),
+              width: slot.width,
+              height: slot.height,
+              transform: `translate(-50%, -50%) rotate(${slot.rotation}deg)`,
+            }}
+          />
         );
       })}
       <svg className="reactor-svg" viewBox="0 0 200 200">
