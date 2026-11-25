@@ -115,6 +115,8 @@ export interface JarvisBridge {
   getState(): Promise<LauncherState>;
   onState(listener: (state: LauncherState) => void): () => void;
   launch(tileId: string): Promise<LaunchResult>;
+  /** Reloads config, discovery, and icons. The same work as the tray Refresh item. */
+  refresh(): Promise<void>;
   hide(): void;
   quit(): void;
 }

@@ -132,11 +132,31 @@ async function tileViews(tiles: readonly ResolvedTile[]): Promise<LauncherTileVi
   );
 }
 
+let refreshTask: Promise<void> | null = null;
+let refreshQueued = false;
+
+/** One discovery at a time. Callers that arrive mid-run share it and do not start another. */
+function requestRefresh(): Promise<void> {
+  if (refreshTask) return refreshTask;
+  const task = refreshSession().finally(() => {
+    refreshTask = null;
+    if (!refreshQueued) return;
+    refreshQueued = false;
+    void requestRefresh();
+  });
+  refreshTask = task;
+  return task;
+}
+
 function scheduleRefresh(): void {
   if (refreshTimer) clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
-    void refreshSession();
+    if (refreshTask) {
+      refreshQueued = true;
+      return;
+    }
+    void requestRefresh();
   }, 300);
 }
 
@@ -296,7 +316,7 @@ function createTray(): void {
   const menu = Menu.buildFromTemplate([
     { label: "Show", click: () => showWindow() },
     { label: "Hide", click: () => hideWindow() },
-    { label: "Refresh", click: () => void refreshSession() },
+    { label: "Refresh", click: () => void requestRefresh() },
     { type: "separator" },
     {
       label: "Quit",
@@ -319,7 +339,7 @@ function registerIpc(): void {
 
   ipcMain.handle("jarvis:launch", async (event, tileId: unknown) => {
     if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
-    if (!session) await refreshSession();
+    if (!session) await requestRefresh();
     if (typeof tileId !== "string") return { ok: false, error: "Unknown tile" };
     const tile = session?.tiles.find((item) => item.id === tileId);
     if (!tile) return { ok: false, error: "Unknown tile" };
@@ -330,6 +350,11 @@ function registerIpc(): void {
       const message = error instanceof Error ? error.message : "Launch failed";
       return { ok: false, error: message };
     }
+  });
+
+  ipcMain.handle("jarvis:refresh", (event) => {
+    if (!isAppFrame(event)) return;
+    return requestRefresh();
   });
 
   ipcMain.on("jarvis:hide", (event) => {
@@ -356,7 +381,7 @@ if (!gotLock) {
     const startHidden = loadConfig(app.getPath("userData")).config.startHidden;
     createWindow(startHidden);
     createTray();
-    await refreshSession();
+    await requestRefresh();
   });
 
   app.on("before-quit", () => {

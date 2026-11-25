@@ -254,6 +254,12 @@ time {
   text-overflow: ellipsis;
 }
 
+.commands {
+  display: flex;
+  align-items: flex-end;
+  gap: 28px;
+}
+
 .quit {
   appearance: none;
   background: transparent;
@@ -268,6 +274,13 @@ time {
 .quit:focus-visible {
   color: var(--cyan);
   outline: none;
+}
+
+.quit.refreshing,
+.quit.refreshing:hover,
+.quit.refreshing:focus-visible {
+  color: var(--cyan);
+  cursor: default;
 }
 
 .boot {

@@ -20,7 +20,7 @@ npm run dev
 
 That starts the renderer, compiles the Electron main process, and opens the launcher. The default hotkey is **Ctrl+Alt+J** (`CommandOrControl+Alt+J` in the config). Press it again, or Esc, to hide the window. The process keeps running so the hotkey still works. Quit from the tray icon or the QUIT control.
 
-The tray menu is Show, Hide, Refresh, and Quit. Refresh re-reads `config.json` and the installed apps. Opening the window uses the list already in memory. Saving `config.json` re-reads it too.
+The tray menu is Show, Hide, Refresh, and Quit. The footer REFRESH control runs that same reload. A second click does nothing while a reload is already running, and the control reads REFRESHING until it finishes. Opening the window uses the list already in memory. Saving `config.json` re-reads it too.
 
 `npm test` runs the unit tests. `npm run typecheck` typechecks the main process and the renderer.
 

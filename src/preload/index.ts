@@ -11,6 +11,7 @@ const api: JarvisBridge = {
     };
   },
   launch: (tileId: string) => ipcRenderer.invoke("jarvis:launch", tileId) as Promise<LaunchResult>,
+  refresh: () => ipcRenderer.invoke("jarvis:refresh") as Promise<void>,
   hide: () => {
     ipcRenderer.send("jarvis:hide");
   },
