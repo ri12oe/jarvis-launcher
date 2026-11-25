@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../src/renderer/App";
+import { layoutHud, nextRingTile } from "../src/shared/ring";
 import type { JarvisBridge, LaunchResult, LauncherState, LauncherTileView } from "../src/shared/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -76,23 +77,26 @@ describe("HUD ring", () => {
     const voice = host?.querySelector("[data-voice]");
     expect(voice?.getAttribute("data-voice")).toBe("standby");
     expect(voice?.tagName).not.toBe("BUTTON");
-    expect(host?.querySelectorAll(".orbit")).toHaveLength(2);
+    expect(host?.querySelectorAll(".orbit").length).toBeGreaterThan(0);
     expect(host?.querySelectorAll(".tile")).toHaveLength(tiles.length);
     expect(footer()).toBe("SELECT A SYSTEM");
   });
 
-  it("moves the active segment clockwise around the inner ring", async () => {
+  it("moves the active segment clockwise around its ring", async () => {
     await renderApp();
+    const layout = layoutHud(tiles, { width: window.innerWidth, height: window.innerHeight });
+    const visible = layout.segments.filter((segment) => segment.page === layout.segments[0]?.page);
+    const next = nextRingTile(0, visible, "ArrowRight");
     const buttons = () => [...(host?.querySelectorAll(".tile") ?? [])];
     expect(buttons()[0]?.classList.contains("active")).toBe(true);
 
     await act(async () => {
       press("ArrowRight");
     });
-    expect(document.activeElement).toBe(buttons()[1]);
-    expect(buttons()[1]?.textContent).toContain("Claude");
-    expect(buttons()[1]?.classList.contains("active")).toBe(true);
-    expect(buttons()[0]?.classList.contains("active")).toBe(false);
+    const active = host?.querySelector(".tile.active");
+    expect(active?.textContent).toContain(tiles[next]?.label);
+    expect(document.activeElement).toBe(active);
+    expect(buttons()[0]?.classList.contains("active")).toBe(next === 0);
   });
 
   it("highlights matches, dims the rest, and does not launch a dimmed segment", async () => {
@@ -124,5 +128,10 @@ describe("HUD ring", () => {
     expect(footer()).toBe("SELECT A SYSTEM");
     expect(host?.querySelectorAll(".tile.dim")).toHaveLength(0);
     expect(host?.querySelectorAll(".tile.lit")).toHaveLength(0);
+
+    await act(async () => {
+      for (const key of ["z", "z", "z"]) press(key);
+    });
+    expect(footer()).toBe("NO MATCH");
   });
 });

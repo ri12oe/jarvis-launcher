@@ -1,30 +1,98 @@
 import { describe, expect, it } from "vitest";
+import type { GridKey } from "../src/shared/grid";
 import {
-  INNER_RADIUS,
-  KIND_SPLIT_SLACK,
-  ONE_RING_MAX,
-  OUTER_RADIUS,
-  SINGLE_RADIUS,
+  HUD_FILL,
+  ICON_SIZE,
+  boxesOverlap,
   labelSide,
+  layoutHud,
+  measureLabel,
+  minArcSpacing,
   nextRingTile,
-  placeTiles,
+  radiusForArcSpacing,
   segmentAngle,
   segmentPoint,
-  splitIntoRings,
+  type Aabb,
+  type HudLayout,
   type RingPlacement,
+  type Viewport,
 } from "../src/shared/ring";
 
-interface Sample {
-  id: string;
-  kind: "app" | "folder" | "system";
+const NAMES = [
+  "ChatGPT",
+  "Claude",
+  "Cursor",
+  "Grok",
+  "Microsoft Edge",
+  "File Explorer",
+  "Desktop",
+  "Documents",
+  "Downloads",
+  "Pictures",
+  "Copilot",
+  "Perplexity",
+  "Ollama",
+  "LM Studio",
+  "Visual Studio Code",
+  "Windows Terminal",
+];
+
+function tiles(count: number): Array<{ label: string }> {
+  return Array.from({ length: count }, (_, index) => ({
+    label: index % 5 === 0 ? `${NAMES[index % NAMES.length]} Workspace Project` : NAMES[index % NAMES.length],
+  }));
 }
 
-function tile(id: string, kind: Sample["kind"] = "app"): Sample {
-  return { id, kind };
+function intersects(a: Aabb, b: Aabb): boolean {
+  const width = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+  const height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+  return width > 0.5 && height > 0.5;
 }
 
-function apps(count: number, kind: Sample["kind"] = "app"): Sample[] {
-  return Array.from({ length: count }, (_, index) => tile(`${kind}-${index}`, kind));
+function overlapOnPage(layout: HudLayout): string | null {
+  for (let page = 0; page < layout.pageCount; page++) {
+    const visible = layout.segments.filter((segment) => segment.page === page);
+    const boxes = visible.flatMap((segment) => [
+      { name: `${segment.index} icon`, box: segment.icon },
+      { name: `${segment.index} label`, box: segment.label },
+    ]);
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        if ((i ^ 1) === j && i % 2 === 0) continue;
+        if (intersects(boxes[i].box, boxes[j].box)) return `page ${page}: ${boxes[i].name} overlaps ${boxes[j].name}`;
+      }
+    }
+  }
+  return null;
+}
+
+function reachable(layout: HudLayout): number {
+  if (layout.segments.length === 0) return 0;
+  const byPage = new Map<number, RingPlacement[]>();
+  for (const segment of layout.segments) {
+    const list = byPage.get(segment.page) ?? [];
+    list.push(segment);
+    byPage.set(segment.page, list);
+  }
+  const seen = new Set<number>();
+  const queue = [layout.segments[0].index];
+  const keys: GridKey[] = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
+  while (queue.length > 0) {
+    const index = queue.pop();
+    if (index == null || seen.has(index)) continue;
+    seen.add(index);
+    const segment = layout.segments[index];
+    const visible = byPage.get(segment.page) ?? [];
+    for (const key of keys) {
+      const next = nextRingTile(index, visible, key);
+      if (next >= 0) queue.push(next);
+    }
+    for (const direction of [-1, 1]) {
+      const neighbor = byPage.get(segment.page + direction);
+      if (neighbor && neighbor.length > 0) queue.push(neighbor[0].index);
+    }
+  }
+  return seen.size;
 }
 
 describe("segment angles and positions", () => {
@@ -71,142 +139,96 @@ describe("segment angles and positions", () => {
   });
 });
 
-describe("ring splitting", () => {
-  it("keeps a short list on one ring in input order", () => {
-    expect(ONE_RING_MAX).toBe(8);
-    const tiles = [
-      tile("edge", "app"),
-      tile("explorer", "system"),
-      tile("desktop", "folder"),
-      tile("documents", "folder"),
-    ];
-    const groups = splitIntoRings(tiles);
-    expect(groups).toHaveLength(1);
-    expect(groups[0]?.ring).toBe(0);
-    expect(groups[0]?.radius).toBe(SINGLE_RADIUS);
-    expect(groups[0]?.items.map((item) => item.id)).toEqual(["edge", "explorer", "desktop", "documents"]);
-
-    const atLimit = apps(ONE_RING_MAX);
-    expect(splitIntoRings(atLimit)).toHaveLength(1);
-    expect(splitIntoRings([])).toEqual([]);
-  });
-
-  it("puts folders on the outer ring when both rings stay readable", () => {
-    expect(KIND_SPLIT_SLACK).toBe(2);
-    const tiles = [
-      tile("folder-a", "folder"),
-      tile("chatgpt"),
-      tile("folder-b", "folder"),
-      tile("claude"),
-      tile("folder-c", "folder"),
-      tile("cursor"),
-      tile("folder-d", "folder"),
-      tile("explorer", "system"),
-      tile("edge"),
-    ];
-    expect(tiles.length).toBe(ONE_RING_MAX + 1);
-    const groups = splitIntoRings(tiles);
-    expect(groups.map((group) => group.ring)).toEqual([0, 1]);
-    expect(groups[0]?.radius).toBe(INNER_RADIUS);
-    expect(groups[1]?.radius).toBe(OUTER_RADIUS);
-    expect(groups[0]?.items.map((item) => item.id)).toEqual(["chatgpt", "claude", "cursor", "explorer", "edge"]);
-    expect(groups[1]?.items.map((item) => item.id)).toEqual(["folder-a", "folder-b", "folder-c", "folder-d"]);
-  });
-
-  it("halves a lopsided list by order instead of crowding one ring", () => {
-    const tiles = [...apps(11), tile("only-folder", "folder")];
-    const even = Math.ceil(tiles.length / 2);
-    expect(11).toBeGreaterThan(even + KIND_SPLIT_SLACK);
-    const groups = splitIntoRings(tiles);
-    expect(groups[0]?.items.map((item) => item.id)).toEqual(tiles.slice(0, even).map((item) => item.id));
-    expect(groups[1]?.items.map((item) => item.id)).toEqual(tiles.slice(even).map((item) => item.id));
-    expect(groups[1]?.items.some((item) => item.kind !== "folder")).toBe(true);
-  });
-
-  it("splits a long list that is only folders or only apps", () => {
-    const onlyApps = apps(ONE_RING_MAX + 1);
-    const groups = splitIntoRings(onlyApps);
-    expect(groups).toHaveLength(2);
-    expect(groups[0]?.items).toHaveLength(Math.ceil(onlyApps.length / 2));
-    expect(groups[1]?.radius).toBe(OUTER_RADIUS);
-
-    const onlyFolders = apps(10, "folder");
-    const folderGroups = splitIntoRings(onlyFolders);
-    expect(folderGroups[0]?.items.every((item) => item.kind === "folder")).toBe(true);
-    expect(folderGroups[0]?.items).toHaveLength(5);
-    expect(folderGroups[1]?.items).toHaveLength(5);
-  });
-
-  it("places every tile once, on its ring, at the clock position", () => {
-    const tiles = [...apps(6), ...apps(4, "folder").map((item, index) => tile(`folder-${index}`, "folder"))];
-    const placed = placeTiles(tiles);
-    expect(placed.map((place) => place.index)).toEqual(tiles.map((_, index) => index));
-    expect(new Set(placed.map((place) => place.index)).size).toBe(tiles.length);
-
-    const inner = placed.filter((place) => place.ring === 0);
-    const outer = placed.filter((place) => place.ring === 1);
-    expect(inner).toHaveLength(6);
-    expect(outer).toHaveLength(4);
-    expect(inner.map((place) => place.slot)).toEqual([0, 1, 2, 3, 4, 5]);
-    expect(outer.map((place) => place.slot)).toEqual([0, 1, 2, 3]);
-
-    const innerTop = inner[0];
-    const outerTop = outer[0];
-    expect(innerTop?.angle).toBeCloseTo(0);
-    expect(outerTop?.angle).toBeCloseTo(0);
-    expect(innerTop?.x).toBeCloseTo(0);
-    expect(innerTop?.y).toBeCloseTo(-INNER_RADIUS);
-    expect(outerTop?.y).toBeLessThan(innerTop?.y ?? 0);
-    expect(inner[1]?.x).toBeGreaterThan(0);
-    expect(inner[1]?.side).toBe("right");
-
-    for (let slot = 0; slot < inner.length; slot++) {
-      const next = inner[(slot + 1) % inner.length];
-      const current = inner[slot];
-      if (!next || !current) continue;
-      const distance = Math.hypot(next.x - current.x, next.y - current.y);
-      expect(distance).toBeGreaterThan(0.9);
-    }
-  });
-
-  it("uses the single-ring radius and cardinal label sides for four tiles", () => {
-    const placed = placeTiles(apps(4));
-    expect(placed.every((place) => place.radius === SINGLE_RADIUS && place.ring === 0)).toBe(true);
-    expect(placed.map((place) => place.side)).toEqual(["top", "right", "bottom", "left"]);
-    expect(placed[0]?.y).toBeCloseTo(-SINGLE_RADIUS);
-    expect(placed[1]?.x).toBeCloseTo(SINGLE_RADIUS);
-    expect(placed[2]?.y).toBeCloseTo(SINGLE_RADIUS);
-    expect(placed[3]?.x).toBeCloseTo(-SINGLE_RADIUS);
-  });
-
-  it("puts a single tile at the top", () => {
-    const placed = placeTiles([tile("edge")]);
-    expect(placed[0]?.angle).toBeCloseTo(0);
-    expect(placed[0]?.x).toBeCloseTo(0);
-    expect(placed[0]?.y).toBeCloseTo(-SINGLE_RADIUS);
-    expect(placed[0]?.side).toBe("top");
-    expect(placed[0]?.count).toBe(1);
+describe("arc spacing", () => {
+  it("grows with the label and never drops below the icon", () => {
+    const short = measureLabel("Edge");
+    const long = measureLabel("Microsoft Visual Studio Code Workspace");
+    expect(long.ellipsis).toBe(true);
+    expect(long.width).toBeGreaterThan(short.width);
+    expect(minArcSpacing(long)).toBeGreaterThan(minArcSpacing(short));
+    expect(minArcSpacing(short)).toBeGreaterThanOrEqual(ICON_SIZE);
+    expect(radiusForArcSpacing(8, minArcSpacing(long))).toBeGreaterThan(radiusForArcSpacing(8, minArcSpacing(short)));
   });
 });
 
-function node(index: number, ring: 0 | 1, slot: number, count: number, radius = 1): RingPlacement {
+describe("ring layout", () => {
+  const viewports: Array<Viewport & { name: string }> = [
+    { name: "1366x768", width: 1366, height: 768 },
+    { name: "1280x720@1.5x", width: 1280, height: 720 },
+    { name: "1280x720 logical 150%", width: 1280 / 1.5, height: 720 / 1.5 },
+  ];
+
+  it("keeps every label and icon apart for N = 1..40, and every tile reachable", () => {
+    for (const viewport of viewports) {
+      for (let count = 1; count <= 40; count++) {
+        const layout = layoutHud(tiles(count), viewport);
+        expect(layout.segments.map((segment) => segment.index), viewport.name).toEqual(
+          Array.from({ length: count }, (_, index) => index),
+        );
+        expect(overlapOnPage(layout), `${viewport.name} N=${count}`).toBeNull();
+        expect(reachable(layout), `${viewport.name} N=${count}`).toBe(count);
+        expect(layout.reactor.every((size) => size > 0)).toBe(true);
+      }
+    }
+  });
+
+  it("uses more than one page when the viewport cannot hold the labels", () => {
+    const crowded = Array.from({ length: 18 }, (_, index) => ({ label: `Project Folder ${index} Documents` }));
+    const layout = layoutHud(crowded, { width: 1280 / 1.5, height: 720 / 1.5 });
+    expect(layout.pageCount).toBeGreaterThan(1);
+    expect(overlapOnPage(layout)).toBeNull();
+    expect(reachable(layout)).toBe(crowded.length);
+  });
+
+  it("fills about 85-90% of the height at 2560x1440", () => {
+    const layout = layoutHud(tiles(6), { width: 2560, height: 1440 });
+    expect(layout.pageCount).toBe(1);
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const segment of layout.segments) {
+      top = Math.min(top, segment.icon.top, segment.label.top);
+      bottom = Math.max(bottom, segment.icon.bottom, segment.label.bottom);
+    }
+    const span = (bottom - top) / 1440;
+    expect(span).toBeGreaterThanOrEqual(0.85);
+    expect(span).toBeLessThanOrEqual(0.9);
+    expect(HUD_FILL).toBeGreaterThanOrEqual(0.85);
+    expect(HUD_FILL).toBeLessThanOrEqual(0.9);
+  });
+
+  it("puts a single tile at the top of the ring", () => {
+    const layout = layoutHud([{ label: "Edge" }], { width: 1366, height: 768 });
+    expect(layout.pageCount).toBe(1);
+    expect(layout.segments[0]?.angle).toBeCloseTo(0);
+    expect(layout.segments[0]?.side).toBe("top");
+    expect(layout.segments[0]?.x).toBeCloseTo(0);
+    expect(layout.segments[0]?.y).toBeLessThan(0);
+  });
+});
+
+function bare(index: number, ring: number, slot: number, count: number): RingPlacement {
   const angle = segmentAngle(slot, count);
-  const point = segmentPoint(angle, radius);
+  const point = segmentPoint(angle, 120 + ring * 90);
+  const empty = { left: 0, top: 0, right: 0, bottom: 0 };
   return {
     index,
+    page: 0,
     ring,
     slot,
     count,
-    radius,
+    radius: 120 + ring * 90,
     angle,
     side: labelSide(angle),
     x: point.x,
     y: point.y,
+    icon: empty,
+    label: empty,
+    ellipsis: false,
   };
 }
 
 describe("ring navigation", () => {
-  const ring = [node(0, 0, 0, 4), node(1, 0, 1, 4), node(2, 0, 2, 4), node(3, 0, 3, 4)];
+  const ring = [bare(0, 0, 0, 4), bare(1, 0, 1, 4), bare(2, 0, 2, 4), bare(3, 0, 3, 4)];
 
   it("walks clockwise and counter-clockwise, including a single ring's vertical keys", () => {
     expect(nextRingTile(0, ring, "ArrowRight")).toBe(1);
@@ -215,43 +237,29 @@ describe("ring navigation", () => {
     expect(nextRingTile(0, ring, "ArrowDown")).toBe(1);
     expect(nextRingTile(0, ring, "ArrowUp")).toBe(3);
     expect(nextRingTile(2, ring, "ArrowLeft")).toBe(1);
-
-    let index = 0;
-    const seen = [0];
-    for (let step = 0; step < 3; step++) {
-      index = nextRingTile(index, ring, "ArrowRight");
-      seen.push(index);
-    }
-    expect(seen).toEqual([0, 1, 2, 3]);
   });
 
-  it("moves between rings by angle and stays at the inner or outer edge", () => {
+  it("wraps Up and Down between rings", () => {
     const placed = [
-      node(0, 0, 0, 4, INNER_RADIUS),
-      node(1, 0, 1, 4, INNER_RADIUS),
-      node(2, 0, 2, 4, INNER_RADIUS),
-      node(3, 0, 3, 4, INNER_RADIUS),
-      node(4, 1, 0, 4, OUTER_RADIUS),
-      node(5, 1, 1, 4, OUTER_RADIUS),
-      node(6, 1, 2, 4, OUTER_RADIUS),
-      node(7, 1, 3, 4, OUTER_RADIUS),
+      bare(0, 0, 0, 4),
+      bare(1, 0, 1, 4),
+      bare(2, 0, 2, 4),
+      bare(3, 0, 3, 4),
+      bare(4, 1, 0, 4),
+      bare(5, 1, 1, 4),
+      bare(6, 1, 2, 4),
+      bare(7, 1, 3, 4),
     ];
     expect(nextRingTile(0, placed, "ArrowDown")).toBe(4);
+    expect(nextRingTile(0, placed, "ArrowUp")).toBe(4);
+    expect(nextRingTile(4, placed, "ArrowDown")).toBe(0);
     expect(nextRingTile(5, placed, "ArrowUp")).toBe(1);
-    expect(nextRingTile(0, placed, "ArrowUp")).toBe(0);
-    expect(nextRingTile(4, placed, "ArrowDown")).toBe(4);
     expect(nextRingTile(3, placed, "ArrowRight")).toBe(0);
     expect(nextRingTile(4, placed, "ArrowLeft")).toBe(7);
   });
 
   it("breaks an equal angle tie toward the earlier slot", () => {
-    const placed = [
-      node(0, 0, 0, 4),
-      node(1, 0, 1, 4),
-      node(2, 0, 2, 4),
-      node(3, 0, 3, 4),
-      node(4, 1, 1, 8, OUTER_RADIUS),
-    ];
+    const placed = [bare(0, 0, 0, 4), bare(1, 0, 1, 4), bare(2, 0, 2, 4), bare(3, 0, 3, 4), bare(4, 1, 1, 8)];
     expect(placed[4]?.angle).toBeCloseTo(Math.PI / 4);
     expect(nextRingTile(4, placed, "ArrowUp")).toBe(0);
   });
@@ -264,42 +272,11 @@ describe("ring navigation", () => {
     expect(nextRingTile(1, ring, "ArrowRight", mask)).toBe(2);
   });
 
-  it("stays put when the other ring has nothing selectable", () => {
-    const placed = placeTiles([
-      tile("edge"),
-      tile("explorer", "system"),
-      tile("desktop", "folder"),
-      tile("documents", "folder"),
-      tile("downloads", "folder"),
-      tile("pictures", "folder"),
-      tile("chatgpt"),
-      tile("claude"),
-      tile("projects", "folder"),
-    ]);
-    expect(new Set(placed.map((place) => place.ring)).size).toBe(2);
-    const inner = placed.filter((place) => place.ring === 0).map((place) => place.index);
-    const outerOff = placed.map((place) => place.ring === 0);
-    expect(nextRingTile(inner[0] ?? 0, placed, "ArrowDown", outerOff)).toBe(inner[0]);
-    expect(nextRingTile(inner[0] ?? 0, placed, "ArrowRight", outerOff)).toBe(inner[1]);
-  });
-
-  it("follows the inner ring in slot order when folders sit outside", () => {
-    const tiles = [
-      tile("folder-a", "folder"),
-      tile("chatgpt"),
-      tile("folder-b", "folder"),
-      tile("claude"),
-      tile("folder-c", "folder"),
-      tile("cursor"),
-      tile("folder-d", "folder"),
-      tile("explorer", "system"),
-      tile("edge"),
-    ];
-    const placed = placeTiles(tiles);
-    expect(nextRingTile(1, placed, "ArrowRight")).toBe(3);
-    expect(nextRingTile(1, placed, "ArrowDown")).toBe(0);
-    expect(nextRingTile(0, placed, "ArrowUp")).toBe(1);
-    expect(nextRingTile(8, placed, "ArrowRight")).toBe(1);
+  it("stays on the lit ring when the other ring is fully dimmed", () => {
+    const placed = [bare(0, 0, 0, 2), bare(1, 0, 1, 2), bare(2, 1, 0, 2), bare(3, 1, 1, 2)];
+    const innerOnly = [true, true, false, false];
+    expect(nextRingTile(0, placed, "ArrowDown", innerOnly)).toBe(0);
+    expect(nextRingTile(0, placed, "ArrowRight", innerOnly)).toBe(1);
   });
 
   it("returns no tile when the list is empty or fully dimmed", () => {
@@ -308,5 +285,10 @@ describe("ring navigation", () => {
     expect(nextRingTile(9, ring, "ArrowLeft")).toBe(0);
     expect(nextRingTile(0, ring, "ArrowRight", [false, false, false, false])).toBe(-1);
     expect(nextRingTile(-1, ring, "ArrowUp", [false, true, false, false])).toBe(1);
+  });
+
+  it("does not report a touching pair as an overlap", () => {
+    expect(boxesOverlap({ left: 0, top: 0, right: 10, bottom: 10 }, { left: 10, top: 0, right: 20, bottom: 10 })).toBe(false);
+    expect(boxesOverlap({ left: 0, top: 0, right: 10, bottom: 10 }, { left: 9, top: 0, right: 20, bottom: 10 })).toBe(true);
   });
 });
