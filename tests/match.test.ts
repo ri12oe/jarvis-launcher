@@ -36,8 +36,27 @@ describe("matchAiApps", () => {
       "perplexity",
       "ollama",
       "lm-studio",
+      "vscode",
     ]);
     expect(found.every((app) => app.source === "shortcut" && app.launchKind === "shortcut")).toBe(true);
+  });
+
+  it("finds the MARIO OS slot apps by shortcut name or target", () => {
+    const found = matchAiApps({
+      shortcuts: [
+        shortcut("Gemini"),
+        shortcut("Word"),
+        shortcut("Spotify", "C:\\Users\\Mario\\AppData\\Roaming\\Spotify\\Spotify.exe"),
+        shortcut("Outlook (new)"),
+        shortcut("GitHub Desktop", "C:\\Users\\Mario\\AppData\\Local\\GitHubDesktop\\GitHubDesktop.exe"),
+        shortcut("VS", "C:\\Users\\Mario\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"),
+        shortcut("WordPad"),
+        shortcut("Spotify Web Helper Uninstall"),
+        shortcut("GitHub CLI"),
+      ],
+      programs: [],
+    });
+    expect(found.map((app) => app.id)).toEqual(["gemini", "vscode", "word", "spotify", "outlook", "github"]);
   });
 
   it("accepts spacing and hyphen variants", () => {

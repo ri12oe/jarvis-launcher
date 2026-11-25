@@ -8,6 +8,12 @@ export const AI_APP_IDS = [
   "perplexity",
   "ollama",
   "lm-studio",
+  "gemini",
+  "vscode",
+  "word",
+  "spotify",
+  "outlook",
+  "github",
 ] as const;
 
 export type AiAppId = (typeof AI_APP_IDS)[number];
@@ -22,6 +28,11 @@ export const BUILTIN_IDS = [
 ] as const;
 
 export type BuiltinId = (typeof BUILTIN_IDS)[number];
+
+/** Web fallbacks for HUD slots whose desktop app is not installed. */
+export const WEB_TILE_IDS = ["gemini-web", "github-web", "x"] as const;
+
+export type WebTileId = (typeof WEB_TILE_IDS)[number];
 
 export interface ShortcutRecord {
   /** File name without `.lnk`. */
@@ -122,6 +133,58 @@ export interface JarvisConfig {
   /** Optional label overrides keyed by tile id. */
   labels: Record<string, string>;
   voice: VoiceConfig;
+  /** Optional. Weather stays "--" until a location is set. */
+  weather?: WeatherConfig;
+}
+
+export interface WeatherConfig {
+  latitude: number;
+  longitude: number;
+  /** Shown above the temperature, for example "Indianapolis, IN". */
+  label: string;
+  units: "fahrenheit" | "celsius";
+}
+
+export interface WeatherDay {
+  /** Local date, YYYY-MM-DD. */
+  date: string;
+  high: number;
+  low: number;
+  condition: string;
+}
+
+export interface WeatherReport {
+  label: string;
+  units: "F" | "C";
+  /** ISO time of the reading. */
+  updated: string;
+  temperature: number;
+  condition: string;
+  humidity: number;
+  feelsLike: number;
+  precipitation: number;
+  visibilityKm: number;
+  windSpeed: number;
+  windUnit: string;
+  pressureHpa: number;
+  sunrise: string;
+  sunset: string;
+  uvIndex: number;
+  days: WeatherDay[];
+}
+
+/** Live readings for the HUD. Any field is null when this PC cannot report it. */
+export interface SystemStats {
+  cpuPct: number | null;
+  ramUsedBytes: number;
+  ramFreeBytes: number;
+  ramTotalBytes: number;
+  diskPct: number | null;
+  uptimeSec: number;
+  wifi: { signalPct: number; ssid: string } | null;
+  net: { downBytesPerSec: number; upBytesPerSec: number } | null;
+  recycle: { items: number; bytes: number } | null;
+  weather: WeatherReport | null;
 }
 
 export type TileKind = "app" | "folder" | "system";
@@ -180,4 +243,5 @@ export interface JarvisBridge {
   onSpeak(listener: (audio: ArrayBuffer, contentType: string) => void): () => void;
   playbackEnded(): void;
   reportVoiceError(message: string): void;
+  getStats(): Promise<SystemStats>;
 }

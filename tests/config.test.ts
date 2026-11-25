@@ -163,4 +163,21 @@ describe("config parsing", () => {
     expect(parsed.config.pinnedFolders.map((folder) => folder.id)).toEqual(["work", "share"]);
     expect(parsed.warnings).toEqual([]);
   });
+
+  it("reads an optional weather location and rejects bad coordinates", () => {
+    const good = parseConfig({ weather: { latitude: 39.77, longitude: -86.16, label: "Indianapolis, IN" } });
+    expect(good.config.weather).toEqual({ latitude: 39.77, longitude: -86.16, label: "Indianapolis, IN", units: "fahrenheit" });
+    expect(good.warnings).toEqual([]);
+    expect(parseConfig({}).config.weather).toBeUndefined();
+    const bad = parseConfig({ weather: { latitude: 120, longitude: 0 } });
+    expect(bad.config.weather).toBeUndefined();
+    expect(bad.warnings.join(" ")).toContain("weather.latitude");
+    const celsius = parseConfig({ weather: { latitude: 0, longitude: 0, units: "celsius" } });
+    expect(celsius.config.weather?.units).toBe("celsius");
+  });
+
+  it("reserves the web tile ids", () => {
+    const parsed = parseConfig({ extraTiles: [{ id: "x", label: "Mine", path: "C:\\x.exe", kind: "app" }] });
+    expect(parsed.config.extraTiles).toEqual([]);
+  });
 });

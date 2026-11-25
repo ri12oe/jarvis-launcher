@@ -1,5 +1,5 @@
-import type { ExtraTile, JarvisConfig, LaunchWindowConfig, PinnedFolder, VoiceConfig } from "./types";
-import { AI_APP_IDS, BUILTIN_IDS } from "./types";
+import type { ExtraTile, JarvisConfig, LaunchWindowConfig, PinnedFolder, VoiceConfig, WeatherConfig } from "./types";
+import { AI_APP_IDS, BUILTIN_IDS, WEB_TILE_IDS } from "./types";
 
 export const DEFAULT_HOTKEY = "CommandOrControl+Alt+J";
 
@@ -40,7 +40,7 @@ export const DEFAULT_CONFIG: JarvisConfig = {
   voice: { ...DEFAULT_VOICE },
 };
 
-const RESERVED_IDS = new Set<string>([...AI_APP_IDS, ...BUILTIN_IDS]);
+const RESERVED_IDS = new Set<string>([...AI_APP_IDS, ...BUILTIN_IDS, ...WEB_TILE_IDS]);
 
 const MODIFIER =
   "CommandOrControl|Command|Cmd|Control|Ctrl|Alt|Option|AltGr|Shift|Super|Meta";
@@ -292,7 +292,35 @@ export function parseConfig(input: unknown): ParsedConfig {
     labels: readLabels(input.labels, warnings),
     voice: readVoice(input.voice, warnings),
   };
+  if (input.weather !== undefined) {
+    const weather = readWeather(input.weather, warnings);
+    if (weather) config.weather = weather;
+  }
   return { config, warnings };
+}
+
+function readWeather(value: unknown, warnings: string[]): WeatherConfig | undefined {
+  if (!isRecord(value)) {
+    warnings.push("weather must be an object; ignoring it");
+    return undefined;
+  }
+  const { latitude, longitude } = value;
+  if (typeof latitude !== "number" || !Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+    warnings.push("weather.latitude must be a number from -90 to 90; ignoring weather");
+    return undefined;
+  }
+  if (typeof longitude !== "number" || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    warnings.push("weather.longitude must be a number from -180 to 180; ignoring weather");
+    return undefined;
+  }
+  let units: WeatherConfig["units"] = "fahrenheit";
+  if (value.units !== undefined) {
+    if (value.units === "fahrenheit" || value.units === "celsius") units = value.units;
+    else warnings.push('weather.units must be "fahrenheit" or "celsius"; using fahrenheit');
+  }
+  const label = readLabel(value.label) ?? "";
+  if (value.label !== undefined && !label) warnings.push("weather.label must be 1 to 80 characters; leaving it blank");
+  return { latitude, longitude, label, units };
 }
 
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;

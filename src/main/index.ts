@@ -40,6 +40,7 @@ import type {
   ResolvedTile,
   VoiceSnapshot,
 } from "../shared/types";
+import { StatsService } from "./stats";
 import { createVoiceSession, type VoiceSession } from "./voice-session";
 import { resolveWakeDir } from "./wakeword";
 import { createWindowSession, type WindowWatch } from "./window-snapshot";
@@ -56,6 +57,7 @@ let scanning = true;
 let refreshFailed = false;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let configWatchStarted = false;
+const stats = new StatsService();
 let placeSerial = 0;
 const placementHelper = createWindowSession({ platform: process.platform, env: process.env });
 let configFilePath = "";
@@ -208,6 +210,7 @@ async function refreshSession(): Promise<void> {
     const view = await tileViews(tiles);
     const config = applyHostSettings(loaded.config, loaded.warnings);
     launcher = { config, tiles, view, warnings: loaded.warnings };
+    stats.setWeather(config.weather);
     scanning = false;
     refreshFailed = false;
     publishState();
@@ -557,6 +560,11 @@ function registerIpc(): void {
     app.quit();
   });
 
+  ipcMain.handle("jarvis:stats", (event) => {
+    if (!isAppFrame(event)) return null;
+    return stats.snapshot();
+  });
+
   ipcMain.handle("jarvis:voice-get", (event) => {
     if (!isAppFrame(event)) return EMPTY_VOICE;
     return voice?.snapshot() ?? EMPTY_VOICE;
@@ -619,6 +627,7 @@ if (!gotLock) {
       patchEnabled: patchVoiceEnabledText,
     });
     registerIpc();
+    stats.start();
     // Paint before discovery. Get-StartApps can use its full timeout.
     const startHidden = loadConfig(app.getPath("userData")).config.startHidden;
     createWindow(startHidden);
@@ -630,6 +639,7 @@ if (!gotLock) {
   });
 
   app.on("before-quit", () => {
+    stats.stop();
     quitting = true;
     voice?.stop();
     placementHelper.stop();

@@ -41,5 +41,7 @@ export default defineConfig({
   build: {
     outDir: "dist/renderer",
     emptyOutDir: true,
+    // The CSP allows fonts and images from 'self' only, so nothing is inlined as a data: URL.
+    assetsInlineLimit: 0,
   },
 });
