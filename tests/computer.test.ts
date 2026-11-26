@@ -8,7 +8,13 @@ import {
   type ComputerHost,
 } from "../src/main/computer";
 import {
+  isLaunchableAppId,
+  parseStartAppsJson,
+} from "../src/shared/start-apps";
+import {
   KEY_COMBOS,
+  edgeUrl,
+  safeWebUrl,
   codeLines,
   mailtoUrl,
   parseComputerCall,
@@ -290,5 +296,103 @@ describe("computer tasks", () => {
       ),
     ).toMatch(/^Failed: there is no app window/);
     expect(pc.typed).toEqual([]);
+  });
+});
+
+describe("installed apps and websites", () => {
+  it("keeps desktop apps like Figma for voice, but not for the tiles", () => {
+    const json = JSON.stringify([
+      { Name: "Figma", AppID: "com.squirrel.figma.Figma" },
+      {
+        Name: "Notepad++",
+        AppID:
+          "{6D809377-6AF0-444B-8957-A3773F02200E}\\Notepad++\\notepad++.exe",
+      },
+      {
+        Name: "Calculator",
+        AppID: "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+      },
+      { Name: "Docs link", AppID: "https://example.com" },
+      { Name: "Bad", AppID: 'x" & del *' },
+    ]);
+    expect(parseStartAppsJson(json).map((app) => app.name)).toEqual([
+      "Calculator",
+    ]);
+    expect(
+      parseStartAppsJson(json, isLaunchableAppId).map((app) => app.name),
+    ).toEqual(["Figma", "Notepad++", "Calculator"]);
+    expect(
+      matchStartApp("figma", parseStartAppsJson(json, isLaunchableAppId))
+        ?.appId,
+    ).toBe("com.squirrel.figma.Figma");
+  });
+
+  it("opens known sites and searches in Edge", () => {
+    expect(parseComputerCall("open_website", { site: "YouTube" })).toEqual({
+      tool: "open_website",
+      url: "https://www.youtube.com",
+      label: "YouTube",
+      browser: "edge",
+    });
+    expect(
+      parseComputerCall("open_website", {
+        site: "youtube",
+        search: "lofi beats",
+      }),
+    ).toMatchObject({
+      url: "https://www.youtube.com/results?search_query=lofi%20beats",
+      label: "YouTube results for lofi beats",
+    });
+    expect(parseComputerCall("open_website", { url: "iu.edu" })).toMatchObject({
+      url: "https://iu.edu/",
+      label: "iu.edu",
+    });
+    expect(
+      parseComputerCall("open_website", { search: "best pizza near me" }),
+    ).toMatchObject({
+      url: "https://www.google.com/search?q=best%20pizza%20near%20me",
+    });
+    expect(edgeUrl("https://www.youtube.com")).toBe(
+      "microsoft-edge:https://www.youtube.com",
+    );
+    expect(
+      planLine([
+        {
+          tool: "open_website",
+          url: "https://www.youtube.com",
+          label: "YouTube",
+          browser: "edge",
+        },
+      ]),
+    ).toBe("Opening YouTube in Edge.");
+  });
+
+  it("refuses addresses that are not normal web pages", () => {
+    for (const url of [
+      "javascript:alert(1)",
+      "file:///C:/Windows",
+      "ms-settings:display",
+      "https://user:pw@evil.com",
+      "not a url",
+    ]) {
+      expect(safeWebUrl(url)).toBeUndefined();
+    }
+    expect(parseComputerCall("open_website", {})).toBeUndefined();
+  });
+
+  it("opens the page in Edge and remembers its window", async () => {
+    const pc = fakePc();
+    const task = new ComputerTask(pc.host);
+    const result = await task.run(
+      {
+        tool: "open_website",
+        url: "https://www.youtube.com",
+        label: "YouTube",
+        browser: "edge",
+      },
+      new AbortController().signal,
+    );
+    expect(pc.opened).toEqual(["microsoft-edge:https://www.youtube.com"]);
+    expect(result).toMatch(/^OK: opened YouTube/);
   });
 });

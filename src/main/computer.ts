@@ -8,6 +8,7 @@ import {
   SETTINGS_PAGES,
   codeLines,
   mailtoUrl,
+  edgeUrl,
   spotifySearchUrl,
   spotifyWebSearchUrl,
   textLines,
@@ -147,6 +148,8 @@ export class ComputerTask {
           await this.host.openExternal(spotifyWebSearchUrl(call.query));
           return ok(`opened Spotify on the web with results for ${call.query}`);
         }
+      case "open_website":
+        return this.openWebsite(call.url, call.label, call.browser, signal);
       case "write_code":
         return this.writeCode(call.filename, call.code, signal);
       case "draft_email":
@@ -212,6 +215,21 @@ export class ComputerTask {
     await this.host.sleep(800, signal);
     return ok(
       `${label} is open and in front (window title: ${window.title || label})`,
+    );
+  }
+
+  private async openWebsite(
+    url: string,
+    label: string,
+    browser: "edge" | "default",
+    signal: AbortSignal,
+  ): Promise<string> {
+    const before = (await this.host.foreground())?.hwnd;
+    await this.host.openExternal(browser === "edge" ? edgeUrl(url) : url);
+    const window = await this.waitForNewWindow(before, signal, 6_000);
+    this.target = window?.hwnd;
+    return ok(
+      `opened ${label} (${url}) in ${browser === "edge" ? "Microsoft Edge" : "the default browser"}`,
     );
   }
 

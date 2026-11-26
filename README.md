@@ -148,6 +148,8 @@ Jarvis can also work the PC for you. It says its plan out loud, hides, and does 
 - "Draft an email to my TA at ta@iu.edu about the lab": Outlook opens a new draft with the recipient and subject, and the message is typed in. Jarvis never sends it; you review it and press Send. Outlook must be the default email app (Settings > Apps > Default apps). If Jarvis does not know the address, it asks
 - "Play Blinding Lights on Spotify": Spotify opens on the search results, and you press play
 - "Switch to dark mode", "open Bluetooth settings", "set the volume to 30"
+- "Open Figma", "open Discord": any app in the Start menu opens, Store apps and desktop installs alike
+- "Open Microsoft Edge and go to YouTube", "search YouTube for lofi beats", "open iu.edu": the site opens in Microsoft Edge. Jarvis knows YouTube, Google, Bing, Wikipedia, GitHub, Reddit, Amazon, Google Maps, Gmail, Outlook on the web, Canvas, Netflix, Twitch, X, LinkedIn, Stack Overflow, ChatGPT, Claude, and Spotify by name, and can open any other http or https address. Say "in my default browser" to use that instead
 - "Open Notepad and write a short poem": any installed app opens, and Jarvis types into it
 
 Safety:

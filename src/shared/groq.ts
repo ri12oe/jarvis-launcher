@@ -121,7 +121,9 @@ export function spokenNow(now: Date): string {
 
 /** How the model should use the computer-control tools. */
 export const COMPUTER_PROMPT = [
-  "You can also operate this Windows PC with tools: open_app, open_settings, set_theme, write_code, draft_email, spotify_search, type_text, press_keys, and wait.",
+  "You can also operate this Windows PC with tools: open_app, open_website, open_settings, set_theme, write_code, draft_email, spotify_search, type_text, press_keys, and wait.",
+  "open_app opens any installed app by name, including desktop apps like Figma, Discord, or Zoom.",
+  "Use open_website to open a website or search one (YouTube, Google, Wikipedia, and more) in Microsoft Edge. Opening Edge and then a site is one open_website call.",
   "Use write_code whenever the user asks you to write or create code; it opens VS Code and types it live.",
   "Use draft_email to write an email; it opens an Outlook draft and types it. If you do not know the recipient's email address, ask for it instead of guessing.",
   "Use spotify_search to find music. Use open_settings or set_theme for settings, and pc_control for volume, media, and brightness.",

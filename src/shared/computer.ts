@@ -38,6 +38,130 @@ export const SETTINGS_PAGES = {
 
 export type SettingsPage = keyof typeof SETTINGS_PAGES;
 
+/** Sites Jarvis knows by name: the home page, and how to search it. */
+export const SITES: Record<
+  string,
+  { name: string; home: string; search?: string }
+> = {
+  youtube: {
+    name: "YouTube",
+    home: "https://www.youtube.com",
+    search: "https://www.youtube.com/results?search_query=",
+  },
+  google: {
+    name: "Google",
+    home: "https://www.google.com",
+    search: "https://www.google.com/search?q=",
+  },
+  bing: {
+    name: "Bing",
+    home: "https://www.bing.com",
+    search: "https://www.bing.com/search?q=",
+  },
+  wikipedia: {
+    name: "Wikipedia",
+    home: "https://en.wikipedia.org",
+    search: "https://en.wikipedia.org/wiki/Special:Search?search=",
+  },
+  github: {
+    name: "GitHub",
+    home: "https://github.com",
+    search: "https://github.com/search?q=",
+  },
+  reddit: {
+    name: "Reddit",
+    home: "https://www.reddit.com",
+    search: "https://www.reddit.com/search/?q=",
+  },
+  amazon: {
+    name: "Amazon",
+    home: "https://www.amazon.com",
+    search: "https://www.amazon.com/s?k=",
+  },
+  maps: {
+    name: "Google Maps",
+    home: "https://www.google.com/maps",
+    search: "https://www.google.com/maps/search/",
+  },
+  gmail: { name: "Gmail", home: "https://mail.google.com" },
+  outlook: {
+    name: "Outlook on the web",
+    home: "https://outlook.office.com/mail/",
+  },
+  canvas: { name: "Canvas", home: "https://canvas.iu.edu" },
+  netflix: { name: "Netflix", home: "https://www.netflix.com" },
+  twitch: {
+    name: "Twitch",
+    home: "https://www.twitch.tv",
+    search: "https://www.twitch.tv/search?term=",
+  },
+  x: { name: "X", home: "https://x.com", search: "https://x.com/search?q=" },
+  linkedin: {
+    name: "LinkedIn",
+    home: "https://www.linkedin.com",
+    search: "https://www.linkedin.com/search/results/all/?keywords=",
+  },
+  stackoverflow: {
+    name: "Stack Overflow",
+    home: "https://stackoverflow.com",
+    search: "https://stackoverflow.com/search?q=",
+  },
+  chatgpt: { name: "ChatGPT", home: "https://chatgpt.com" },
+  claude: { name: "Claude", home: "https://claude.ai" },
+  spotify: {
+    name: "Spotify on the web",
+    home: "https://open.spotify.com",
+    search: "https://open.spotify.com/search/",
+  },
+};
+
+/** A web address the browser may open: http or https only. Bare domains get https. */
+export function safeWebUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  let text = value.trim();
+  if (!text || text.length > 2000 || /\s/.test(text)) return undefined;
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(text)) text = `https://${text}`;
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
+  if (!url.hostname.includes(".") && url.hostname !== "localhost")
+    return undefined;
+  if (url.username || url.password) return undefined;
+  return url.toString();
+}
+
+/** The page to open for a site name and an optional search. Undefined when it cannot be built. */
+export function websiteUrl(
+  site: string | undefined,
+  url: string | undefined,
+  search: string | undefined,
+): string | undefined {
+  const query = search?.trim();
+  if (site && Object.prototype.hasOwnProperty.call(SITES, site)) {
+    const known = SITES[site];
+    if (!known) return undefined;
+    if (query && known.search) return known.search + encodeURIComponent(query);
+    if (query)
+      return (
+        SITES.google?.search +
+        encodeURIComponent(`${query} site:${new URL(known.home).hostname}`)
+      );
+    return known.home;
+  }
+  if (url) return safeWebUrl(url);
+  if (query) return SITES.google?.search + encodeURIComponent(query);
+  return undefined;
+}
+
+/** Opens in Microsoft Edge, even when another browser is the default. */
+export function edgeUrl(url: string): string {
+  return `microsoft-edge:${url}`;
+}
+
 /** Virtual-key codes. */
 const VK = {
   ctrl: 0x11,
@@ -138,6 +262,12 @@ export type ComputerCall =
   | { tool: "write_code"; filename: string; code: string }
   | { tool: "draft_email"; to: string; subject: string; body: string }
   | { tool: "spotify_search"; query: string }
+  | {
+      tool: "open_website";
+      url: string;
+      label: string;
+      browser: "edge" | "default";
+    }
   | { tool: "type_text"; text: string }
   | { tool: "press_keys"; keys: string }
   | { tool: "wait"; seconds: number };
@@ -149,6 +279,7 @@ export const COMPUTER_TOOL_NAMES = [
   "write_code",
   "draft_email",
   "spotify_search",
+  "open_website",
   "type_text",
   "press_keys",
   "wait",
@@ -233,6 +364,39 @@ export function parseComputerCall(
         ? { tool: "spotify_search", query: query.trim() }
         : undefined;
     }
+    case "open_website": {
+      const site =
+        typeof args.site === "string"
+          ? args.site
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z]/g, "")
+          : undefined;
+      const search =
+        typeof args.search === "string" && args.search.trim()
+          ? args.search.trim().slice(0, 300)
+          : undefined;
+      const url = websiteUrl(
+        site || undefined,
+        typeof args.url === "string" ? args.url : undefined,
+        search,
+      );
+      if (!url) return undefined;
+      const known = site ? SITES[site] : undefined;
+      const label = known
+        ? search
+          ? `${known.name} results for ${search}`
+          : known.name
+        : search && !args.url
+          ? `a web search for ${search}`
+          : new URL(url).hostname.replace(/^www\./, "");
+      return {
+        tool: "open_website",
+        url,
+        label,
+        browser: args.browser === "default" ? "default" : "edge",
+      };
+    }
     case "type_text": {
       const value = text(args.text, LIMITS.text);
       return value ? { tool: "type_text", text: value } : undefined;
@@ -270,6 +434,10 @@ export function planLine(calls: readonly ComputerCall[]): string {
       return `Searching Spotify for ${first.query}.`;
     case "open_app":
       return `Opening ${first.name}.`;
+    case "open_website":
+      return first.browser === "edge"
+        ? `Opening ${first.label} in Edge.`
+        : `Opening ${first.label}.`;
     case "open_settings":
       return `Opening ${first.page} settings.`;
     case "set_theme":
@@ -478,6 +646,28 @@ export function computerTools(): Record<string, unknown>[] {
       "Open Spotify on the search results for a song, artist, album, or playlist. The user presses play.",
       { query: { type: "string" } },
       ["query"],
+    ),
+    fn(
+      "open_website",
+      "Open a website, or search one, in Microsoft Edge. Give site for a known site (optionally with search), or url for any other address, or only search for a Google search.",
+      {
+        site: { type: "string", enum: Object.keys(SITES) },
+        url: {
+          type: "string",
+          description:
+            "A web address such as iu.edu or https://example.com/page",
+        },
+        search: {
+          type: "string",
+          description: "What to search for on the site",
+        },
+        browser: {
+          type: "string",
+          enum: ["edge", "default"],
+          description: "edge unless the user asks for their default browser",
+        },
+      },
+      [],
     ),
     fn(
       "type_text",

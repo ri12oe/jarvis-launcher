@@ -76,7 +76,7 @@ import { WindowsInput } from "./windows-input";
 import { ComputerTask, type ComputerHost } from "./computer";
 import { readStartApps } from "../discovery/start-apps";
 import { matchTile } from "../shared/voice-command";
-import type { StoreApp } from "../shared/start-apps";
+import { isLaunchableAppId, type StoreApp } from "../shared/start-apps";
 import { resolveWakeDir } from "./wakeword";
 import { createWindowSession, type WindowWatch } from "./window-snapshot";
 
@@ -672,7 +672,13 @@ const computerHost: ComputerHost = {
   startApps: async () => {
     if (startAppsCache && Date.now() - startAppsCache.at < 5 * 60_000)
       return startAppsCache.apps;
-    const read = await readStartApps();
+    // Every Start menu app, desktop installs such as Figma included.
+    const read = await readStartApps(
+      process.platform,
+      process.env,
+      undefined,
+      isLaunchableAppId,
+    );
     startAppsCache = { at: Date.now(), apps: read.apps };
     return read.apps;
   },

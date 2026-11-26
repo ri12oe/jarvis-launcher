@@ -53,6 +53,7 @@ export async function readStartApps(
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
   run: StartAppsRunner = runPowerShell,
+  accept?: (appId: string) => boolean,
 ): Promise<StartAppsRead> {
   if (platform !== "win32") return { apps: [] };
   try {
@@ -63,7 +64,7 @@ export async function readStartApps(
       maxBuffer: 4 * 1024 * 1024,
       shell: false,
     });
-    return { apps: parseStartAppsJson(stdout) };
+    return { apps: parseStartAppsJson(stdout, accept) };
   } catch {
     return { apps: [], warning: START_APPS_FAILURE };
   }
