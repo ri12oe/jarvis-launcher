@@ -39,7 +39,30 @@ The readings are live:
 | `0d 0h 55m UP` | Time since Windows started |
 | Weather panel | Open-Meteo forecast for the `weather` location in `config.json` |
 
-Anything the PC cannot report shows `--`. The weather panel reads `--` until a location is set. The power buttons across the top right (`OPRNLAIS`, `NETUAT`, `REFUET`, `NRSAAET`, `LCOOST`), the media buttons, the check and cross box, and the Google pill are drawn as in the design and do nothing.
+Anything the PC cannot report shows `--`. The weather panel reads `--` until a location is set. The check and cross box is drawn as in the design and does nothing yet.
+
+### System controls
+
+| Design element | Does |
+| --- | --- |
+| `OPRNLAIS` | Sleep |
+| `NETUAT` | Restart |
+| `REFUET` | Shut down |
+| `NRSAAET` | Sign out |
+| `LCOOST` | Lock |
+| Thin slider after `LCOOST` | Screen brightness. Drag it, scroll on it, or focus it and press Up/Down. Laptops and some all-in-ones support this; most desktop monitors do not, and there the slider is disabled. |
+| `(−)` `(+)` knobs by the identity panel | Volume down and up by 5 |
+| Track bar, `0:00`, and the three buttons, bottom right | The track Windows is playing (Spotify, a browser tab, and so on): title and artist above the bar, time, click the bar to seek, previous, play/pause, next |
+| Second bar under the track bar | Volume. Drag it, click it, scroll on it, or focus it and press Left/Right. |
+| Big dial, bottom right | Shows the volume. Click to mute or unmute. |
+| Small dial with the red ring | Lights red when the microphone is muted. Click to mute or unmute it. |
+| Google pill | A search box. Click it or press `/`, type, and press Enter to search Google in your default browser. Esc clears it. |
+
+Restart, Shut down, and Sign out take two clicks: the first turns the button amber and the status bar reads, for example, `SHUT DOWN?  CLICK AGAIN TO CONFIRM`. A second click within 5 seconds runs it. Any key, or 5 seconds, cancels it. Sleep and Lock run on the first click. The HUD hides before any power action runs.
+
+If the filter matches no tile, Enter searches Google for the filter text.
+
+The media, volume, mic, brightness, and sleep controls go through one Windows PowerShell process that starts on the first reading and stays open while Jarvis runs. It uses the Windows Core Audio API for volume and mute, `WmiMonitorBrightnessMethods` for brightness, and the Windows media session (the same one the volume flyout shows) for the track. With no media session, the transport buttons send the media keys instead. Shut down, Restart, and Sign out run `shutdown.exe`, and Lock runs `rundll32.exe user32.dll,LockWorkStation`. A failed control shows `SYSTEM FAILED` and a reason in the status bar.
 
 The four buttons in the tray at the bottom are Refresh, Hide, Quit, and Voice (blue when voice is on). The up and down arrows on the rail change the reactor page, as do PageUp and PageDown.
 
@@ -247,6 +270,12 @@ On a machine with a microphone and `XAI_API_KEY` set in the environment the app 
 - "open edge" opens Microsoft Edge in the centered window, and Jarvis says it is opening
 - "hide" hides the window. "refresh" reloads the tiles. "stop" or "cancel", said after the wake word instead of a question, ends the turn. Saying "hey jarvis" again, including while a reply is still being written or played, is heard on this PC and starts a new listen. That second phrase is not uploaded by itself
 - A question that is not a command gets a spoken answer
+- Volume: the `(−)` `(+)` knobs, dragging the volume bar, and the big dial (mute) all change what the Windows volume flyout shows, and the HUD follows when the volume is changed from the keyboard
+- Media: with Spotify or a YouTube tab playing, the title, artist, and time show, play/pause, next, previous, and seeking work. With nothing playing, the buttons still send the media keys
+- Mic dial turns red when the microphone is muted from Windows sound settings, and clicking it toggles that same setting
+- Brightness slider changes the screen on a laptop and is disabled on a desktop monitor
+- Lock locks at once. Sleep sleeps at once. Restart, Shut down, and Sign out need the second click, and waiting 5 seconds cancels them
+- `/` focuses the Google box, Enter opens the search in the default browser and hides the HUD, and Esc in the box clears it without hiding the HUD
 - Turning the Voice button off stops the microphone and survives a restart. Turning it on starts it again
 - A rejected key shows `VOICE FAILED` in the status bar and the key itself is not on screen
 

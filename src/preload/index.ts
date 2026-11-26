@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import type { JarvisBridge, LauncherState, LaunchResult, SystemStats, VoiceSnapshot } from "../shared/types";
+import type { SystemState } from "../shared/system";
+import type { JarvisBridge, LauncherState, LaunchResult, SystemActionResult, SystemStats, VoiceSnapshot } from "../shared/types";
 
 function toArrayBuffer(value: unknown): ArrayBuffer | undefined {
   if (value instanceof ArrayBuffer) return value.slice(0);
@@ -64,6 +65,9 @@ const api: JarvisBridge = {
     ipcRenderer.send("jarvis:voice-error", message);
   },
   getStats: () => ipcRenderer.invoke("jarvis:stats") as Promise<SystemStats>,
+  getSystem: () => ipcRenderer.invoke("jarvis:system-state") as Promise<SystemState | null>,
+  systemAction: (action, value) => ipcRenderer.invoke("jarvis:system-action", action, value ?? 0) as Promise<SystemActionResult>,
+  webSearch: (query) => ipcRenderer.invoke("jarvis:web-search", query) as Promise<{ ok: boolean; error?: string }>,
 };
 
 contextBridge.exposeInMainWorld("jarvis", api);

@@ -1,5 +1,15 @@
 import iconUrl from "../../../assets/icon.png";
+import { useRef, type PointerEvent, type RefObject } from "react";
 import { formatBytes, formatRate, formatUptime } from "../../shared/stats";
+import {
+  formatTrackTime,
+  mediaPosition,
+  POWER_BUTTONS,
+  SEARCH_LIMIT,
+  type PowerAction,
+  type SystemAction,
+  type SystemState,
+} from "../../shared/system";
 import type { SystemStats, WeatherReport } from "../../shared/types";
 import {
   formatClockParts,
@@ -8,7 +18,7 @@ import {
   useNow,
 } from "../hud/time";
 import { arc, polar, range } from "./geometry";
-import type { Battery } from "./live";
+import { useTicker, type Battery } from "./live";
 import { G, Shift } from "./shift";
 
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -619,31 +629,108 @@ function SystemIcon({ index }: { index: number }) {
   );
 }
 
-/** Drawn as the design draws them. They do not run any system command. */
-export function SystemButtons() {
+/** Five power buttons and the brightness slider, in the design's top-right block. */
+export function SystemButtons({
+  pending,
+  onPower,
+  brightness,
+  onBrightness,
+}: {
+  pending: PowerAction | null;
+  onPower: (action: PowerAction) => void;
+  brightness: number | null;
+  onBrightness: (value: number) => void;
+}) {
+  const fromPointer = (event: PointerEvent<HTMLButtonElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    const fraction = 1 - (event.clientY - box.top) / box.height;
+    onBrightness(Math.round(Math.max(0, Math.min(1, fraction)) * 100));
+  };
+  const knob = brightness == null ? 5 : 2 + (1 - brightness / 100) * 12;
   return (
     <Shift fx={0.8} fy={0}>
-      <div className="sys" aria-hidden="true">
-        {SYSTEM.map((label, index) => (
-          <div
-            key={label}
-            className="sys-col"
-            style={{ left: 851 + index * 38 }}
-          >
-            <span className="sys-icon">
-              <SystemIcon index={index} />
-            </span>
-            <span className="sys-label">{label}</span>
-          </div>
-        ))}
+      <div className="sys">
+        {SYSTEM.map((label, index) => {
+          const button = POWER_BUTTONS[index];
+          const armed = pending === button.action;
+          return (
+            <div
+              key={label}
+              className={armed ? "sys-col armed" : "sys-col"}
+              style={{ left: 851 + index * 38 }}
+            >
+              <button
+                type="button"
+                className="sys-icon"
+                aria-label={
+                  armed ? `${button.name}: click again to confirm` : button.name
+                }
+                title={button.name}
+                onClick={() => onPower(button.action)}
+              >
+                <SystemIcon index={index} />
+              </button>
+              <span className="sys-label" aria-hidden="true">
+                {label}
+              </span>
+            </div>
+          );
+        })}
         <div className="sys-col narrow" style={{ left: 1041 }}>
-          <span className="sys-icon">
+          <button
+            type="button"
+            className="sys-icon"
+            aria-label={
+              brightness == null
+                ? "Brightness: not available on this display"
+                : `Brightness ${brightness}%`
+            }
+            title={
+              brightness == null
+                ? "Brightness: not available on this display"
+                : `Brightness ${brightness}%`
+            }
+            disabled={brightness == null}
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture(event.pointerId);
+              fromPointer(event);
+            }}
+            onPointerMove={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId))
+                fromPointer(event);
+            }}
+            onWheel={(event) => {
+              if (brightness != null)
+                onBrightness(
+                  Math.max(
+                    0,
+                    Math.min(100, brightness + (event.deltaY < 0 ? 5 : -5)),
+                  ),
+                );
+            }}
+            onKeyDown={(event) => {
+              if (brightness == null) return;
+              if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+                event.preventDefault();
+                event.stopPropagation();
+                onBrightness(
+                  Math.max(
+                    0,
+                    Math.min(
+                      100,
+                      brightness + (event.key === "ArrowUp" ? 5 : -5),
+                    ),
+                  ),
+                );
+              }
+            }}
+          >
             <svg viewBox="0 0 10 20">
               <line className="stroke" x1="5" y1="2" x2="5" y2="18" />
-              <rect x="3.2" y="5" width="3.6" height="4" rx="0.6" />
+              <rect x="3.2" y={knob} width="3.6" height="4" rx="0.6" />
             </svg>
-          </span>
-          <span className="sys-label">
+          </button>
+          <span className="sys-label" aria-hidden="true">
             <svg viewBox="0 0 10 12">
               <path className="stroke" d="M3 5.5 V4 A2 2 0 0 1 7 4 V5.5" />
               <rect x="2" y="5.5" width="6" height="5" rx="0.6" />
@@ -655,44 +742,242 @@ export function SystemButtons() {
   );
 }
 
-export function MediaBar() {
+function clampPercent(value: number): number {
+  return Math.round(Math.max(0, Math.min(100, value)));
+}
+
+/** Track, time, transport, volume slider, volume dial, and mic dial, bottom right. */
+export function MediaBar({
+  system,
+  onAction,
+}: {
+  system: SystemState;
+  onAction: (action: SystemAction, value?: number) => void;
+}) {
+  const media = system.media;
+  const now = useTicker(media?.status === "playing");
+  const position = media ? mediaPosition(media, now) : 0;
+  const progress = media && media.duration > 0 ? position / media.duration : 0;
+  const volume = system.volume;
+  const lastSent = useRef(0);
+  const setVolume = (value: number, force = false) => {
+    const time = Date.now();
+    if (!force && time - lastSent.current < 80) return;
+    lastSent.current = time;
+    onAction("volume-set", clampPercent(value));
+  };
+  const volumeFromPointer = (
+    event: PointerEvent<HTMLButtonElement>,
+    force = false,
+  ) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    setVolume(((event.clientX - box.left) / box.width) * 100, force);
+  };
+  const nowPlaying = media
+    ? [media.title, media.artist].filter(Boolean).join(" \u2014 ")
+    : "";
   return (
     <Shift fx={1} fy={1}>
-      <div className="media-bar" aria-hidden="true">
-        <p className="media-time">0:00</p>
-        <span className="media-btn">
+      <div className="media-bar">
+        {nowPlaying ? (
+          <p className="media-title" title={nowPlaying}>
+            {nowPlaying}
+          </p>
+        ) : null}
+        <p className="media-time">{formatTrackTime(position)}</p>
+        <button
+          type="button"
+          className="media-progress"
+          aria-label={
+            media && media.duration > 0
+              ? `Seek, ${formatTrackTime(position)} of ${formatTrackTime(media.duration)}`
+              : "Track position"
+          }
+          disabled={!media || media.duration <= 0}
+          onClick={(event) => {
+            if (!media || media.duration <= 0) return;
+            const box = event.currentTarget.getBoundingClientRect();
+            onAction(
+              "media-seek",
+              ((event.clientX - box.left) / box.width) * media.duration,
+            );
+          }}
+        >
+          <span
+            className="fill"
+            style={{ width: `${Math.max(0, Math.min(1, progress)) * 100}%` }}
+          />
+        </button>
+        <button
+          type="button"
+          className="media-btn"
+          style={{ left: 855 }}
+          aria-label="Previous track"
+          title="Previous track"
+          onClick={() => onAction("media-prev")}
+        >
           <svg viewBox="0 0 16 10">
             <path d="M3 1 V9 M14 1 L8 5 L14 9 Z M9 1 L3.5 5 L9 9 Z" />
           </svg>
-        </span>
-        <span className="media-btn">
+        </button>
+        <button
+          type="button"
+          className={
+            media?.status === "playing" ? "media-btn playing" : "media-btn"
+          }
+          style={{ left: 878 }}
+          aria-label={media?.status === "playing" ? "Pause" : "Play"}
+          title={media?.status === "playing" ? "Pause" : "Play"}
+          onClick={() => onAction("media-toggle")}
+        >
           <svg viewBox="0 0 16 10">
             <path d="M2.5 1 L8.5 5 L2.5 9 Z M10.5 1 V9 M13.5 1 V9" />
           </svg>
-        </span>
-        <span className="media-btn">
+        </button>
+        <button
+          type="button"
+          className="media-btn"
+          style={{ left: 901 }}
+          aria-label="Next track"
+          title="Next track"
+          onClick={() => onAction("media-next")}
+        >
           <svg viewBox="0 0 16 10">
             <path d="M13 1 V9 M2 1 L8 5 L2 9 Z M7 1 L12.5 5 L7 9 Z" />
           </svg>
-        </span>
+        </button>
+        <button
+          type="button"
+          className="volume-track"
+          aria-label={
+            volume == null ? "Volume: no playback device" : `Volume ${volume}%`
+          }
+          title={
+            volume == null ? "Volume: no playback device" : `Volume ${volume}%`
+          }
+          disabled={volume == null}
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            volumeFromPointer(event, true);
+          }}
+          onPointerMove={(event) => {
+            if (event.currentTarget.hasPointerCapture(event.pointerId))
+              volumeFromPointer(event);
+          }}
+          onPointerUp={(event) => volumeFromPointer(event, true)}
+          onWheel={(event) => {
+            if (volume != null)
+              setVolume(volume + (event.deltaY < 0 ? 2 : -2), true);
+          }}
+          onKeyDown={(event) => {
+            if (volume == null) return;
+            if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+              event.preventDefault();
+              event.stopPropagation();
+              setVolume(volume + (event.key === "ArrowRight" ? 5 : -5), true);
+            }
+          }}
+        >
+          <span className="fill" style={{ width: `${volume ?? 0}%` }} />
+        </button>
+        <button
+          type="button"
+          className={system.muted ? "volume-dial muted" : "volume-dial"}
+          aria-label={system.muted ? "Unmute" : "Mute"}
+          title={system.muted ? "Unmute" : "Mute"}
+          disabled={volume == null}
+          onClick={() => onAction("mute-toggle")}
+        >
+          <span className="volume-value">
+            {volume == null ? "--" : system.muted ? "MUTE" : volume}
+          </span>
+        </button>
+        <button
+          type="button"
+          className={system.micMuted ? "mic-dial muted" : "mic-dial"}
+          aria-label={system.micMuted ? "Unmute microphone" : "Mute microphone"}
+          title={system.micMuted ? "Microphone muted" : "Microphone on"}
+          disabled={system.micMuted == null}
+          onClick={() => onAction("mic-toggle")}
+        />
       </div>
     </Shift>
   );
 }
 
+/** The (-) and (+) knobs by the identity panel step the volume. */
+export function VolumeKnobs({ onStep }: { onStep: (delta: number) => void }) {
+  return (
+    <Shift fx={0} fy={0}>
+      <button
+        type="button"
+        className="knob-btn"
+        style={{ left: 288.5 }}
+        aria-label="Volume down"
+        title="Volume down"
+        onClick={() => onStep(-5)}
+      />
+      <button
+        type="button"
+        className="knob-btn"
+        style={{ left: 306.5 }}
+        aria-label="Volume up"
+        title="Volume up"
+        onClick={() => onStep(5)}
+      />
+    </Shift>
+  );
+}
+
 /** Quick icons under the search pill. Plain glyphs, not product logos. */
-export function Dock() {
+export function Dock({
+  query,
+  inputRef,
+  onQuery,
+  onSubmit,
+  onCancel,
+}: {
+  query: string;
+  inputRef: RefObject<HTMLInputElement>;
+  onQuery: (value: string) => void;
+  onSubmit: (value: string) => void;
+  onCancel: () => void;
+}) {
   return (
     <Shift fx={0.5} fy={1}>
-      <div className="dock" aria-hidden="true">
-        <div className="search">
-          <svg viewBox="0 0 12 12">
+      <div className="dock">
+        <form
+          className="search"
+          role="search"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmit(query);
+          }}
+        >
+          <svg viewBox="0 0 12 12" aria-hidden="true">
             <circle cx="5" cy="5" r="3.4" />
             <line x1="7.6" y1="7.6" x2="11" y2="11" />
           </svg>
-          <span>Google</span>
-        </div>
-        <svg className="dock-icons" viewBox="0 0 200 30">
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            placeholder="Google"
+            aria-label="Search Google"
+            maxLength={SEARCH_LIMIT}
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(event) => onQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                onCancel();
+              }
+            }}
+          />
+        </form>
+        <svg className="dock-icons" viewBox="0 0 200 30" aria-hidden="true">
           <g transform="translate(15 15)">
             <circle r="12" className="disc" />
             <path

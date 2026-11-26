@@ -913,8 +913,8 @@ body,
   width: 17px;
 }
 
-.sys-icon,
-.sys-label {
+.sys .sys-icon,
+.sys .sys-label {
   position: absolute;
   left: 0;
   width: 100%;
@@ -923,7 +923,7 @@ body,
   justify-content: center;
 }
 
-.sys-icon {
+.sys .sys-icon {
   top: 0;
   height: 23px;
   border: 1px solid #a9d6f7;
@@ -931,7 +931,7 @@ body,
   box-shadow: inset 0 0 4px rgba(255, 255, 255, 0.6), 0 0 4px rgba(90, 170, 240, 0.5);
 }
 
-.sys-label {
+.sys .sys-label {
   top: 29px;
   height: 20px;
   border: 1px solid #7fb4e2;
@@ -941,6 +941,26 @@ body,
   font-size: 5.8px;
   letter-spacing: 0.2px;
   color: #f2f6fa;
+}
+
+.sys .sys-icon:hover,
+.sys .sys-icon:focus-visible {
+  filter: brightness(1.15);
+}
+
+.sys .sys-icon:active {
+  filter: brightness(0.9);
+}
+
+.sys .sys-icon:disabled {
+  cursor: default;
+  filter: none;
+}
+
+.sys .sys-col.armed .sys-icon {
+  border-color: #ffd28a;
+  background: linear-gradient(#ffe2b0 0%, #f0a640 45%, #b8641a 100%);
+  box-shadow: inset 0 0 4px rgba(255, 255, 255, 0.6), 0 0 8px rgba(255, 170, 60, 0.9);
 }
 
 .sys svg {
@@ -1542,7 +1562,7 @@ body,
   color: #e4e7e9;
 }
 
-.media-btn {
+.media-bar .media-btn {
   position: absolute;
   top: 618px;
   width: 22px;
@@ -1555,24 +1575,138 @@ body,
   justify-content: center;
 }
 
-.media-btn:nth-of-type(1) {
-  left: 855px;
-}
-
-.media-btn:nth-of-type(2) {
-  left: 878px;
-}
-
-.media-btn:nth-of-type(3) {
-  left: 901px;
-}
-
-.media-btn svg {
+.media-bar .media-btn svg {
   width: 13px;
   height: 9px;
   fill: #23272a;
   stroke: #23272a;
   stroke-width: 1.4;
+}
+
+.media-bar .media-btn:hover,
+.media-bar .media-btn:focus-visible {
+  background: linear-gradient(#ffffff, #a9aeb2);
+}
+
+.media-bar .media-btn:active {
+  background: linear-gradient(#8d9296, #c9cdd0);
+}
+
+.media-title {
+  left: 872px;
+  top: 595px;
+  width: 216px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 7px;
+  color: #b9bdc1;
+}
+
+.media-bar .media-progress,
+.media-bar .volume-track {
+  position: absolute;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.media-bar .media-progress {
+  left: 872px;
+  top: 606px;
+  width: 216px;
+}
+
+.media-bar .volume-track {
+  left: 931px;
+  top: 620px;
+  width: 152px;
+  touch-action: none;
+}
+
+.media-bar .fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 4px;
+  background: linear-gradient(#a9b0b5, #6f777d);
+  pointer-events: none;
+}
+
+.media-bar .volume-track .fill {
+  background: linear-gradient(#7fdcff, #2a8fc4);
+}
+
+.media-bar .media-progress:disabled,
+.media-bar .volume-track:disabled,
+.media-bar .volume-dial:disabled,
+.media-bar .mic-dial:disabled {
+  cursor: default;
+}
+
+.media-bar .volume-dial {
+  position: absolute;
+  left: 1093px;
+  top: 571px;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+}
+
+.media-bar .volume-value {
+  position: absolute;
+  left: 31px;
+  top: 37px;
+  width: 22px;
+  height: 10px;
+  line-height: 10px;
+  text-align: center;
+  font-family: var(--f-tech);
+  font-size: 6.4px;
+  color: #ffffff;
+}
+
+.media-bar .volume-dial.muted .volume-value {
+  color: #ffb547;
+}
+
+.media-bar .mic-dial {
+  position: absolute;
+  left: 1048px;
+  top: 612px;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+}
+
+.media-bar .mic-dial::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 2.2px solid transparent;
+}
+
+.media-bar .mic-dial.muted::after {
+  border-color: #ff3b3b;
+  box-shadow: 0 0 6px rgba(255, 60, 60, 0.9);
+}
+
+.knob-btn {
+  position: absolute !important;
+  top: 16.5px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50% !important;
+}
+
+.knob-btn:hover,
+.knob-btn:focus-visible {
+  box-shadow: 0 0 0 1px #8fe6ff;
 }
 
 .dock .search {
@@ -1590,6 +1724,29 @@ body,
   padding-left: 8px;
   font-size: 9px;
   color: #c9ccce;
+}
+
+.dock .search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 9px;
+  color: #eef1f3;
+  pointer-events: auto;
+  user-select: text;
+}
+
+.dock .search input::placeholder {
+  color: #c9ccce;
+}
+
+.dock .search:focus-within {
+  box-shadow: inset 0 0 0 1px #57d4ff;
 }
 
 .dock .search svg {

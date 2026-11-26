@@ -30,6 +30,13 @@ import {
   type StepKey,
 } from "../shared/mario";
 import { acceptRefreshClick } from "../shared/refresh";
+import {
+  confirmText,
+  powerClick,
+  type PendingPower,
+  type PowerAction,
+  type SystemAction,
+} from "../shared/system";
 import { composeTiles } from "../shared/tiles";
 import type {
   DiscoveredApp,
@@ -40,7 +47,7 @@ import type {
 } from "../shared/types";
 import { NowProvider } from "./hud/time";
 import { Chassis } from "./mario/Chassis";
-import { useBattery, useStats } from "./mario/live";
+import { useBattery, useStats, useSystem } from "./mario/live";
 import {
   AnalogClock,
   DayBlock,
@@ -51,6 +58,7 @@ import {
   LeftList,
   LevelMeter,
   MediaBar,
+  VolumeKnobs,
   RamBin,
   SystemButtons,
   Telemetry,
@@ -197,6 +205,11 @@ export function App() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
   const [focus, setFocus] = useState<Focus | null>(null);
+  const [system, setSystem] = useSystem();
+  const [pendingPower, setPendingPower] = useState<PendingPower | null>(null);
+  const [notice, setNotice] = useState("");
+  const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
   const [voice, setVoice] = useState<VoiceSnapshot>(() =>
     typeof window !== "undefined" && !window.jarvis && import.meta.env.DEV
       ? previewVoice()
@@ -212,6 +225,7 @@ export function App() {
     step: (_key: StepKey) => {},
     page: (_delta: number) => {},
     activate: () => {},
+    focusSearch: () => {},
     filter: (_next: string) => {},
   });
 
@@ -237,6 +251,9 @@ export function App() {
     });
     const stopHidden = bridge.onHidden(() => {
       if (cancel) return;
+      setPendingPower(null);
+      setNotice("");
+      setSearch("");
       queryRef.current = "";
       pageRef.current = 0;
       focusRef.current = null;
@@ -339,7 +356,25 @@ export function App() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.isComposing) return;
-      const dismiss = () => setStatus((current) => clearLaunchStatus(current));
+      // The search box handles its own keys.
+      if (event.target instanceof HTMLInputElement) return;
+      const dismiss = () => {
+        setStatus((current) => clearLaunchStatus(current));
+        setNotice("");
+        setPendingPower(null);
+      };
+      if (
+        event.key === "/" &&
+        !queryRef.current &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        dismiss();
+        actionsRef.current.focusSearch();
+        return;
+      }
       if (event.key === "Escape") {
         dismiss();
         if (queryRef.current) {
@@ -460,8 +495,14 @@ export function App() {
       const slot = target
         ? all.find((entry) => keyOf(entry) === keyOf(target))
         : undefined;
-      if (slot && selectable(slot)) void launchSlot(slot);
+      if (slot && selectable(slot)) {
+        void launchSlot(slot);
+        return;
+      }
+      // A filter that matches nothing becomes a web search.
+      if (queryRef.current.trim()) void webSearch(queryRef.current);
     },
+    focusSearch: () => searchRef.current?.focus(),
     filter: (next) => {
       queryRef.current = next;
       setQuery(next);
@@ -473,6 +514,48 @@ export function App() {
       setFocus(null);
       pendingFocus.current = true;
     },
+  };
+
+  useEffect(() => {
+    if (!pendingPower) return;
+    const timer = window.setTimeout(
+      () => setPendingPower(null),
+      Math.max(0, pendingPower.until - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [pendingPower]);
+
+  const runSystem = (action: SystemAction, value?: number) => {
+    const bridge = window.jarvis;
+    if (!bridge) return;
+    setNotice("");
+    void bridge
+      .systemAction(action, value)
+      .then((result) => {
+        if (result.state) setSystem(result.state);
+        if (!result.ok)
+          setNotice(`SYSTEM FAILED  ${result.error ?? ""}`.trim());
+      })
+      .catch(() => setNotice("SYSTEM FAILED"));
+  };
+
+  const onPower = (action: PowerAction) => {
+    const step = powerClick(pendingPower, action, Date.now());
+    setPendingPower(step.pending);
+    if (step.run) runSystem(action);
+  };
+
+  const webSearch = async (value: string) => {
+    const text = value.trim();
+    if (!text) return;
+    const bridge = window.jarvis;
+    if (!bridge) return;
+    const result = await bridge.webSearch(text);
+    if (!result.ok) setNotice(`SEARCH FAILED  ${result.error ?? ""}`.trim());
+    else {
+      setSearch("");
+      actionsRef.current.filter("");
+    }
   };
 
   const toggleVoice = () => {
@@ -514,8 +597,14 @@ export function App() {
     matchCount: filtering ? matchCount : undefined,
     warning: "",
   });
-  const showHint = hint !== "SELECT A SYSTEM";
-  const warn = isLaunchStatus(hint) || isVoiceStatus(hint);
+  // A pending power confirmation, then a system or search failure, then the usual hint.
+  const line = pendingPower ? confirmText(pendingPower.action) : notice || hint;
+  const showHint = line !== "SELECT A SYSTEM";
+  const warn =
+    Boolean(pendingPower) ||
+    Boolean(notice) ||
+    isLaunchStatus(hint) ||
+    isVoiceStatus(hint);
 
   const slotClass = (slot: PlacedSlot, base: string) => {
     const lit = selectable(slot);
@@ -615,12 +704,44 @@ export function App() {
             <Identity />
             <DesktopClock />
             <DayBlock />
-            <SystemButtons />
+            <SystemButtons
+              pending={pendingPower?.action ?? null}
+              onPower={onPower}
+              brightness={system.brightness}
+              onBrightness={(value) => {
+                setSystem({ ...system, brightness: value });
+                runSystem("brightness-set", value);
+              }}
+            />
+            <VolumeKnobs onStep={(delta) => runSystem("volume-step", delta)} />
             <WeatherPanel report={live.stats?.weather ?? null} />
             <RamBin stats={live.stats} />
             <LeftList />
-            <MediaBar />
-            <Dock />
+            <MediaBar
+              system={system}
+              onAction={(action, value) => {
+                if (action === "volume-set" && value != null)
+                  setSystem({
+                    ...system,
+                    volume: value,
+                    muted: value > 0 ? false : system.muted,
+                  });
+                runSystem(action, value);
+              }}
+            />
+            <Dock
+              query={search}
+              inputRef={searchRef}
+              onQuery={setSearch}
+              onSubmit={(value) => {
+                void webSearch(value);
+                searchRef.current?.blur();
+              }}
+              onCancel={() => {
+                setSearch("");
+                searchRef.current?.blur();
+              }}
+            />
 
             <Shift fx={0.5} fy={0}>
               <nav className="tabs" aria-label="Top programs">
@@ -772,7 +893,7 @@ export function App() {
                   .join(" ")}
                 aria-live="polite"
               >
-                {showHint ? hint : "ID-6TH / AM"}
+                {showHint ? line : "ID-6TH / AM"}
               </p>
             </Shift>
 

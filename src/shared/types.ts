@@ -1,3 +1,4 @@
+import type { SystemAction, SystemState } from "./system";
 /** Names the matcher looks for. One discovered tile per id. */
 export const AI_APP_IDS = [
   "chatgpt",
@@ -244,4 +245,13 @@ export interface JarvisBridge {
   playbackEnded(): void;
   reportVoiceError(message: string): void;
   getStats(): Promise<SystemStats>;
+  getSystem(): Promise<SystemState | null>;
+  systemAction(action: SystemAction, value?: number): Promise<SystemActionResult>;
+  webSearch(query: string): Promise<{ ok: boolean; error?: string }>;
+}
+
+export interface SystemActionResult {
+  ok: boolean;
+  error?: string;
+  state?: SystemState;
 }

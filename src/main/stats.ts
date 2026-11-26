@@ -12,7 +12,11 @@ import {
   parseRecycleLine,
   type CpuSample,
 } from "../shared/stats";
-import type { SystemStats, WeatherConfig, WeatherReport } from "../shared/types";
+import type {
+  SystemStats,
+  WeatherConfig,
+  WeatherReport,
+} from "../shared/types";
 
 const FAST_MS = 2000;
 const WIFI_MS = 10_000;
@@ -31,9 +35,14 @@ function system32(file: string): string {
 
 function run(file: string, args: string[], timeout = 8000): Promise<string> {
   return new Promise((resolve) => {
-    execFile(file, args, { windowsHide: true, shell: false, timeout, maxBuffer: 256 * 1024 }, (error, stdout) => {
-      resolve(error ? "" : String(stdout));
-    });
+    execFile(
+      file,
+      args,
+      { windowsHide: true, shell: false, timeout, maxBuffer: 256 * 1024 },
+      (error, stdout) => {
+        resolve(error ? "" : String(stdout));
+      },
+    );
   });
 }
 
@@ -107,7 +116,8 @@ export class StatsService {
       const info = await fs.promises.statfs(root);
       const total = info.blocks * info.bsize;
       const free = info.bavail * info.bsize;
-      this.diskPct = total > 0 ? Math.round(((total - free) / total) * 100) : null;
+      this.diskPct =
+        total > 0 ? Math.round(((total - free) / total) * 100) : null;
     } catch {
       this.diskPct = null;
     }
@@ -119,8 +129,14 @@ export class StatsService {
       const seconds = (at - this.netPrev.at) / 1000;
       if (seconds > 0) {
         this.net = {
-          downBytesPerSec: Math.max(0, (bytes.received - this.netPrev.received) / seconds),
-          upBytesPerSec: Math.max(0, (bytes.sent - this.netPrev.sent) / seconds),
+          downBytesPerSec: Math.max(
+            0,
+            (bytes.received - this.netPrev.received) / seconds,
+          ),
+          upBytesPerSec: Math.max(
+            0,
+            (bytes.sent - this.netPrev.sent) / seconds,
+          ),
         };
       }
     }
@@ -129,13 +145,21 @@ export class StatsService {
 
   private async tickWifi(): Promise<void> {
     if (!this.windows) return;
-    this.wifi = parseNetshWlan(await run(system32("netsh.exe"), ["wlan", "show", "interfaces"]));
+    this.wifi = parseNetshWlan(
+      await run(system32("netsh.exe"), ["wlan", "show", "interfaces"]),
+    );
   }
 
   private async tickRecycle(): Promise<void> {
     if (!this.windows) return;
-    const powershell = system32(path.join("WindowsPowerShell", "v1.0", "powershell.exe"));
-    const out = await run(powershell, ["-NoProfile", "-NonInteractive", "-Command", RECYCLE_SCRIPT], 15_000);
+    const powershell = system32(
+      path.join("WindowsPowerShell", "v1.0", "powershell.exe"),
+    );
+    const out = await run(
+      powershell,
+      ["-NoProfile", "-NonInteractive", "-Command", RECYCLE_SCRIPT],
+      15_000,
+    );
     this.recycle = parseRecycleLine(out) ?? this.recycle;
   }
 
@@ -144,7 +168,9 @@ export class StatsService {
     if (!config) return;
     const key = this.weatherKey;
     try {
-      const response = await fetch(openMeteoUrl(config), { signal: AbortSignal.timeout(10_000) });
+      const response = await fetch(openMeteoUrl(config), {
+        signal: AbortSignal.timeout(10_000),
+      });
       if (!response.ok) return;
       const report = parseOpenMeteo(await response.json(), config);
       if (report && key === this.weatherKey) this.weather = report;

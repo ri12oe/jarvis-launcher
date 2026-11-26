@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { EMPTY_SYSTEM, type SystemState } from "../../shared/system";
 import type { SystemStats } from "../../shared/types";
 
 export interface Battery {
@@ -114,4 +115,64 @@ export function useBattery(): Battery | null {
     };
   }, []);
   return battery;
+}
+
+/** Sample media and volume for the Vite preview only. */
+export function previewSystem(): SystemState {
+  return {
+    volume: 45,
+    muted: false,
+    micMuted: false,
+    brightness: 70,
+    media: {
+      title: "Sample Track",
+      artist: "Sample Artist",
+      app: "Spotify.exe",
+      status: "playing",
+      position: 72,
+      duration: 214,
+      updatedMs: Date.now(),
+    },
+  };
+}
+
+/**
+ * Volume, mute, brightness, and the playing track. Polls once a second.
+ * `apply` takes the state an action returned, so the HUD updates at once.
+ */
+export function useSystem(): [SystemState, (next: SystemState) => void] {
+  const [state, setState] = useState<SystemState>(() =>
+    !window.jarvis && import.meta.env.DEV ? previewSystem() : EMPTY_SYSTEM,
+  );
+  useEffect(() => {
+    const bridge = window.jarvis;
+    if (!bridge) return;
+    let cancelled = false;
+    const poll = () => {
+      void bridge
+        .getSystem()
+        .then((next) => {
+          if (!cancelled && next) setState(next);
+        })
+        .catch(() => {});
+    };
+    poll();
+    const timer = window.setInterval(poll, 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+  return [state, setState];
+}
+
+/** Re-renders every half second while something is playing, so the track time moves. */
+export function useTicker(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  return active ? now : Date.now();
 }

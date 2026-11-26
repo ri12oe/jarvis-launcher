@@ -66,6 +66,9 @@ describe("App launch status", () => {
       playbackEnded: () => undefined,
       reportVoiceError: () => undefined,
       getStats: async () => null as never,
+      getSystem: async () => null,
+      systemAction: async () => ({ ok: true }),
+      webSearch: async () => ({ ok: true }),
     };
     (window as { jarvis?: JarvisBridge }).jarvis = bridge;
     host = document.createElement("div");

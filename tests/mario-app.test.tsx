@@ -81,6 +81,9 @@ describe("MARIO OS HUD", () => {
       playbackEnded: () => undefined,
       reportVoiceError: () => undefined,
       getStats: async () => stats,
+      getSystem: async () => null,
+      systemAction: async () => ({ ok: true }),
+      webSearch: async () => ({ ok: true }),
     };
     (window as { jarvis?: JarvisBridge }).jarvis = bridge;
     host = document.createElement("div");

@@ -29,7 +29,11 @@ import {
 } from "../shared/xai";
 import { createWakeWord, type WakeWord } from "./wakeword";
 
-const SAFE_ERRORS = new Set(["Microphone is unavailable", "Could not play speech", "Could not save the voice setting"]);
+const SAFE_ERRORS = new Set([
+  "Microphone is unavailable",
+  "Could not play speech",
+  "Could not save the voice setting",
+]);
 
 export interface VoiceHost {
   tiles(): readonly VoiceTile[];
@@ -137,7 +141,8 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
 
   function apply(): void {
     const voice = host.voice();
-    if (overrideEnabled !== undefined && voice.enabled === overrideEnabled) overrideEnabled = undefined;
+    if (overrideEnabled !== undefined && voice.enabled === overrideEnabled)
+      overrideEnabled = undefined;
     const key = hasKey();
     const on = enabled();
     if (!key) error = "";
@@ -202,7 +207,10 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
     void transcribeAndAct(gen, takeSamples(endpoint));
   }
 
-  async function transcribeAndAct(gen: number, samples: Int16Array): Promise<void> {
+  async function transcribeAndAct(
+    gen: number,
+    samples: Int16Array,
+  ): Promise<void> {
     const voice = host.voice();
     const key = readVoiceApiKey(host.env(), voice.apiKeyEnv);
     if (!key || !alive(gen)) {
@@ -266,7 +274,11 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       const result = await completeChat({
         apiKey: key,
         model: voice.model,
-        messages: [{ role: "system", content: jarvisSystemPrompt(tiles) }, ...history, { role: "user", content: text }],
+        messages: [
+          { role: "system", content: jarvisSystemPrompt(tiles) },
+          ...history,
+          { role: "user", content: text },
+        ],
         tileIds: tiles.map((tile) => tile.id),
         signal: requestSignal(),
       });
@@ -377,7 +389,8 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
     },
     async setEnabled(next) {
       const text = host.configText();
-      const patched = text === undefined ? undefined : host.patchEnabled(text, next);
+      const patched =
+        text === undefined ? undefined : host.patchEnabled(text, next);
       if (!patched || !host.writeConfig(patched)) {
         error = "Could not save the voice setting";
         publish();
@@ -394,7 +407,9 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       publish();
     },
     reportError(message) {
-      const safe = SAFE_ERRORS.has(message) ? message : "Microphone is unavailable";
+      const safe = SAFE_ERRORS.has(message)
+        ? message
+        : "Microphone is unavailable";
       error = safe;
       generation += 1;
       refreshAbort();
@@ -406,6 +421,9 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
 }
 
 function publicText(value: string | undefined, secret: string): string {
-  const cleaned = redactSecret((value ?? "").replace(/\s+/g, " ").trim(), secret);
+  const cleaned = redactSecret(
+    (value ?? "").replace(/\s+/g, " ").trim(),
+    secret,
+  );
   return cleaned.slice(0, 140);
 }
