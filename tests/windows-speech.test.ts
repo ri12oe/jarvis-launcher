@@ -9,8 +9,10 @@ describe("Windows speech helper", () => {
   it("is one line and uses the built-in Windows voice", () => {
     const script = speechHelperScript();
     expect(script.includes("\n")).toBe(false);
+    expect(script).toContain("Windows.Media.SpeechSynthesis");
     expect(script).toContain("System.Speech");
-    expect(script).toContain("SetOutputToWaveStream");
+    // A backtick would end the JavaScript template the script lives in.
+    expect(script.includes("`")).toBe(false);
   });
 
   it("sends ASCII-only JSON, so quotes and accents reach PowerShell intact", () => {

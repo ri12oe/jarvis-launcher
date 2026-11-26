@@ -17,11 +17,11 @@ export const DEFAULT_CHAT_MODEL = "openai/gpt-oss-20b";
 export const DEFAULT_STT_MODEL = "whisper-large-v3-turbo";
 
 /**
- * Part of the name of a Windows voice, such as `david` or `zira`. Replies are
- * spoken by the voice built into Windows, so speaking costs nothing. When no
- * installed voice matches, the Windows default voice is used.
+ * Part of the name of a Windows voice. `george` is the British male voice from
+ * the English (United Kingdom) speech pack. Replies are spoken by Windows, so
+ * speaking costs nothing. When the voice is not installed, David speaks.
  */
-export const DEFAULT_VOICE_ID = "david";
+export const DEFAULT_VOICE_ID = "george";
 
 export const DEFAULT_API_KEY_ENV = "GROQ_API_KEY";
 

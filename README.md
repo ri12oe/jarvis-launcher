@@ -144,12 +144,12 @@ Optional `voice` fields in `config.json`:
 "voice": {
   "apiKeyEnv": "GROQ_API_KEY",
   "model": "openai/gpt-oss-20b",
-  "voiceId": "david",
+  "voiceId": "george",
   "sttModel": "whisper-large-v3-turbo"
 }
 ```
 
-`model` is a Groq chat model that supports tool calls. `sttModel` is a Groq speech-to-text model, `whisper-large-v3-turbo` or `whisper-large-v3`. `voiceId` is part of the name of a Windows voice, such as `david` or `zira`. If no installed voice matches, the Windows default voice speaks. More voices can be added in Windows Settings > Time & language > Speech. A config from the old xAI setup still loads: Grok model names and the `eve` voice fall back to these defaults. Leave `enabled` out to turn voice on when a key is present.
+`model` is a Groq chat model that supports tool calls. `sttModel` is a Groq speech-to-text model, `whisper-large-v3-turbo` or `whisper-large-v3`. `voiceId` is part of the name of a Windows voice, such as `george`, `david`, `mark`, or `zira`. The default, `george`, is a British male voice from the English (United Kingdom) speech pack: in Windows Settings > Time & language > Speech, under Manage voices, click Add voices and pick English (United Kingdom). If the voice is not installed, David speaks. A config from the old xAI setup still loads: Grok model names and the `eve` voice fall back to these defaults. Leave `enabled` out to turn voice on when a key is present.
 
 The microphone permission is granted only for this app's own window, and only for `media`. The wake-word files under `assets/wake` are openWakeWord pre-trained models (CC BY-NC-SA 4.0, David Scripka). The openWakeWord code is Apache-2.0. The models are not, and they stay on the machine. See `assets/wake/NOTICE`.
 
@@ -214,7 +214,7 @@ A broken file is left as it is. The launcher uses defaults in memory until the J
   "voice": {
     "apiKeyEnv": "GROQ_API_KEY",
     "model": "openai/gpt-oss-20b",
-    "voiceId": "david",
+    "voiceId": "george",
     "sttModel": "whisper-large-v3-turbo"
   },
   "weather": { "latitude": 39.77, "longitude": -86.16, "label": "Indianapolis, IN", "units": "fahrenheit" },

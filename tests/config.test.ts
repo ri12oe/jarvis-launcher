@@ -111,7 +111,7 @@ describe("config parsing", () => {
     expect(parseConfig({}).config.voice).toEqual({
       apiKeyEnv: "GROQ_API_KEY",
       model: DEFAULT_CHAT_MODEL,
-      voiceId: "david",
+      voiceId: "george",
       sttModel: DEFAULT_STT_MODEL,
     });
     expect(parseConfig({}).config.voice.enabled).toBeUndefined();

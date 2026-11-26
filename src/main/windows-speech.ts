@@ -3,8 +3,11 @@ import { windowsPowershellPath } from "../discovery/start-apps";
 import type { SpeechAudio } from "../shared/groq";
 
 /**
- * Speaks a reply with the voice built into Windows (System.Speech), so text to
- * speech is free, works offline, and has no rate limit. One PowerShell process
+ * Speaks a reply with a voice built into Windows, so text to speech is free,
+ * works offline, and has no rate limit. It uses Windows.Media.SpeechSynthesis,
+ * which sees every voice added in Settings (such as Microsoft George), and
+ * falls back to System.Speech. A voice that is not installed falls back to
+ * David, then to the Windows default. One PowerShell process
  * stays open. Requests are JSON lines `{"id":1,"voice":"david","text":"..."}`
  * on stdin. Replies are JSON lines with the WAV file in base64.
  *
@@ -15,28 +18,69 @@ const SPEECH_SOURCE = String.raw`
 $ErrorActionPreference = 'Stop';
 $ProgressPreference = 'SilentlyContinue';
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false;
-Add-Type -AssemblyName System.Speech;
-$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer;
-$voices = @($synth.GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { $_.VoiceInfo.Name });
-$fallback = $synth.Voice.Name;
+$script:rt = $null;
+$script:rtVoices = @();
+$script:asTask = $null;
+try {
+  Add-Type -AssemblyName System.Runtime.WindowsRuntime;
+  $script:asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -match '^IAsyncOperation.1$' } | Select-Object -First 1;
+  $null = [Windows.Media.SpeechSynthesis.SpeechSynthesizer, Windows.Media.SpeechSynthesis, ContentType = WindowsRuntime];
+  $script:rt = New-Object Windows.Media.SpeechSynthesis.SpeechSynthesizer;
+  $script:rtVoices = @([Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices);
+} catch { $script:rt = $null };
+$script:sapi = $null;
+$script:sapiVoices = @();
+function Use-Sapi {
+  if ($script:sapi -eq $null) {
+    Add-Type -AssemblyName System.Speech;
+    $script:sapi = New-Object System.Speech.Synthesis.SpeechSynthesizer;
+    $script:sapiVoices = @($script:sapi.GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { $_.VoiceInfo.Name });
+  };
+};
+function Find-Name($names, $hint) {
+  foreach ($want in @($hint, 'david')) {
+    if (-not $want) { continue };
+    $hit = $names | Where-Object { $_ -like ('*' + $want + '*') } | Select-Object -First 1;
+    if ($hit) { return $hit };
+  };
+  return $null;
+};
+function Speak-Rt($text, $hint) {
+  $name = Find-Name ($script:rtVoices | ForEach-Object { $_.DisplayName }) $hint;
+  if ($name) { $script:rt.Voice = $script:rtVoices | Where-Object { $_.DisplayName -eq $name } | Select-Object -First 1 };
+  $task = $script:asTask.MakeGenericMethod([Windows.Media.SpeechSynthesis.SpeechSynthesisStream]).Invoke($null, @($script:rt.SynthesizeTextToStreamAsync($text)));
+  if (-not $task.Wait(15000)) { throw 'timeout' };
+  $speech = $task.Result;
+  $reader = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($speech.GetInputStreamAt(0));
+  $memory = New-Object System.IO.MemoryStream;
+  $reader.CopyTo($memory);
+  $speech.Dispose();
+  return $memory.ToArray();
+};
+function Speak-Sapi($text, $hint) {
+  Use-Sapi;
+  $name = Find-Name $script:sapiVoices $hint;
+  if ($name -and $script:sapi.Voice.Name -ne $name) { $script:sapi.SelectVoice($name) };
+  $memory = New-Object System.IO.MemoryStream;
+  $script:sapi.SetOutputToWaveStream($memory);
+  $script:sapi.Speak($text);
+  $script:sapi.SetOutputToNull();
+  return $memory.ToArray();
+};
 while ($true) {
   $line = [Console]::In.ReadLine();
   if ($line -eq $null -or $line -eq 'QUIT') { break };
   $req = $null;
   try {
     $req = $line | ConvertFrom-Json;
+    $text = [string]$req.text;
     $hint = [string]$req.voice;
-    $pick = $fallback;
-    if ($hint) {
-      $match = $voices | Where-Object { $_ -like ('*' + $hint + '*') } | Select-Object -First 1;
-      if ($match) { $pick = $match };
+    $bytes = $null;
+    if ($script:rt -ne $null -and $script:asTask -ne $null) {
+      try { $bytes = Speak-Rt $text $hint } catch { $bytes = $null };
     };
-    if ($pick -and $synth.Voice.Name -ne $pick) { $synth.SelectVoice($pick) };
-    $stream = New-Object System.IO.MemoryStream;
-    $synth.SetOutputToWaveStream($stream);
-    $synth.Speak([string]$req.text);
-    $synth.SetOutputToNull();
-    $json = @{ id = $req.id; ok = $true; audio = [Convert]::ToBase64String($stream.ToArray()) } | ConvertTo-Json -Compress;
+    if ($bytes -eq $null) { $bytes = Speak-Sapi $text $hint };
+    $json = @{ id = $req.id; ok = $true; audio = [Convert]::ToBase64String($bytes) } | ConvertTo-Json -Compress;
   } catch {
     $id = $null;
     if ($req -ne $null) { $id = $req.id };
