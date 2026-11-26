@@ -58,3 +58,22 @@ describe("labelled plates in the layout", () => {
     expect(layout.ring.some((slot) => slot.text === "CCRP")).toBe(false);
   });
 });
+
+describe("reactor dials", () => {
+  it("defaults G to Google and E to File Explorer and reads overrides", () => {
+    expect(parseConfig({}).config.dials).toEqual({ G: "google", E: "explorer" });
+    const parsed = parseConfig({ dials: { g: "chatgpt", E: null, Q: "x" } });
+    expect(parsed.config.dials).toEqual({ G: "chatgpt", E: null });
+    expect(parsed.warnings.join(" | ")).toContain('there is no "Q" dial');
+    expect(parseConfig({ dials: "google" }).config.dials).toEqual({ G: "google", E: "explorer" });
+  });
+
+  it("drops a dial id with no tile and keeps dial tiles off the open plates", () => {
+    const hud = resolveHudSlots({ dock: [], plates: {}, dials: { G: "google", E: "ghost" } }, ["google", "explorer"]);
+    expect(hud.dials).toEqual({ G: "google", E: null });
+    expect(hud.warnings).toEqual(['dials: no tile with id "ghost" for E']);
+    const tiles = ["edge", "google", "desktop"].map((id) => ({ id, label: id }));
+    const layout = layoutMario(tiles, 0, [], ["google"]);
+    expect(layout.ring.map((slot) => tiles[slot.tile].id)).toEqual(["desktop"]);
+  });
+});

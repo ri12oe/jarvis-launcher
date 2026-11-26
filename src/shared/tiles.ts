@@ -35,6 +35,7 @@ export const WEB_TILES: readonly WebTile[] = [
   { id: "gemini-web", label: "Gemini", url: "https://gemini.google.com/", unless: "gemini" },
   { id: "github-web", label: "GitHub", url: "https://github.com/", unless: "github" },
   { id: "x", label: "X", url: "https://x.com/" },
+  { id: "google", label: "Google", url: "https://www.google.com/" },
 ];
 
 export function composeTiles(

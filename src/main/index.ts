@@ -93,6 +93,7 @@ let launcher: {
   warnings: string[];
   dock: (string | null)[];
   plates: { slot: number; tileId: string }[];
+  dials: { G: string | null; E: string | null };
 } | null = null;
 
 function iconImage(): Electron.NativeImage {
@@ -269,7 +270,7 @@ async function refreshSession(): Promise<void> {
     const config = applyHostSettings(loaded.config, loaded.warnings);
     const hud = resolveHudSlots(config, tiles.map((tile) => tile.id));
     loaded.warnings.push(...hud.warnings);
-    launcher = { config, tiles, view, warnings: loaded.warnings, dock: hud.dock, plates: hud.plates };
+    launcher = { config, tiles, view, warnings: loaded.warnings, dock: hud.dock, plates: hud.plates, dials: hud.dials };
     stats.setWeather(config.weather);
     scanning = false;
     refreshFailed = false;
@@ -298,6 +299,7 @@ function currentState(): LauncherState {
     refreshFailed,
     dock: snapshot?.dock ?? [null, null, null, null],
     plates: snapshot?.plates ?? [],
+    dials: snapshot?.dials ?? { G: null, E: null },
   };
 }
 
@@ -682,8 +684,12 @@ function registerIpc(): void {
       if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
       const checked = checkSystemAction(action, value);
       if (!checked) return { ok: false, error: "Unknown action" };
-      // Hide first so the HUD is not left over the desktop after sleep, lock, or sign out.
-      if ((POWER_ACTIONS as readonly string[]).includes(checked.action))
+      // Hide first so the HUD is not left over the desktop after sleep, lock, or
+      // sign out, and so the calendar flyout opens on top.
+      if (
+        (POWER_ACTIONS as readonly string[]).includes(checked.action) ||
+        checked.action === "open-calendar"
+      )
         hideWindow();
       if (checked.action === "open-taskmgr") {
         // ShellExecute, so Windows can show its own prompt when Task Manager needs one.
@@ -800,6 +806,11 @@ function registerIpc(): void {
   ipcMain.handle("jarvis:voice-get", (event) => {
     if (!isAppFrame(event)) return EMPTY_VOICE;
     return voice?.snapshot() ?? EMPTY_VOICE;
+  });
+  ipcMain.handle("jarvis:voice-talk", (event) => {
+    if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
+    if (!voice) return { ok: false, error: "Voice is not ready" };
+    return voice.talk();
   });
   ipcMain.handle("jarvis:voice-enabled", (event, enabled: unknown) => {
     if (!isAppFrame(event) || typeof enabled !== "boolean") return;

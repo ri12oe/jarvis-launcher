@@ -50,6 +50,7 @@ const saved: SettingsValues = {
   weather: null,
   dock: ["downloads", null, null, null],
   plates: {},
+  dials: { G: "google", E: "explorer" },
 };
 
 describe("RAM, BIN, the check box, and Settings", () => {
@@ -100,6 +101,7 @@ describe("RAM, BIN, the check box, and Settings", () => {
         return values.hotkey === "Shift+J" ? { ok: false, error: "Invalid hotkey" } : { ok: true };
       },
       findPlace: async () => ({ ok: true, places: [{ label: "Indianapolis, Indiana, US", latitude: 39.77, longitude: -86.16 }] }),
+      talk: async () => ({ ok: true }),
     };
     (window as { jarvis?: JarvisBridge }).jarvis = bridge;
     host = document.createElement("div");

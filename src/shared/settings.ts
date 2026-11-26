@@ -10,6 +10,7 @@ export interface SettingsValues {
   weather: WeatherConfig | null;
   dock: (string | null)[];
   plates: Record<string, string>;
+  dials: { G: string | null; E: string | null };
 }
 
 export function settingsFromConfig(config: JarvisConfig): SettingsValues {
@@ -20,6 +21,7 @@ export function settingsFromConfig(config: JarvisConfig): SettingsValues {
     weather: config.weather ? { ...config.weather } : null,
     dock: [...config.dock],
     plates: { ...config.plates },
+    dials: { ...config.dials },
   };
 }
 
@@ -30,6 +32,7 @@ function settingsObject(values: SettingsValues): Record<string, unknown> {
     startHidden: values.startHidden,
     dock: values.dock,
     plates: values.plates,
+    dials: values.dials,
   };
   if (values.weather) object.weather = values.weather;
   return object;
@@ -47,6 +50,7 @@ export function checkSettings(values: unknown): string | null {
   if (typeof record.openAtLogin !== "boolean" || typeof record.startHidden !== "boolean") return "Startup options are missing";
   if (!Array.isArray(record.dock)) return "Dock is missing";
   if (!record.plates || typeof record.plates !== "object" || Array.isArray(record.plates)) return "Plates are missing";
+  if (!record.dials || typeof record.dials !== "object" || Array.isArray(record.dials)) return "Dials are missing";
   if (record.weather !== null && (typeof record.weather !== "object" || Array.isArray(record.weather))) {
     return "Weather is not valid";
   }
@@ -68,6 +72,7 @@ export function mergeSettings(raw: Record<string, unknown>, values: SettingsValu
   merged.startHidden = values.startHidden;
   merged.dock = values.dock.map((id) => id ?? null);
   merged.plates = { ...values.plates };
+  merged.dials = { G: values.dials.G ?? null, E: values.dials.E ?? null };
   if (values.weather) merged.weather = { ...values.weather };
   else delete merged.weather;
   return merged;

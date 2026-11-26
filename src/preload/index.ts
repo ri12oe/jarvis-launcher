@@ -37,6 +37,7 @@ const api: JarvisBridge = {
     ipcRenderer.send("jarvis:quit");
   },
   getVoice: () => ipcRenderer.invoke("jarvis:voice-get") as Promise<VoiceSnapshot>,
+  talk: () => ipcRenderer.invoke("jarvis:voice-talk") as Promise<{ ok: boolean; error?: string }>,
   onVoice: (listener) => {
     const wrapped = (_event: IpcRendererEvent, voice: VoiceSnapshot) => listener(voice);
     ipcRenderer.on("jarvis:voice", wrapped);

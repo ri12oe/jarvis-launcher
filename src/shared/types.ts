@@ -32,7 +32,7 @@ export const BUILTIN_IDS = [
 export type BuiltinId = (typeof BUILTIN_IDS)[number];
 
 /** Web fallbacks for HUD slots whose desktop app is not installed. */
-export const WEB_TILE_IDS = ["gemini-web", "github-web", "x"] as const;
+export const WEB_TILE_IDS = ["gemini-web", "github-web", "x", "google"] as const;
 
 export type WebTileId = (typeof WEB_TILE_IDS)[number];
 
@@ -141,6 +141,13 @@ export interface JarvisConfig {
   dock: (string | null)[];
   /** Tile ids for the reactor plates that carry design text, keyed by that text, for example "TEN OPF". */
   plates: Record<string, string>;
+  /** Tile ids for the two small dials on the reactor: G (top) and E (right). null leaves a dial doing nothing. */
+  dials: DialConfig;
+}
+
+export interface DialConfig {
+  G: string | null;
+  E: string | null;
 }
 
 export interface WeatherConfig {
@@ -228,6 +235,8 @@ export interface LauncherState {
   dock: (string | null)[];
   /** Labelled reactor plates that open a tile. */
   plates: { slot: number; tileId: string }[];
+  /** Tile id for each reactor dial, or null. */
+  dials: DialConfig;
 }
 
 export interface LaunchResult {
@@ -261,6 +270,7 @@ export interface JarvisBridge {
   getSettings(): Promise<SettingsValues | null>;
   saveSettings(values: SettingsValues): Promise<{ ok: boolean; error?: string }>;
   findPlace(query: string): Promise<{ ok: boolean; error?: string; places?: Place[] }>;
+  talk(): Promise<{ ok: boolean; error?: string }>;
 }
 
 export interface SystemActionResult {

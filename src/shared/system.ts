@@ -26,6 +26,7 @@ export const SYSTEM_ACTIONS = [
   "open-taskmgr",
   "open-recyclebin",
   "empty-recyclebin",
+  "open-calendar",
 ] as const;
 export type SystemAction = (typeof SYSTEM_ACTIONS)[number];
 

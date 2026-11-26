@@ -2110,3 +2110,106 @@ body,
   opacity: 0.6;
   cursor: default;
 }
+
+/* Emblem: push to talk. It glows while listening and pulses while thinking or speaking. */
+.mario-canvas .emblem-btn {
+  position: absolute;
+  left: 4px;
+  top: 3px;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  transition: box-shadow 0.15s ease;
+}
+
+.mario-canvas .emblem-btn:hover,
+.mario-canvas .emblem-btn:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(143, 230, 255, 0.55);
+}
+
+.mario-canvas .emblem-btn.phase-listening {
+  box-shadow:
+    inset 0 0 18px rgba(87, 212, 255, 0.85),
+    0 0 18px rgba(87, 212, 255, 0.9);
+  background: radial-gradient(circle, rgba(87, 212, 255, 0.35) 0%, rgba(87, 212, 255, 0.05) 70%) !important;
+}
+
+.mario-canvas .emblem-btn.phase-thinking {
+  animation: emblem-pulse 1.4s ease-in-out infinite;
+}
+
+.mario-canvas .emblem-btn.phase-speaking {
+  animation: emblem-pulse 0.7s ease-in-out infinite;
+}
+
+@keyframes emblem-pulse {
+  0%,
+  100% {
+    box-shadow: inset 0 0 6px rgba(87, 212, 255, 0.3), 0 0 6px rgba(87, 212, 255, 0.3);
+  }
+  50% {
+    box-shadow: inset 0 0 16px rgba(87, 212, 255, 0.8), 0 0 16px rgba(87, 212, 255, 0.8);
+  }
+}
+
+/* Clock, date, and analog clock open the calendar. G and E dials open their tiles. */
+.mario-canvas .clock-btn,
+.mario-canvas .dial-btn {
+  position: absolute;
+  border-radius: 4px;
+}
+
+.mario-canvas .clock-btn.desk {
+  left: 125px;
+  top: 90px;
+  width: 235px;
+  height: 95px;
+}
+
+.mario-canvas .clock-btn.day {
+  left: 1058px;
+  top: 6px;
+  width: 92px;
+  height: 116px;
+}
+
+.mario-canvas .clock-btn.analog {
+  left: 1021px;
+  top: 138px;
+  width: 124px;
+  height: 124px;
+  border-radius: 50%;
+}
+
+.mario-canvas .dial-btn {
+  border-radius: 50%;
+}
+
+.mario-canvas .dial-btn.g {
+  left: 585px;
+  top: 57px;
+  width: 30px;
+  height: 30px;
+}
+
+.mario-canvas .dial-btn.e {
+  left: 831px;
+  top: 416px;
+  width: 28px;
+  height: 28px;
+}
+
+.mario-canvas .clock-btn:hover,
+.mario-canvas .clock-btn:focus-visible,
+.mario-canvas .dial-btn:hover,
+.mario-canvas .dial-btn:focus-visible {
+  box-shadow: inset 0 0 0 1.5px rgba(143, 230, 255, 0.7), 0 0 8px rgba(87, 212, 255, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mario-canvas .emblem-btn.phase-thinking,
+  .mario-canvas .emblem-btn.phase-speaking {
+    animation: none;
+    box-shadow: inset 0 0 12px rgba(87, 212, 255, 0.6), 0 0 12px rgba(87, 212, 255, 0.6);
+  }
+}

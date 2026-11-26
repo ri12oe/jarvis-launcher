@@ -86,6 +86,7 @@ describe("dock and labelled plates in the HUD", () => {
       getSettings: async () => null,
       saveSettings: async () => ({ ok: true }),
       findPlace: async () => ({ ok: true, places: [] }),
+      talk: async () => ({ ok: true }),
     };
     (window as { jarvis?: JarvisBridge }).jarvis = bridge;
     host = document.createElement("div");

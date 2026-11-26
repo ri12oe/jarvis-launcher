@@ -40,6 +40,7 @@ describe("composeTiles", () => {
       "gemini-web",
       "github-web",
       "x",
+      "google",
       "projects",
       "scratch",
     ]);
@@ -47,7 +48,7 @@ describe("composeTiles", () => {
 
   it("hides disabled ids, renames tiles, and pulls ordered ids forward", () => {
     const config = cloneDefaultConfig();
-    config.disabled = ["downloads", "cursor", "gemini-web", "github-web", "x"];
+    config.disabled = ["downloads", "cursor", "gemini-web", "github-web", "x", "google"];
     config.labels = { edge: "Browser" };
     config.order = ["pictures", "explorer"];
     const tiles = composeTiles(config, [cursor], env);

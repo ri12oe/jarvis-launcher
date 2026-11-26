@@ -308,6 +308,24 @@ export function SettingsPanel({
           </section>
 
           <section>
+            <h3>REACTOR DIALS</h3>
+            <div className="grid">
+              {(["G", "E"] as const).map((name) => (
+                <label key={name} className="cell">
+                  <span>{name} dial</span>
+                  <TileSelect
+                    value={values.dials[name]}
+                    tiles={sorted}
+                    empty="None"
+                    label={`${name} dial`}
+                    onChange={(next) => update({ dials: { ...values.dials, [name]: next } })}
+                  />
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section>
             <h3>REACTOR PLATES</h3>
             <div className="grid">
               {PLATE_NAMES.map((name) => (

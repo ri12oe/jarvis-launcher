@@ -74,6 +74,7 @@ import { startMicrophone } from "./mic";
 const FILTER_LIMIT = 32;
 const EMPTY_TILES: LauncherTileView[] = [];
 const EMPTY_PLATES: LauncherState["plates"] = [];
+const NO_DIALS: LauncherState["dials"] = { G: null, E: null };
 
 const PREVIEW_APPS: DiscoveredApp[] = [
   ["chatgpt", "ChatGPT"],
@@ -97,8 +98,8 @@ const PREVIEW_APPS: DiscoveredApp[] = [
 }));
 
 function hudSlots(config: Parameters<typeof resolveHudSlots>[0], ids: string[]) {
-  const { dock, plates } = resolveHudSlots(config, ids);
-  return { dock, plates };
+  const { dock, plates, dials } = resolveHudSlots(config, ids);
+  return { dock, plates, dials };
 }
 
 function previewState(): LauncherState {
@@ -454,9 +455,14 @@ export function App() {
 
   const tiles = state?.tiles ?? EMPTY_TILES;
   const platesConfig = state?.plates ?? EMPTY_PLATES;
+  const dials = state?.dials ?? NO_DIALS;
+  const reserved = useMemo(
+    () => [dials.G, dials.E].filter((id): id is string => id !== null),
+    [dials.G, dials.E],
+  );
   const layout = useMemo(
-    () => layoutMario(tiles, page, platesConfig),
-    [tiles, page, platesConfig],
+    () => layoutMario(tiles, page, platesConfig, reserved),
+    [tiles, page, platesConfig, reserved],
   );
   const dockLabels = (state?.dock ?? []).map((id) =>
     id ? (tiles.find((tile) => tile.id === id)?.label ?? null) : null,
@@ -515,7 +521,7 @@ export function App() {
       );
       if (next === pageRef.current) return;
       setPage(next);
-      const nextLayout = layoutMario(tiles, next, platesConfig);
+      const nextLayout = layoutMario(tiles, next, platesConfig, reserved);
       const first = nextLayout.ring
         .filter(selectable)
         .sort((a, b) => a.slot - b.slot)[0];
@@ -587,6 +593,34 @@ export function App() {
     const step = powerClick(pendingPower, action, Date.now());
     setPendingPower(step.pending);
     if (step.run) runSystem(action);
+  };
+
+  const launchDial = async (name: "G" | "E") => {
+    const id = dials[name];
+    if (!id) {
+      setNotice(`DIAL ${name} IS EMPTY  SET IT IN SETTINGS`);
+      return;
+    }
+    const bridge = window.jarvis;
+    if (!bridge) return;
+    setNotice("");
+    setStatus((value) => clearLaunchStatus(value));
+    const result = await bridge.launch(id);
+    if (!result.ok) setStatus(launchStatusText(result.error));
+  };
+
+  const talk = async () => {
+    const bridge = window.jarvis;
+    if (!bridge) return;
+    const result = await bridge.talk();
+    if (!result.ok) setNotice((result.error ?? "Voice is unavailable").toUpperCase());
+    else setNotice("");
+  };
+
+  const dialLabel = (name: "G" | "E") => {
+    const id = dials[name];
+    const label = id ? tiles.find((tile) => tile.id === id)?.label : undefined;
+    return label ? `${name} dial: ${label}` : `${name} dial: empty`;
   };
 
   const launchDock = async (index: number) => {
@@ -760,6 +794,58 @@ export function App() {
               battery={battery}
             />
             <Identity />
+            <Shift fx={0} fy={0}>
+              <button
+                type="button"
+                className={`emblem-btn phase-${voice.phase}`}
+                aria-label={voice.phase === "listening" ? "Stop listening" : "Talk to Jarvis"}
+                title={voice.phase === "listening" ? "Stop listening" : "Talk to Jarvis"}
+                onClick={() => void talk()}
+              />
+            </Shift>
+            <Shift fx={0} fy={0.2}>
+              <button
+                type="button"
+                className="clock-btn desk"
+                aria-label="Open the calendar"
+                title="Open the calendar"
+                onClick={() => runSystem("open-calendar")}
+              />
+            </Shift>
+            <Shift fx={1} fy={0}>
+              <button
+                type="button"
+                className="clock-btn day"
+                aria-label="Open the calendar"
+                title="Open the calendar"
+                onClick={() => runSystem("open-calendar")}
+              />
+            </Shift>
+            <Shift fx={1} fy={0.3}>
+              <button
+                type="button"
+                className="clock-btn analog"
+                aria-label="Open the calendar"
+                title="Open the calendar"
+                onClick={() => runSystem("open-calendar")}
+              />
+            </Shift>
+            <Shift fx={0.5} fy={0.5}>
+              <button
+                type="button"
+                className="dial-btn g"
+                aria-label={dialLabel("G")}
+                title={dialLabel("G")}
+                onClick={() => void launchDial("G")}
+              />
+              <button
+                type="button"
+                className="dial-btn e"
+                aria-label={dialLabel("E")}
+                title={dialLabel("E")}
+                onClick={() => void launchDial("E")}
+              />
+            </Shift>
             <Shift fx={0} fy={0}>
               <button
                 type="button"
