@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import type { Place, SettingsValues } from "../shared/settings";
 import type { SystemState } from "../shared/system";
 import type { JarvisBridge, LauncherState, LaunchResult, SystemActionResult, SystemStats, VoiceSnapshot } from "../shared/types";
 
@@ -69,6 +70,10 @@ const api: JarvisBridge = {
   systemAction: (action, value) => ipcRenderer.invoke("jarvis:system-action", action, value ?? 0) as Promise<SystemActionResult>,
   webSearch: (query) => ipcRenderer.invoke("jarvis:web-search", query) as Promise<{ ok: boolean; error?: string }>,
   openConfig: () => ipcRenderer.invoke("jarvis:open-config") as Promise<{ ok: boolean; error?: string }>,
+  getSettings: () => ipcRenderer.invoke("jarvis:get-settings") as Promise<SettingsValues | null>,
+  saveSettings: (values) => ipcRenderer.invoke("jarvis:save-settings", values) as Promise<{ ok: boolean; error?: string }>,
+  findPlace: (query) =>
+    ipcRenderer.invoke("jarvis:find-place", query) as Promise<{ ok: boolean; error?: string; places?: Place[] }>,
 };
 
 contextBridge.exposeInMainWorld("jarvis", api);

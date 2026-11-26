@@ -84,6 +84,9 @@ describe("system controls in the HUD", () => {
         return { ok: true };
       },
       openConfig: async () => ({ ok: true }),
+      getSettings: async () => null,
+      saveSettings: async () => ({ ok: true }),
+      findPlace: async () => ({ ok: true, places: [] }),
     };
     (window as { jarvis?: JarvisBridge }).jarvis = bridge;
     host = document.createElement("div");

@@ -67,6 +67,7 @@ import {
   WeatherPanel,
 } from "./mario/Panels";
 import { Reactor, type PlateState } from "./mario/Reactor";
+import { SettingsPanel } from "./mario/Settings";
 import { Shift, SpareRoomProvider } from "./mario/shift";
 import { startMicrophone } from "./mic";
 
@@ -226,6 +227,9 @@ export function App() {
   const [system, setSystem] = useSystem();
   const [pendingPower, setPendingPower] = useState<PendingPower | null>(null);
   const [notice, setNotice] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsOpenRef = useRef(false);
+  settingsOpenRef.current = settingsOpen;
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const [voice, setVoice] = useState<VoiceSnapshot>(() =>
@@ -272,6 +276,7 @@ export function App() {
       setPendingPower(null);
       setNotice("");
       setSearch("");
+      setSettingsOpen(false);
       queryRef.current = "";
       pageRef.current = 0;
       focusRef.current = null;
@@ -376,6 +381,8 @@ export function App() {
       if (event.isComposing) return;
       // The search box handles its own keys.
       if (event.target instanceof HTMLInputElement) return;
+      // The Settings panel handles its own keys, Esc included.
+      if (settingsOpenRef.current) return;
       const dismiss = () => {
         setStatus((current) => clearLaunchStatus(current));
         setNotice("");
@@ -564,6 +571,18 @@ export function App() {
       .catch(() => setNotice("SYSTEM FAILED"));
   };
 
+  const dismissStatus = () => {
+    setStatus((value) => clearLaunchStatus(value));
+    setNotice("");
+    setPendingPower(null);
+  };
+
+  const onEmptyBin = () => {
+    const step = powerClick(pendingPower, "empty-recyclebin", Date.now());
+    setPendingPower(step.pending);
+    if (step.run) runSystem("empty-recyclebin");
+  };
+
   const onPower = (action: PowerAction) => {
     const step = powerClick(pendingPower, action, Date.now());
     setPendingPower(step.pending);
@@ -582,13 +601,6 @@ export function App() {
     setStatus((value) => clearLaunchStatus(value));
     const result = await bridge.launch(id);
     if (!result.ok) setStatus(launchStatusText(result.error));
-  };
-
-  const openConfig = async () => {
-    const bridge = window.jarvis;
-    if (!bridge) return;
-    const result = await bridge.openConfig();
-    if (!result.ok) setNotice(`SETTINGS FAILED  ${result.error ?? ""}`.trim());
   };
 
   const webSearch = async (value: string) => {
@@ -648,7 +660,7 @@ export function App() {
   const showHint = line !== "SELECT A SYSTEM";
   const warn =
     Boolean(pendingPower) ||
-    Boolean(notice) ||
+    (Boolean(notice) && notice !== "SETTINGS SAVED") ||
     isLaunchStatus(hint) ||
     isVoiceStatus(hint);
 
@@ -748,10 +760,39 @@ export function App() {
               battery={battery}
             />
             <Identity />
+            <Shift fx={0} fy={0}>
+              <button
+                type="button"
+                className="badge-btn"
+                aria-label="Settings"
+                title="Settings"
+                onClick={() => setSettingsOpen(true)}
+              />
+            </Shift>
+            <Shift fx={1} fy={0.75}>
+              <button
+                type="button"
+                className="ok-btn"
+                aria-label="Dismiss message"
+                title="Dismiss message"
+                onClick={dismissStatus}
+              />
+              <button
+                type="button"
+                className="close-btn"
+                aria-label="Hide Jarvis"
+                title="Hide Jarvis"
+                onClick={() => window.jarvis?.hide()}
+              />
+            </Shift>
             <DesktopClock />
             <DayBlock />
             <SystemButtons
-              pending={pendingPower?.action ?? null}
+              pending={
+                pendingPower && pendingPower.action !== "empty-recyclebin"
+                  ? pendingPower.action
+                  : null
+              }
               onPower={onPower}
               brightness={system.brightness}
               onBrightness={(value) => {
@@ -761,7 +802,13 @@ export function App() {
             />
             <VolumeKnobs onStep={(delta) => runSystem("volume-step", delta)} />
             <WeatherPanel report={live.stats?.weather ?? null} />
-            <RamBin stats={live.stats} />
+            <RamBin
+              stats={live.stats}
+              binArmed={pendingPower?.action === "empty-recyclebin"}
+              onRam={() => runSystem("open-taskmgr")}
+              onBin={() => runSystem("open-recyclebin")}
+              onEmptyBin={onEmptyBin}
+            />
             <LeftList />
             <MediaBar
               system={system}
@@ -789,7 +836,7 @@ export function App() {
               }}
               dock={dockLabels}
               onDock={(index) => void launchDock(index)}
-              onSettings={() => void openConfig()}
+              onSettings={() => setSettingsOpen(true)}
             />
 
             <Shift fx={0.5} fy={0}>
@@ -964,6 +1011,19 @@ export function App() {
                 </p>
               ) : null}
             </Shift>
+
+            {settingsOpen ? (
+              <Shift fx={0.5} fy={0.5}>
+                <SettingsPanel
+                  tiles={tiles}
+                  onClose={() => setSettingsOpen(false)}
+                  onSaved={() => {
+                    setSettingsOpen(false);
+                    setNotice("SETTINGS SAVED");
+                  }}
+                />
+              </Shift>
+            ) : null}
           </div>
         </SpareRoomProvider>
       </div>

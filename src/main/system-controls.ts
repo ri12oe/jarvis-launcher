@@ -99,6 +99,10 @@ public static class JarvisAudio {
     if (v.GetMute(out muted) != 0) return;
     v.SetMute(!muted, Guid.Empty);
   }
+  [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern int SHEmptyRecycleBin(IntPtr hwnd, string root, uint flags);
+  public static void EmptyBin() {
+    SHEmptyRecycleBin(IntPtr.Zero, null, 7);
+  }
   [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
   public static void MediaKey(int vk) {
     keybd_event((byte)vk, 0, 1, UIntPtr.Zero);
@@ -203,6 +207,7 @@ while ($true) {
       $session = Get-Session;
       if ($session -ne $null) { $null = Wait-Op ($session.TryChangePlaybackPositionAsync([int64]($arg * 10000000))) ([bool]) };
     }
+    elseif ($op -eq 'emptybin') { [JarvisAudio]::EmptyBin() }
     elseif ($op -eq 'sleep') {
       Add-Type -AssemblyName System.Windows.Forms;
       $null = [System.Windows.Forms.Application]::SetSuspendState([System.Windows.Forms.PowerState]::Suspend, $false, $false);
@@ -229,6 +234,7 @@ const HELPER_OP: Partial<Record<SystemAction, string>> = {
   "mute-toggle": "mute",
   "mic-toggle": "mic",
   "brightness-set": "bright",
+  "empty-recyclebin": "emptybin",
 };
 
 const REQUEST_TIMEOUT_MS = 8000;

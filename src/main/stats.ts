@@ -150,6 +150,11 @@ export class StatsService {
     );
   }
 
+  /** Reads the Recycle Bin again now, after it was emptied from the HUD. */
+  refreshRecycle(): void {
+    void this.tickRecycle();
+  }
+
   private async tickRecycle(): Promise<void> {
     if (!this.windows) return;
     const powershell = system32(

@@ -1,3 +1,4 @@
+import type { Place, SettingsValues } from "./settings";
 import type { SystemAction, SystemState } from "./system";
 /** Names the matcher looks for. One discovered tile per id. */
 export const AI_APP_IDS = [
@@ -257,6 +258,9 @@ export interface JarvisBridge {
   systemAction(action: SystemAction, value?: number): Promise<SystemActionResult>;
   webSearch(query: string): Promise<{ ok: boolean; error?: string }>;
   openConfig(): Promise<{ ok: boolean; error?: string }>;
+  getSettings(): Promise<SettingsValues | null>;
+  saveSettings(values: SettingsValues): Promise<{ ok: boolean; error?: string }>;
+  findPlace(query: string): Promise<{ ok: boolean; error?: string; places?: Place[] }>;
 }
 
 export interface SystemActionResult {

@@ -47,6 +47,14 @@ import type {
 } from "../shared/types";
 import { resolveHudSlots } from "../shared/mario";
 import {
+  checkSettings,
+  geocodeUrl,
+  mergeSettings,
+  parseGeocode,
+  settingsFromConfig,
+  type SettingsValues,
+} from "../shared/settings";
+import {
   checkSystemAction,
   POWER_ACTIONS,
   webSearchUrl,
@@ -507,6 +515,12 @@ const EMPTY_VOICE: VoiceSnapshot = {
   launchError: "",
 };
 
+/** C:\Windows\System32\<file>, or C:\Windows\<file> for explorer.exe. */
+function windowsSystemFile(file: string, system32 = true): string {
+  const root = process.env.SystemRoot ?? "C:\\Windows";
+  return system32 ? path.join(root, "System32", file) : path.join(root, file);
+}
+
 function configPath(): string {
   return configFilePath || path.join(app.getPath("userData"), "config.json");
 }
@@ -671,8 +685,29 @@ function registerIpc(): void {
       // Hide first so the HUD is not left over the desktop after sleep, lock, or sign out.
       if ((POWER_ACTIONS as readonly string[]).includes(checked.action))
         hideWindow();
+      if (checked.action === "open-taskmgr") {
+        // ShellExecute, so Windows can show its own prompt when Task Manager needs one.
+        const problem = await shell.openPath(windowsSystemFile("Taskmgr.exe"));
+        if (problem) return { ok: false, error: "Task Manager did not open" };
+        hideWindow();
+        return { ok: true };
+      }
+      if (checked.action === "open-recyclebin") {
+        try {
+          spawnProcess(windowsSystemFile("explorer.exe", false), ["shell:RecycleBinFolder"], {
+            detached: true,
+            stdio: "ignore",
+            windowsHide: false,
+          }).unref();
+        } catch {
+          return { ok: false, error: "Recycle Bin did not open" };
+        }
+        hideWindow();
+        return { ok: true };
+      }
       try {
         const state = await systemControls.run(checked.action, checked.value);
+        if (checked.action === "empty-recyclebin") stats.refreshRecycle();
         return { ok: true, state };
       } catch (error) {
         return {
@@ -683,6 +718,57 @@ function registerIpc(): void {
       }
     },
   );
+
+  ipcMain.handle("jarvis:get-settings", (event) => {
+    if (!isAppFrame(event)) return null;
+    const config = launcher?.config ?? loadConfig(app.getPath("userData")).config;
+    return settingsFromConfig(config);
+  });
+
+  ipcMain.handle("jarvis:save-settings", async (event, values: unknown) => {
+    if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
+    const problem = checkSettings(values);
+    if (problem) return { ok: false, error: problem };
+    const file = configPath();
+    let raw: Record<string, unknown> = {};
+    try {
+      const text = fs.readFileSync(file, "utf8");
+      const parsed: unknown = JSON.parse(text);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return { ok: false, error: "config.json is not a JSON object; fix it first" };
+      }
+      raw = parsed as Record<string, unknown>;
+    } catch (error) {
+      // A missing file is fine. A file with a syntax error is not overwritten.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        return { ok: false, error: "config.json has a syntax error; fix it first" };
+      }
+    }
+    const merged = mergeSettings(raw, values as SettingsValues);
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const temp = `${file}.tmp`;
+      fs.writeFileSync(temp, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
+      fs.renameSync(temp, file);
+    } catch {
+      return { ok: false, error: "Could not write config.json" };
+    }
+    void refreshGate.requestRefresh().catch(() => undefined);
+    return { ok: true };
+  });
+
+  ipcMain.handle("jarvis:find-place", async (event, query: unknown) => {
+    if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
+    const url = geocodeUrl(query);
+    if (!url) return { ok: false, error: "Type at least two letters" };
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!response.ok) return { ok: false, error: "Place search failed" };
+      return { ok: true, places: parseGeocode(await response.json()) };
+    } catch {
+      return { ok: false, error: "Place search failed" };
+    }
+  });
 
   ipcMain.handle("jarvis:open-config", async (event) => {
     if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };

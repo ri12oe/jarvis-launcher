@@ -225,7 +225,19 @@ export function AnalogClock() {
   );
 }
 
-export function RamBin({ stats }: { stats: SystemStats | null }) {
+export function RamBin({
+  stats,
+  binArmed,
+  onRam,
+  onBin,
+  onEmptyBin,
+}: {
+  stats: SystemStats | null;
+  binArmed: boolean;
+  onRam: () => void;
+  onBin: () => void;
+  onEmptyBin: () => void;
+}) {
   const recycle = stats?.recycle ?? null;
   return (
     <Shift fx={1} fy={0.6}>
@@ -236,7 +248,15 @@ export function RamBin({ stats }: { stats: SystemStats | null }) {
         <p className="ram-free">
           Free:{stats ? formatBytes(stats.ramFreeBytes) : "--"}
         </p>
-        <div className="round-btn ram-btn">RAM</div>
+        <button
+          type="button"
+          className="round-btn ram-btn"
+          aria-label="Open Task Manager"
+          title="Open Task Manager"
+          onClick={onRam}
+        >
+          RAM
+        </button>
         <p className="bin-state">
           {recycle
             ? recycle.items === 0
@@ -247,7 +267,23 @@ export function RamBin({ stats }: { stats: SystemStats | null }) {
         <p className="bin-size">
           {recycle ? formatBytes(recycle.bytes) : "--"}
         </p>
-        <div className="round-btn bin-btn">BIN</div>
+        <button
+          type="button"
+          className={binArmed ? "round-btn bin-btn armed" : "round-btn bin-btn"}
+          aria-label={
+            binArmed
+              ? "Right-click again to empty the Recycle Bin"
+              : "Open Recycle Bin. Right-click to empty it"
+          }
+          title="Open Recycle Bin (right-click to empty)"
+          onClick={onBin}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            onEmptyBin();
+          }}
+        >
+          BIN
+        </button>
       </>
     </Shift>
   );
@@ -1031,7 +1067,7 @@ export function Dock({
         {DOCK_CENTERS.map((x, index) => {
           const settings = index === DOCK_CENTERS.length - 1;
           const label = settings
-            ? "Open config.json"
+            ? "Settings"
             : (dock[index] ??
               `Empty dock slot ${index + 1}: set "dock" in config.json`);
           return (
