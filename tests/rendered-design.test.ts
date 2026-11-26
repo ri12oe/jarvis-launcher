@@ -41,8 +41,7 @@ describe("rendered MARIO OS canvas", () => {
         if (!text || !text.textContent) continue;
         const inner = text.getBoundingClientRect();
         // Tabs are clipped on a slant: 85% of the width at the top, 100% at the bottom.
-        const mid = (inner.top + inner.bottom) / 2;
-        const slant = 0.85 + 0.15 * Math.max(0, Math.min(1, (mid - box.top) / box.height));
+        const slant = 0.85 + 0.15 * Math.max(0, Math.min(1, (inner.top - box.top) / box.height));
         const limit = button.classList.contains("tab") ? box.left + box.width * slant : box.right;
         if (inner.left < box.left - 0.5 || inner.right > limit + 0.5 || inner.bottom > box.bottom + 0.5) {
           clipped.push(text.textContent);
