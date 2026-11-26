@@ -29,6 +29,7 @@ function session(env: NodeJS.ProcessEnv) {
     publish: (snapshot) => published.push(snapshot),
     speak: () => undefined,
     synthesize: async () => ({ bytes: new Uint8Array([1]), contentType: "audio/wav" }),
+    control: async () => undefined,
     modelDir: () => "/nowhere",
     patchEnabled: (text) => text,
   });

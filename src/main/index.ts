@@ -47,7 +47,11 @@ import type {
   VoiceSnapshot,
 } from "../shared/types";
 import { resolveHudSlots } from "../shared/mario";
-import { pickRecent, type RecentItem, type RecentShortcut } from "../shared/recent";
+import {
+  pickRecent,
+  type RecentItem,
+  type RecentShortcut,
+} from "../shared/recent";
 import {
   checkSettings,
   geocodeUrl,
@@ -275,9 +279,20 @@ async function refreshSession(): Promise<void> {
     });
     const view = await tileViews(tiles);
     const config = applyHostSettings(loaded.config, loaded.warnings);
-    const hud = resolveHudSlots(config, tiles.map((tile) => tile.id));
+    const hud = resolveHudSlots(
+      config,
+      tiles.map((tile) => tile.id),
+    );
     loaded.warnings.push(...hud.warnings);
-    launcher = { config, tiles, view, warnings: loaded.warnings, dock: hud.dock, plates: hud.plates, dials: hud.dials };
+    launcher = {
+      config,
+      tiles,
+      view,
+      warnings: loaded.warnings,
+      dock: hud.dock,
+      plates: hud.plates,
+      dials: hud.dials,
+    };
     stats.setWeather(config.weather);
     scanning = false;
     refreshFailed = false;
@@ -541,17 +556,27 @@ const recentTargets = new Map<string, string>();
 async function readRecentFiles(): Promise<RecentItem[]> {
   recentTargets.clear();
   if (process.platform !== "win32") return [];
-  const dir = path.join(app.getPath("appData"), "Microsoft", "Windows", "Recent");
+  const dir = path.join(
+    app.getPath("appData"),
+    "Microsoft",
+    "Windows",
+    "Recent",
+  );
   let names: string[];
   try {
-    names = (await fs.promises.readdir(dir)).filter((name) => name.toLowerCase().endsWith(".lnk"));
+    names = (await fs.promises.readdir(dir)).filter((name) =>
+      name.toLowerCase().endsWith(".lnk"),
+    );
   } catch {
     return [];
   }
   const stamped = await Promise.all(
     names.map(async (name) => {
       try {
-        return { name, mtimeMs: (await fs.promises.stat(path.join(dir, name))).mtimeMs };
+        return {
+          name,
+          mtimeMs: (await fs.promises.stat(path.join(dir, name))).mtimeMs,
+        };
       } catch {
         return { name, mtimeMs: 0 };
       }
@@ -761,30 +786,51 @@ function registerIpc(): void {
           // Windows 11 keeps the calendar in the Notification Center, which
           // its ms-actioncenter: link opens.
           try {
-            spawnProcess(windowsSystemFile("explorer.exe", false), ["ms-actioncenter:"], {
-              detached: true,
-              stdio: "ignore",
-              windowsHide: false,
-            }).unref();
+            spawnProcess(
+              windowsSystemFile("explorer.exe", false),
+              ["ms-actioncenter:"],
+              {
+                detached: true,
+                stdio: "ignore",
+                windowsHide: false,
+              },
+            ).unref();
           } catch {
             return { ok: false, error: "The calendar did not open" };
           }
-          return { ok: true, detail: `Calendar: opened ms-actioncenter: on Windows ${build}` };
+          return {
+            ok: true,
+            detail: `Calendar: opened ms-actioncenter: on Windows ${build}`,
+          };
         }
         try {
           const state = await systemControls.run("open-calendar", 0);
-          return { ok: true, state, detail: `Calendar: sent Win+Alt+D on Windows ${build}` };
+          return {
+            ok: true,
+            state,
+            detail: `Calendar: sent Win+Alt+D on Windows ${build}`,
+          };
         } catch (error) {
-          return { ok: false, error: error instanceof Error ? error.message : "The calendar did not open" };
+          return {
+            ok: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "The calendar did not open",
+          };
         }
       }
       if (checked.action === "open-recyclebin") {
         try {
-          spawnProcess(windowsSystemFile("explorer.exe", false), ["shell:RecycleBinFolder"], {
-            detached: true,
-            stdio: "ignore",
-            windowsHide: false,
-          }).unref();
+          spawnProcess(
+            windowsSystemFile("explorer.exe", false),
+            ["shell:RecycleBinFolder"],
+            {
+              detached: true,
+              stdio: "ignore",
+              windowsHide: false,
+            },
+          ).unref();
         } catch {
           return { ok: false, error: "Recycle Bin did not open" };
         }
@@ -807,7 +853,8 @@ function registerIpc(): void {
 
   ipcMain.handle("jarvis:get-settings", (event) => {
     if (!isAppFrame(event)) return null;
-    const config = launcher?.config ?? loadConfig(app.getPath("userData")).config;
+    const config =
+      launcher?.config ?? loadConfig(app.getPath("userData")).config;
     return settingsFromConfig(config);
   });
 
@@ -821,13 +868,19 @@ function registerIpc(): void {
       const text = fs.readFileSync(file, "utf8");
       const parsed: unknown = JSON.parse(text);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        return { ok: false, error: "config.json is not a JSON object; fix it first" };
+        return {
+          ok: false,
+          error: "config.json is not a JSON object; fix it first",
+        };
       }
       raw = parsed as Record<string, unknown>;
     } catch (error) {
       // A missing file is fine. A file with a syntax error is not overwritten.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        return { ok: false, error: "config.json has a syntax error; fix it first" };
+        return {
+          ok: false,
+          error: "config.json has a syntax error; fix it first",
+        };
       }
     }
     const merged = mergeSettings(raw, values as SettingsValues);
@@ -865,7 +918,8 @@ function registerIpc(): void {
     if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
     // Only a path this process listed itself can be opened.
     const target = typeof id === "string" ? recentTargets.get(id) : undefined;
-    if (!target) return { ok: false, error: "That file is no longer in the list" };
+    if (!target)
+      return { ok: false, error: "That file is no longer in the list" };
     const problem = await shell.openPath(target);
     if (problem) return { ok: false, error: "The file did not open" };
     hideWindow();
@@ -875,10 +929,14 @@ function registerIpc(): void {
   ipcMain.handle("jarvis:locate", async (event) => {
     if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
     try {
-      const response = await fetch(IP_LOCATION_URL, { signal: AbortSignal.timeout(8000) });
+      const response = await fetch(IP_LOCATION_URL, {
+        signal: AbortSignal.timeout(8000),
+      });
       if (!response.ok) return { ok: false, error: "Location lookup failed" };
       const place = parseIpLocation(await response.json());
-      return place ? { ok: true, place } : { ok: false, error: "Location lookup failed" };
+      return place
+        ? { ok: true, place }
+        : { ok: false, error: "Location lookup failed" };
     } catch {
       return { ok: false, error: "Location lookup failed" };
     }
@@ -980,6 +1038,8 @@ if (!gotLock) {
       speak: sendSpeech,
       synthesize: (text, voiceName, signal) =>
         windowsSpeech.speak(text, voiceName, signal),
+      control: (pc) =>
+        systemControls.run(pc.action, pc.value).then(() => undefined),
       modelDir: () => resolveWakeDir(app.getAppPath()),
       patchEnabled: patchVoiceEnabledText,
     });

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  describePc,
+  readPcControl,
+  searchAnswer,
+  spokenText,
   GROQ_API_ROOT,
   GroqError,
   appendChatHistory,
@@ -43,7 +47,7 @@ describe("Groq client", () => {
         },
         ["edge", "explorer"],
       ),
-    ).toEqual({ text: "Opening Edge.", tileId: "edge" });
+    ).toEqual({ text: "Opening Edge.", tileId: "edge", pc: [], search: undefined });
 
     expect(
       parseChatCompletion(
@@ -59,7 +63,7 @@ describe("Groq client", () => {
         },
         ["edge"],
       ),
-    ).toEqual({ text: "I can't open that.", tileId: undefined });
+    ).toEqual({ text: "I can't open that.", tileId: undefined, pc: [], search: undefined });
 
     expect(
       parseChatCompletion(
@@ -102,7 +106,7 @@ describe("Groq client", () => {
       fetchImpl,
     });
 
-    expect(result).toEqual({ text: "The reactor is nominal.", tileId: undefined });
+    expect(result).toEqual({ text: "The reactor is nominal.", tileId: undefined, pc: [], search: undefined });
     expect(seen[0]?.url).toBe(`${GROQ_API_ROOT}/chat/completions`);
     expect(seen[0]?.authorization).toBe(`Bearer ${KEY}`);
     const body = JSON.parse(seen[0]?.body ?? "{}") as {
@@ -176,14 +180,63 @@ describe("Groq client", () => {
     expect(prompt).toContain("1:41");
   });
 
-  it("keeps a short session history", () => {
-    let history = appendChatHistory([], "one", "two");
-    history = appendChatHistory(history, "three", "four");
-    history = appendChatHistory(history, "five", "six");
-    history = appendChatHistory(history, "seven", "eight");
-    history = appendChatHistory(history, "nine", "ten");
-    expect(history).toHaveLength(8);
-    expect(history[0]?.content).toBe("three");
-    expect(history.at(-1)?.content).toBe("ten");
+  it("reads PC controls, refuses power actions, and asks for web searches", () => {
+    const payload = {
+      choices: [
+        {
+          message: {
+            content: "",
+            tool_calls: [
+              { function: { name: "pc_control", arguments: JSON.stringify({ action: "volume_set", value: 140 }) } },
+              { function: { name: "pc_control", arguments: JSON.stringify({ action: "shutdown" }) } },
+              { function: { name: "pc_control", arguments: JSON.stringify({ action: "media_next" }) } },
+              { function: { name: "web_search", arguments: JSON.stringify({ query: " weather in Indianapolis " }) } },
+            ],
+          },
+        },
+      ],
+    };
+    const result = parseChatCompletion(payload, []);
+    expect(result.pc).toEqual([
+      { action: "volume-set", value: 100 },
+      { action: "media-next", value: 0 },
+    ]);
+    expect(result.search).toBe("weather in Indianapolis");
+    expect(readPcControl("volume_change", "-10")).toEqual({ action: "volume-step", value: -10 });
+    expect(readPcControl("brightness_set", undefined)).toBeUndefined();
+    expect(readPcControl("sleep", 0)).toBeUndefined();
+    expect(describePc(result.pc)).toBe("Volume at 100 percent.");
+  });
+
+  it("asks Groq's browser search and turns the answer into speech", async () => {
+    let sent: Record<string, unknown> = {};
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      sent = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "**Sunny** and 45 degrees today【1†L2-L4】. See https://example.com" } }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+    const answer = await searchAnswer({
+      apiKey: KEY,
+      model: "openai/gpt-oss-120b",
+      question: "weather?",
+      history: [],
+      fetchImpl,
+    });
+    expect(answer).toBe("Sunny and 45 degrees today. See");
+    expect(sent.tools).toEqual([{ type: "browser_search" }]);
+    expect(sent.reasoning_effort).toBe("low");
+    expect(spokenText("x".repeat(10) + ". Final answer here.", 20)).toBe("Final answer here.");
+  });
+
+  it("keeps the last ten exchanges", () => {
+    let history = appendChatHistory([], "q0", "a0");
+    for (let i = 1; i < 12; i++) history = appendChatHistory(history, `q${i}`, `a${i}`);
+    expect(history).toHaveLength(20);
+    expect(history[0]?.content).toBe("q2");
+    expect(history.at(-1)?.content).toBe("a11");
   });
 });

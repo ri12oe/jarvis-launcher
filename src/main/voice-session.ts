@@ -22,8 +22,12 @@ import {
   appendChatHistory,
   completeChat,
   jarvisSystemPrompt,
+  describePc,
   redactSecret,
+  searchAnswer,
+  spokenText,
   transcribeWav,
+  type PcAction,
   type ChatMessage,
   type SpeechAudio,
 } from "../shared/groq";
@@ -53,6 +57,8 @@ export interface VoiceHost {
     voice: string,
     signal: AbortSignal,
   ): Promise<SpeechAudio>;
+  /** Run a checked PC control (volume, media, brightness) the model asked for. */
+  control(action: PcAction): Promise<void>;
   modelDir(): string;
   patchEnabled(text: string, enabled: boolean): string | undefined;
 }
@@ -92,8 +98,8 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
     return gen === generation && !stopped;
   }
 
-  function requestSignal(): AbortSignal {
-    return AbortSignal.any([abort.signal, AbortSignal.timeout(25000)]);
+  function requestSignal(ms = 30000): AbortSignal {
+    return AbortSignal.any([abort.signal, AbortSignal.timeout(ms)]);
   }
 
   function refreshAbort(): void {
@@ -300,6 +306,36 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
         signal: requestSignal(),
       });
       if (!alive(gen)) return;
+      if (result.search) {
+        hud = reduceVoice(hud, { type: "working" });
+        publish();
+        const answer = await searchAnswer({
+          apiKey: key,
+          model: voice.model,
+          question: text,
+          history,
+          signal: requestSignal(60000),
+        });
+        if (!alive(gen)) return;
+        const line = answer || "I couldn't find that.";
+        history = appendChatHistory(history, text, line);
+        await say(gen, line);
+        return;
+      }
+      if (result.pc.length > 0) {
+        for (const action of result.pc) {
+          try {
+            await host.control(action);
+          } catch {
+            // Speak what was meant; the HUD shows the real state.
+          }
+        }
+        if (!alive(gen)) return;
+        const line = spokenText(result.text) || describePc(result.pc);
+        history = appendChatHistory(history, text, line);
+        await say(gen, line);
+        return;
+      }
       if (result.tileId) {
         const tile = tiles.find((item) => item.id === result.tileId);
         const line = result.text || (tile ? `Opening ${tile.label}.` : "");
@@ -314,7 +350,7 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
         await say(gen, line);
         return;
       }
-      const line = result.text.trim();
+      const line = spokenText(result.text, 1200);
       if (!line) {
         hud = reduceVoice(hud, { type: "reply", text: "" });
         publish();
@@ -322,9 +358,12 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       }
       history = appendChatHistory(history, text, line);
       await say(gen, line);
-    } catch {
+    } catch (caught) {
       if (!alive(gen)) return;
-      error = "Could not reach Groq";
+      const message = caught instanceof Error ? caught.message : "";
+      error = message.includes("(429)")
+        ? "Groq is busy, try again in a minute"
+        : "Could not reach Groq";
       hud = reduceVoice(hud, { type: "fail" });
       publish();
     }

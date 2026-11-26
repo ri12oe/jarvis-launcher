@@ -10,8 +10,8 @@ export const DEFAULT_LAUNCH_WINDOW: LaunchWindowConfig = {
   heightPct: 70,
 };
 
-/** Chat model on Groq's free plan. It supports the open_tile tool call. */
-export const DEFAULT_CHAT_MODEL = "openai/gpt-oss-20b";
+/** Groq's larger free model. It supports tool calls and built-in browser search. */
+export const DEFAULT_CHAT_MODEL = "openai/gpt-oss-120b";
 
 /** Speech-to-text model on Groq's free plan. */
 export const DEFAULT_STT_MODEL = "whisper-large-v3-turbo";

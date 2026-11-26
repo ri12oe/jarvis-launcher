@@ -134,7 +134,11 @@ Say "hey jarvis". The window shows if it was hidden, and the reactor marks liste
 - `hide` hides the window
 - `refresh` reloads the tile list
 - `stop` or `cancel`, said in the utterance after the wake word, ends the turn without calling Groq. Saying "hey jarvis" again, including while a reply is still being written or played, is heard on this PC and starts a new listen. That second phrase is not uploaded by itself
-- anything else is a short chat with the Groq model, and Jarvis speaks the answer
+- anything else goes to the Groq model (`openai/gpt-oss-120b` by default), and Jarvis speaks the answer. It remembers the last ten exchanges, so follow-up questions work. It can also:
+  - look things up on the web with Groq's built-in browser search, for news, weather, scores, and prices
+  - change the volume, mute the speakers or the mic, play, pause, or skip media, and set the brightness. Sleep, restart, shut down, sign out, and emptying the Recycle Bin are never offered to the voice, so a misheard word cannot lose work
+
+Web searches use more of Groq's free per-minute token limit. If it runs out, the status bar says `Groq is busy, try again in a minute`.
 
 What was heard and the reply show inside the reactor, below the centre number. The text stays clear of the tiles. The model may also ask to open a tile. Only a tile id that is on screen is accepted.
 
@@ -143,7 +147,7 @@ Optional `voice` fields in `config.json`:
 ```json
 "voice": {
   "apiKeyEnv": "GROQ_API_KEY",
-  "model": "openai/gpt-oss-20b",
+  "model": "openai/gpt-oss-120b",
   "voiceId": "george",
   "sttModel": "whisper-large-v3-turbo"
 }
@@ -213,7 +217,7 @@ A broken file is left as it is. The launcher uses defaults in memory until the J
   "labels": { "cursor": "Cursor IDE" },
   "voice": {
     "apiKeyEnv": "GROQ_API_KEY",
-    "model": "openai/gpt-oss-20b",
+    "model": "openai/gpt-oss-120b",
     "voiceId": "george",
     "sttModel": "whisper-large-v3-turbo"
   },
