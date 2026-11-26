@@ -700,6 +700,24 @@ function registerIpc(): void {
         hideWindow();
         return { ok: true };
       }
+      if (
+        checked.action === "open-calendar" &&
+        calendarShortcut(os.release()) === "win-n"
+      ) {
+        // Windows 11 keeps the calendar in the Notification Center. Its
+        // ms-actioncenter: link is what the taskbar clock opens, so no key
+        // presses are faked.
+        try {
+          spawnProcess(windowsSystemFile("explorer.exe", false), ["ms-actioncenter:"], {
+            detached: true,
+            stdio: "ignore",
+            windowsHide: false,
+          }).unref();
+        } catch {
+          return { ok: false, error: "The calendar did not open" };
+        }
+        return { ok: true };
+      }
       if (checked.action === "open-recyclebin") {
         try {
           spawnProcess(windowsSystemFile("explorer.exe", false), ["shell:RecycleBinFolder"], {

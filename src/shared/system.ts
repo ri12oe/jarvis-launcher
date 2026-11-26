@@ -111,8 +111,9 @@ export function checkSystemAction(
 }
 
 /**
- * Windows 11 (build 22000 and later) keeps the calendar in the notification
- * panel, opened with Win+N. Windows 10 opens its date flyout with Win+Alt+D.
+ * Windows 11 (build 22000 and later) keeps the calendar in the Notification
+ * Center, which the main process opens through its ms-actioncenter: link.
+ * Windows 10 opens its date flyout with Win+Alt+D.
  * `release` is os.release(), for example "10.0.22631".
  */
 export function calendarShortcut(release: string): "win-n" | "win-alt-d" {
