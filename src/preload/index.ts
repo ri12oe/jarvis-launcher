@@ -54,10 +54,14 @@ const api: JarvisBridge = {
     ipcRenderer.send("jarvis:voice-pcm", pcm);
   },
   onSpeak: (listener) => {
-    const wrapped = (_event: IpcRendererEvent, payload: { audio?: unknown; contentType?: unknown }) => {
+    const wrapped = (
+      _event: IpcRendererEvent,
+      payload: { audio?: unknown; contentType?: unknown; effect?: unknown },
+    ) => {
       const audio = toArrayBuffer(payload?.audio);
       const contentType = typeof payload?.contentType === "string" ? payload.contentType : "audio/mpeg";
-      if (audio) listener(audio, contentType);
+      const effect = payload?.effect === "none" ? "none" : "jarvis";
+      if (audio) listener(audio, contentType, effect);
     };
     ipcRenderer.on("jarvis:voice-speak", wrapped);
     return () => {

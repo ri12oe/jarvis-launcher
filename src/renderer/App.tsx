@@ -73,6 +73,7 @@ import { Reactor, type PlateState } from "./mario/Reactor";
 import { SettingsPanel } from "./mario/Settings";
 import { Shift, SpareRoomProvider } from "./mario/shift";
 import { startMicrophone } from "./mic";
+import { routeVoice } from "./voice-fx";
 
 const FILTER_LIMIT = 32;
 const EMPTY_TILES: LauncherTileView[] = [];
@@ -389,7 +390,7 @@ export function App() {
   useEffect(() => {
     const bridge = window.jarvis;
     if (!bridge) return;
-    return bridge.onSpeak((audio, contentType) => {
+    return bridge.onSpeak((audio, contentType, effect) => {
       stopAudio();
       const url = URL.createObjectURL(
         new Blob([audio], { type: contentType || "audio/mpeg" }),
@@ -397,6 +398,7 @@ export function App() {
       audioUrlRef.current = url;
       const element = new Audio(url);
       audioRef.current = element;
+      routeVoice(element, effect);
       const finish = () => {
         if (audioRef.current !== element) return;
         stopAudio();

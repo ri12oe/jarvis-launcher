@@ -169,6 +169,13 @@ describe("Groq client", () => {
     ).resolves.toBe("open edge");
   });
 
+  it("tells the model the local date and time, since it has no clock", () => {
+    const now = new Date(2026, 10, 26, 13, 41);
+    const prompt = jarvisSystemPrompt([], now);
+    expect(prompt).toContain("Thursday, November 26, 2026");
+    expect(prompt).toContain("1:41");
+  });
+
   it("keeps a short session history", () => {
     let history = appendChatHistory([], "one", "two");
     history = appendChatHistory(history, "three", "four");

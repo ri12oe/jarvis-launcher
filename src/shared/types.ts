@@ -90,7 +90,11 @@ export interface VoiceConfig {
   voiceId: string;
   /** Groq speech-to-text model id. */
   sttModel: string;
+  /** "jarvis" (the default when unset) plays replies through an AI-style filter. "none" plays the plain voice. */
+  effect?: VoiceEffect;
 }
+
+export type VoiceEffect = "jarvis" | "none";
 
 /** Renderer view of voice. It never includes the API key. */
 export interface VoiceSnapshot {
@@ -265,7 +269,7 @@ export interface JarvisBridge {
   setVoiceEnabled(enabled: boolean): Promise<void>;
   /** 16 kHz mono PCM16 captured after the mic is open. Stays on this machine until the wake word. */
   pushAudio(pcm: ArrayBuffer): void;
-  onSpeak(listener: (audio: ArrayBuffer, contentType: string) => void): () => void;
+  onSpeak(listener: (audio: ArrayBuffer, contentType: string, effect: VoiceEffect) => void): () => void;
   playbackEnded(): void;
   reportVoiceError(message: string): void;
   getStats(): Promise<SystemStats>;

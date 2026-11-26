@@ -591,6 +591,7 @@ function sendSpeech(audio: Uint8Array, contentType: string): void {
   contents.send("jarvis:voice-speak", {
     audio: Buffer.from(audio),
     contentType,
+    effect: launcher?.config.voice.effect ?? "jarvis",
   });
 }
 

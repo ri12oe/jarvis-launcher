@@ -149,6 +149,9 @@ describe("config parsing", () => {
     expect(broken.config.voice.model).toBe(DEFAULT_CHAT_MODEL);
     expect(broken.config.voice.apiKeyEnv).toBe("GROQ_API_KEY");
     expect(broken.warnings.join(" ")).toMatch(/voice.enabled/);
+    expect(parseConfig({ voice: { effect: "none" } }).config.voice.effect).toBe("none");
+    expect(parseConfig({}).config.voice.effect).toBeUndefined();
+    expect(parseConfig({ voice: { effect: "loud" } }).warnings.join(" ")).toMatch(/voice.effect/);
     expect(parseConfig({ voice: [] }).warnings).toEqual(["voice must be an object; using defaults"]);
     expect(voicePreferenceOn(parseConfig({}).config.voice, true)).toBe(true);
     expect(voicePreferenceOn(parseConfig({}).config.voice, false)).toBe(false);

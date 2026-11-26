@@ -21,10 +21,24 @@ export class GroqError extends Error {
   }
 }
 
-export function jarvisSystemPrompt(tiles: readonly VoiceTile[]): string {
+/** "Thursday, November 26, 2026 at 1:41 PM" in this PC's time zone. */
+export function spokenNow(now: Date): string {
+  return now.toLocaleString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+export function jarvisSystemPrompt(tiles: readonly VoiceTile[], now: Date = new Date()): string {
   const list = tiles.map((tile) => `${tile.id} (${tile.label})`).join(", ");
   return [
     "You are JARVIS, the voice of a personal Windows launcher.",
+    // The model has no clock. Without this it guesses the date from its training data.
+    `The local date and time right now is ${spokenNow(now)}. Use it when asked the day, date, or time.`,
     "Reply in one or two short spoken sentences. No markdown, no lists, and no emoji.",
     "You can open a tile by calling open_tile. Use only an id from this list:",
     list || "(no tiles)",

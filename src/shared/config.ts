@@ -476,6 +476,10 @@ function readVoice(value: unknown, warnings: string[]): VoiceConfig {
     if (typeof value.enabled === "boolean") voice.enabled = value.enabled;
     else warnings.push("voice.enabled must be a boolean; leaving it unset");
   }
+  if (value.effect !== undefined) {
+    if (value.effect === "jarvis" || value.effect === "none") voice.effect = value.effect;
+    else warnings.push('voice.effect must be "jarvis" or "none"; using jarvis');
+  }
   return voice;
 }
 
