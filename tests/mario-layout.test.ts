@@ -3,6 +3,7 @@ import {
   DESIGN_H,
   DESIGN_W,
   fitCanvas,
+  shift,
   firstFocus,
   layoutMario,
   OPEN_PLATES,
@@ -86,13 +87,19 @@ describe("MARIO OS slots", () => {
     expect(stepMario(layout, { zone: "tab", slot: 3 }, "ArrowRight", onlyFilled)).toEqual({ zone: "tab", slot: 0 });
   });
 
-  it("fits the canvas inside any window without stretching it", () => {
-    expect(fitCanvas(1920, 1080).scale).toBeCloseTo(Math.min(1920 / DESIGN_W, 1080 / DESIGN_H), 5);
-    const wide = fitCanvas(3440, 1440);
-    expect(wide.scale).toBeCloseTo(1440 / DESIGN_H, 5);
-    expect(wide.left).toBeCloseTo((3440 - DESIGN_W * wide.scale) / 2, 5);
-    const tall = fitCanvas(1280, 1024);
-    expect(tall.scale).toBeCloseTo(1280 / DESIGN_W, 5);
-    expect(tall.top).toBeGreaterThan(0);
+  it("scales without stretching and hands the spare room to one axis", () => {
+    const wide = fitCanvas(1920, 1080);
+    expect(wide.scale).toBeCloseTo(Math.min(1920 / DESIGN_W, 1080 / DESIGN_H), 5);
+    const surface = fitCanvas(1504, 1003);
+    expect(surface.scale).toBeCloseTo(1504 / DESIGN_W, 5);
+    expect(surface.extraX).toBe(0);
+    expect(surface.extraY).toBeCloseTo(1003 / surface.scale - DESIGN_H, 5);
+    expect(surface.extraY).toBeGreaterThan(100);
+    const ultra = fitCanvas(2560, 1080);
+    expect(ultra.extraY).toBe(0);
+    expect((DESIGN_W + ultra.extraX) * ultra.scale).toBeCloseTo(2560, 3);
+    expect(shift(surface, 0, 0)).toEqual({ x: 0, y: 0 });
+    expect(shift(surface, 0.5, 1).y).toBeCloseTo(surface.extraY, 5);
+    expect(shift(surface, 0.5, 0.5).y).toBeCloseTo(surface.extraY / 2, 5);
   });
 });

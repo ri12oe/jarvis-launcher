@@ -225,8 +225,30 @@ export function plateAngle(slot: number): number {
   return ((slot + 0.5) * 2 * Math.PI) / RING_COUNT;
 }
 
-/** Scale and offset that fit the design canvas inside the window, centred. */
-export function fitCanvas(width: number, height: number): { scale: number; left: number; top: number } {
+export interface CanvasFit {
+  /** Uniform scale, so circles stay round. */
+  scale: number;
+  /** Design pixels the window has beyond 1192 x 670 on each axis. One of them is always 0. */
+  extraX: number;
+  extraY: number;
+}
+
+/**
+ * Scale the design to the window without stretching it. On a screen that is
+ * not 16:9 the spare room is not left as black bars: each panel group is moved
+ * by its share of it (see `shift`), so the header stays on the top edge, the
+ * bottom row on the bottom edge, and everything between spreads out evenly.
+ */
+export function fitCanvas(width: number, height: number): CanvasFit {
   const scale = Math.min(width / DESIGN_W, height / DESIGN_H);
-  return { scale, left: (width - DESIGN_W * scale) / 2, top: (height - DESIGN_H * scale) / 2 };
+  return {
+    scale,
+    extraX: Math.max(0, width / scale - DESIGN_W),
+    extraY: Math.max(0, height / scale - DESIGN_H),
+  };
+}
+
+/** Offset for a panel group. `fx` and `fy` are 0 at the left/top edge and 1 at the right/bottom edge. */
+export function shift(fit: Pick<CanvasFit, "extraX" | "extraY">, fx: number, fy: number): { x: number; y: number } {
+  return { x: fit.extraX * fx, y: fit.extraY * fy };
 }

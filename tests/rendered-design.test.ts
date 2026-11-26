@@ -8,6 +8,8 @@ const VIEWPORTS = [
   { width: 1920, height: 1080 },
   { width: 2560, height: 1440 },
   { width: 1280, height: 1024 },
+  { width: 1504, height: 1003 },
+  { width: 2560, height: 1080 },
 ];
 
 describe("rendered MARIO OS canvas", () => {
@@ -25,7 +27,7 @@ describe("rendered MARIO OS canvas", () => {
     await server?.close();
   });
 
-  it.each(VIEWPORTS)("fits the screen and keeps every label inside its slot at %j", async (viewport) => {
+  it.each(VIEWPORTS)("fills the screen and keeps every label inside its slot at %j", async (viewport) => {
     const page = await browser.newPage({ viewport });
     await page.goto(`http://127.0.0.1:${PORT}/`);
     await page.waitForSelector(".tab .slot-text");
@@ -46,7 +48,25 @@ describe("rendered MARIO OS canvas", () => {
           clipped.push(text.textContent);
         }
       }
+      // Slot buttons and the bottom tray must not land on each other after the spare room is spread.
+      const boxes = [...document.querySelectorAll<HTMLElement>(".tab, .launcher, .plate-btn, .cmd, .page-btn, .round-btn")].map(
+        (node) => ({
+          name: node.getAttribute("aria-label") || node.className,
+          tab: node.classList.contains("tab"),
+          rect: node.getBoundingClientRect(),
+        }),
+      );
+      const overlaps: string[] = [];
+      boxes.forEach((a, i) =>
+        boxes.slice(i + 1).forEach((b) => {
+          const x = Math.min(a.rect.right, b.rect.right) - Math.max(a.rect.left, b.rect.left);
+          const y = Math.min(a.rect.bottom, b.rect.bottom) - Math.max(a.rect.top, b.rect.top);
+          // Neighbouring tabs share a slanted edge in the design.
+          if (x > 1 && y > 1 && !(a.tab && b.tab)) overlaps.push(`${a.name} / ${b.name}`);
+        }),
+      );
       return {
+        overlaps,
         canvas: { left: canvas.left, top: canvas.top, right: canvas.right, bottom: canvas.bottom },
         clipped,
         tabs: document.querySelectorAll(".tab").length,
@@ -56,13 +76,12 @@ describe("rendered MARIO OS canvas", () => {
     await page.close();
     expect(report.tabs).toBe(6);
     expect(report.launchers).toBe(6);
-    expect(report.canvas.left).toBeGreaterThanOrEqual(-0.5);
-    expect(report.canvas.top).toBeGreaterThanOrEqual(-0.5);
-    expect(report.canvas.right).toBeLessThanOrEqual(viewport.width + 0.5);
-    expect(report.canvas.bottom).toBeLessThanOrEqual(viewport.height + 0.5);
-    expect(Math.max(report.canvas.right - report.canvas.left, report.canvas.bottom - report.canvas.top)).toBeGreaterThan(
-      Math.min(viewport.width, viewport.height),
-    );
+    // No black bars: the canvas covers the whole window, edge to edge.
+    expect(report.canvas.left).toBeCloseTo(0, 0);
+    expect(report.canvas.top).toBeCloseTo(0, 0);
+    expect(report.canvas.right).toBeCloseTo(viewport.width, 0);
+    expect(report.canvas.bottom).toBeCloseTo(viewport.height, 0);
+    expect(report.overlaps).toEqual([]);
     expect(report.clipped).toEqual([]);
   });
 });

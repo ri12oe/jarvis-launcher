@@ -6,7 +6,7 @@ Click a tile to open that app or folder. The launcher only reads Start Menu shor
 
 ## UI
 
-The HUD is the MARIO OS design from Figma (`MARIO OS UI`, frame `4:2`). It is drawn on a fixed 1192 x 670 canvas and scaled to fill the screen, so every panel sits where it does in the design. A screen that is not 16:9 gets black bars on two sides rather than a stretched layout. Text in the slots is copied from the design as it is written there, including spellings such as `Copiiolt`, `Gemmi`, `V3 Code`, `Mircosoft Doc`, and `Spoftiy`.
+The HUD is the MARIO OS design from Figma (`MARIO OS UI`, frame `4:2`). It is drawn on a fixed 1192 x 670 canvas and scaled to fill the screen, so every panel sits where it does in the design. The scale is the same on both axes, so circles stay round. On a screen that is not 16:9 (a 3:2 laptop, a 5:4 monitor, an ultrawide) there are no black bars: the header stays on the top edge, the bottom row on the bottom edge, and the panels between spread out to share the extra room. Panels keep their size, and only the gaps between them grow. Text in the slots is copied from the design as it is written there, including spellings such as `Copiiolt`, `Gemmi`, `V3 Code`, `Mircosoft Doc`, and `Spoftiy`.
 
 Named slots open real apps:
 

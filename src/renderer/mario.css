@@ -42,8 +42,6 @@ body,
   position: absolute;
   left: 0;
   top: 0;
-  width: 1192px;
-  height: 670px;
   transform-origin: 0 0;
   background: radial-gradient(ellipse at 50% 50%, #07090b 0%, #020303 70%, #000 100%);
   font-family: var(--f-ui);
@@ -1157,15 +1155,15 @@ body,
 
 .plate-btn {
   position: absolute;
-  width: 50px;
-  height: 30px;
+  width: 42px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .plate-label {
-  max-width: 46px;
+  max-width: 44px;
   font-family: var(--f-tech);
   font-size: 7.4px;
   line-height: 1.05;
@@ -1644,4 +1642,14 @@ body,
   .tab {
     transition: none;
   }
+}
+
+/* Panel groups. Each one is moved by its share of the spare room on non-16:9 screens. */
+.shift {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1192px;
+  height: 670px;
+  pointer-events: none;
 }
