@@ -61,7 +61,7 @@ Anything the PC cannot report shows `--`. The weather panel reads `--` until a l
 | Check and cross box | The check clears the status message. The cross hides Jarvis. |
 | Gear in the dock, or the badge in the identity panel | Opens Settings |
 | Emblem (the glowing circle, top left) | Push to talk: starts listening without "hey Jarvis". Click again while it listens to cancel. It glows while listening and pulses while thinking or speaking. It needs a key and voice turned on, and works even if the wake word model did not load. |
-| Big clock, the date block, or the analog clock | Hides Jarvis and opens the Windows calendar flyout (the same as Win+Alt+D) |
+| Big clock, the date block, or the analog clock | Opens the Windows calendar over the HUD: the Notification Center on Windows 11, the date flyout (Win+Alt+D) on Windows 10. Jarvis stays open, because Windows closes that panel as soon as focus moves. |
 | `G` dial at the top of the reactor | Opens Google by default |
 | `E` dial at the right of the reactor | Opens File Explorer by default |
 | Google pill | A search box. Click it or press `/`, type, and press Enter to search Google in your default browser. Esc clears it. |

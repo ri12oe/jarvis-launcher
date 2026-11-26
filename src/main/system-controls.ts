@@ -221,7 +221,7 @@ while ($true) {
       if ($session -ne $null) { $null = Wait-Op ($session.TryChangePlaybackPositionAsync([int64]($arg * 10000000))) ([bool]) };
     }
     elseif ($op -eq 'emptybin') { [JarvisAudio]::EmptyBin() }
-    elseif ($op -eq 'calendar') { Start-Sleep -Milliseconds 250; [JarvisAudio]::Calendar([int]$arg -eq 1) }
+    elseif ($op -eq 'calendar') { Start-Sleep -Milliseconds 100; [JarvisAudio]::Calendar([int]$arg -eq 1) }
     elseif ($op -eq 'sleep') {
       Add-Type -AssemblyName System.Windows.Forms;
       $null = [System.Windows.Forms.Application]::SetSuspendState([System.Windows.Forms.PowerState]::Suspend, $false, $false);

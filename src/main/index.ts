@@ -687,11 +687,10 @@ function registerIpc(): void {
       const checked = checkSystemAction(action, value);
       if (!checked) return { ok: false, error: "Unknown action" };
       // Hide first so the HUD is not left over the desktop after sleep, lock, or
-      // sign out, and so the calendar flyout opens on top.
-      if (
-        (POWER_ACTIONS as readonly string[]).includes(checked.action) ||
-        checked.action === "open-calendar"
-      )
+      // sign out. The calendar is the exception: Windows closes its panel as
+      // soon as focus moves, and hiding Jarvis moves focus. The panel is
+      // topmost, so it opens over the HUD instead.
+      if ((POWER_ACTIONS as readonly string[]).includes(checked.action))
         hideWindow();
       if (checked.action === "open-taskmgr") {
         // ShellExecute, so Windows can show its own prompt when Task Manager needs one.
