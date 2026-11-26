@@ -29,6 +29,7 @@ import {
   windowsExplorerPath,
 } from "../shared/launch";
 import {
+  centeredWindowRect,
   centerLaunchedWindow,
   LAUNCH_BASELINE_WAIT_MS,
   LAUNCH_WINDOW_WATCH_MS,
@@ -442,6 +443,74 @@ function hideWindow(): void {
   if (!win.webContents.isDestroyed()) win.webContents.send("jarvis:hidden");
 }
 
+/**
+ * Center a window over the HUD, the same size a launched tile gets, and leave
+ * Jarvis up behind it. Does nothing when launchWindow.mode is "default".
+ */
+async function popUpWindow(hwnd: number): Promise<boolean> {
+  const win = mainWindow;
+  const launchWindow = launcher?.config.launchWindow;
+  if (process.platform !== "win32" || !win || win.isDestroyed()) return false;
+  if (!launchWindow || launchWindow.mode !== "centered") return false;
+  if (!Number.isSafeInteger(hwnd) || hwnd <= 0) return false;
+  const watch = placementHelper.serve(2000);
+  try {
+    const workArea = screen.getDisplayMatching(win.getBounds()).workArea;
+    const dip = centeredWindowRect(
+      workArea,
+      launchWindow.widthPct,
+      launchWindow.heightPct,
+    );
+    const rect = screen.dipToScreenRect(win, dip);
+    return await watch.place(hwnd, {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.max(1, Math.round(rect.width)),
+      height: Math.max(1, Math.round(rect.height)),
+    });
+  } catch {
+    return false;
+  } finally {
+    watch.close();
+  }
+}
+
+/**
+ * Open something (a file, a web page, Task Manager), then pop the window that
+ * comes to the front up over the HUD. Jarvis stays visible.
+ */
+async function openAsPopUp(open: () => Promise<void>): Promise<void> {
+  if (process.platform !== "win32") {
+    await open();
+    return;
+  }
+  const before = await windowsInput.foreground().catch(() => undefined);
+  await open();
+  const until = Date.now() + 5000;
+  while (Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const front = await windowsInput.foreground().catch(() => undefined);
+    if (
+      front &&
+      front.hwnd !== 0 &&
+      front.hwnd !== before?.hwnd &&
+      front.pid !== process.pid
+    ) {
+      await popUpWindow(front.hwnd);
+      return;
+    }
+  }
+}
+
+/** Pop up the window in front, unless it is Jarvis. */
+async function popUpFront(): Promise<void> {
+  if (process.platform !== "win32") return;
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const front = await windowsInput.foreground().catch(() => undefined);
+  if (front && front.hwnd !== 0 && front.pid !== process.pid)
+    await popUpWindow(front.hwnd);
+}
+
 function toggleWindow(): void {
   if (!mainWindow) return;
   if (mainWindow.isVisible()) hideWindow();
@@ -707,6 +776,8 @@ const computerHost: ComputerHost = {
   writeFile: (file, text) =>
     fs.writeFileSync(file, text, { flag: text ? "w" : "wx" }),
   ownPid: () => process.pid,
+  popUp: (hwnd) => popUpWindow(hwnd),
+  setTaskbarAutoHide: (on) => windowsInput.taskbarAutoHide(on),
   now: () => Date.now(),
   sleep: (ms, signal) =>
     new Promise((resolve, reject) => {
@@ -805,13 +876,15 @@ async function launchTile(tileId: string): Promise<LaunchResult> {
     const before = await placementHelper.sample(LAUNCH_BASELINE_WAIT_MS);
     if (!before) {
       try {
-        await execute(tile.action);
+        // The window list was not ready. Pop whatever comes to the front.
+        await openAsPopUp(async () => {
+          await execute(tile.action);
+        });
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Launch failed";
         return { ok: false, error: message };
       }
-      hideWindow();
       return { ok: true };
     }
     baseline = before.windows.map((window) => window.hwnd);
@@ -828,7 +901,10 @@ async function launchTile(tileId: string): Promise<LaunchResult> {
         serial,
         baseline,
       );
-      if (outcome === "missed") hideWindow();
+      // Web pages open as a tab in a browser that was already running, so
+      // there is no new window to find. Pop up whatever is in front instead
+      // of hiding Jarvis.
+      if (outcome === "missed") void popUpFront();
       return { ok: true };
     } finally {
       watch.close();
@@ -888,7 +964,8 @@ function registerIpc(): void {
         // ShellExecute, so Windows can show its own prompt when Task Manager needs one.
         const problem = await shell.openPath(windowsSystemFile("Taskmgr.exe"));
         if (problem) return { ok: false, error: "Task Manager did not open" };
-        hideWindow();
+        // Jarvis stays up; Task Manager opens over it.
+        void popUpFront();
         return { ok: true };
       }
       if (checked.action === "open-calendar") {
@@ -950,7 +1027,7 @@ function registerIpc(): void {
         } catch {
           return { ok: false, error: "Recycle Bin did not open" };
         }
-        hideWindow();
+        void popUpFront();
         return { ok: true };
       }
       try {
@@ -1038,7 +1115,7 @@ function registerIpc(): void {
       return { ok: false, error: "That file is no longer in the list" };
     const problem = await shell.openPath(target);
     if (problem) return { ok: false, error: "The file did not open" };
-    hideWindow();
+    void popUpFront();
     return { ok: true };
   });
 
@@ -1063,7 +1140,7 @@ function registerIpc(): void {
     // Opens the file in the default editor for .json. Jarvis re-reads it when it is saved.
     const problem = await shell.openPath(configPath());
     if (problem) return { ok: false, error: "Could not open config.json" };
-    hideWindow();
+    void popUpFront();
     return { ok: true };
   });
 
@@ -1073,7 +1150,7 @@ function registerIpc(): void {
     if (!url) return { ok: false, error: "Empty search" };
     try {
       await shell.openExternal(url);
-      hideWindow();
+      void popUpFront();
       return { ok: true };
     } catch {
       return { ok: false, error: "Browser did not open" };

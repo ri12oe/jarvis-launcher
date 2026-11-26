@@ -142,12 +142,13 @@ Web searches use more of Groq's free per-minute token limit. If it runs out, the
 
 ### Computer control (Windows)
 
-Jarvis can also work the PC for you. It says its plan out loud, hides, and does it in front of you:
+Jarvis can also work the PC for you. It says its plan out loud and does it in front of you, with each window it opens centered over the HUD:
 
 - "Open VS Code and write a hello world Python file": VS Code opens a new file in `Documents\Jarvis Projects`, the code is typed in live, and the file is saved. That folder has its own `.vscode/settings.json` that turns off auto-closing brackets, auto-indent, and suggestions, so VS Code types exactly what Jarvis sends. Your other folders are not affected. An existing file is never overwritten; a second `hello.py` becomes `hello-2.py`
 - "Draft an email to my TA at ta@iu.edu about the lab": Outlook opens a new draft with the recipient and subject, and the message is typed in. Jarvis never sends it; you review it and press Send. Outlook must be the default email app (Settings > Apps > Default apps). If Jarvis does not know the address, it asks
 - "Play Blinding Lights on Spotify": Spotify opens on the search results, and you press play
 - "Switch to dark mode", "open Bluetooth settings", "set the volume to 30"
+- "Hide the taskbar" turns on taskbar auto-hide (the same switch as Settings > Personalization > Taskbar > Taskbar behaviors), and "show the taskbar" turns it off
 - "Open Figma", "open Discord": any app in the Start menu opens, Store apps and desktop installs alike
 - "Open Microsoft Edge and go to YouTube", "search YouTube for lofi beats", "open iu.edu": the site opens in Microsoft Edge. Jarvis knows YouTube, Google, Bing, Wikipedia, GitHub, Reddit, Amazon, Google Maps, Gmail, Outlook on the web, Canvas, Netflix, Twitch, X, LinkedIn, Stack Overflow, ChatGPT, Claude, and Spotify by name, and can open any other http or https address. Say "in my default browser" to use that instead
 - "Open Notepad and write a short poem": any installed app opens, and Jarvis types into it
@@ -305,7 +306,7 @@ Check both `JarvisLauncher-Setup.exe` and `JarvisLauncher-portable.exe` where it
 - Autostart works for the NSIS install and the portable exe (`openAtLogin`, or a shortcut in the Startup folder)
 - Refresh reloads the list. The status bar reads SCANNING during the first scan, and REFRESH FAILED if a reload throws
 - Arrow keys move through the top tabs, the left column, and the reactor plates. PageUp, PageDown, and the rail arrows change pages when the plate tiles do not fit. Enter launches the focused tile. Esc clears a filter and then hides. Typing highlights matching tiles and dims the rest
-- A click leaves Jarvis up and opens the app in a centered window about 70% of the work area on that display. The window list is taken at the click from the helper that stays running for the life of Jarvis. An app that is already open is restored only when its window is in front. File Explorer moves only a new Explorer window. Jarvis stays full screen behind a placed window, and hides only if that window cannot be found or the move fails. A click in the moment after Jarvis starts, before the helper has compiled, launches the app and hides Jarvis without centering. `"launchWindow": { "mode": "default" }` leaves the app's own size and leaves Jarvis up
+- A click leaves Jarvis up and opens the app in a centered window about 70% of the work area on that display. The window list is taken at the click from the helper that stays running for the life of Jarvis. An app that is already open is restored only when its window is in front. File Explorer moves only a new Explorer window. Jarvis stays full screen behind the app and never hides for a launch. When the new window cannot be told apart, such as a web page that opens as a tab in a browser that was already running, the window that comes to the front is centered instead. The same goes for web searches, recent files, Task Manager, the Recycle Bin, and everything a voice task opens. Only the hide button, Escape, power actions, and the calendar hide Jarvis. `"launchWindow": { "mode": "default" }` leaves the app's own size and leaves Jarvis up
 
 ## Windows smoke test for voice
 

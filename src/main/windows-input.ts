@@ -36,6 +36,19 @@ public static class JarvisInput {
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int cmd);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
   [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+  [StructLayout(LayoutKind.Sequential)] struct RECT { public int left; public int top; public int right; public int bottom; }
+  [StructLayout(LayoutKind.Sequential)] struct APPBARDATA { public uint size; public IntPtr hwnd; public uint message; public uint edge; public RECT rc; public IntPtr param; }
+  [DllImport("shell32.dll")] static extern UIntPtr SHAppBarMessage(uint message, ref APPBARDATA data);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowW(string cls, string title);
+  public static bool TaskbarAutoHide(bool on) {
+    APPBARDATA data = new APPBARDATA();
+    data.size = (uint)Marshal.SizeOf(typeof(APPBARDATA));
+    data.hwnd = FindWindowW("Shell_TrayWnd", null);
+    if (data.hwnd == IntPtr.Zero) return false;
+    data.param = new IntPtr(on ? 1 : 2);
+    SHAppBarMessage(10, ref data);
+    return true;
+  }
   static void Send(INPUT[] list) { SendInput((uint)list.Length, list, Marshal.SizeOf(typeof(INPUT))); }
   static INPUT Key(ushort vk, ushort scan, uint flags) {
     INPUT input = new INPUT();
@@ -117,6 +130,7 @@ while ($true) {
     elseif ($req.op -eq 'find') { $data = [string][JarvisInput]::FindWindow([string]$req.names) }
     elseif ($req.op -eq 'focus') { [JarvisInput]::Focus([long]$req.hwnd); Start-Sleep -Milliseconds 250; $data = [JarvisInput]::Describe() }
     elseif ($req.op -eq 'type') { $ok = [JarvisInput]::TypeLine([string]$req.text, [int]$req.delay, [bool]$req.enter, [long]$req.expect, [bool]$req.clear) }
+    elseif ($req.op -eq 'taskbar') { $ok = [JarvisInput]::TaskbarAutoHide([bool]$req.on) }
     elseif ($req.op -eq 'keys') { $ok = [JarvisInput]::Combo([string]$req.vks, [long]$req.expect) }
     else { throw 'unknown op' };
     $json = @{ id = $req.id; ok = $ok; data = $data } | ConvertTo-Json -Compress;
@@ -240,6 +254,12 @@ export class WindowsInput {
       vks: vks.join(","),
       expect,
     });
+    return reply.ok === true;
+  }
+
+  /** Turn taskbar auto-hide on or off, the same setting as Settings > Personalization > Taskbar. */
+  async taskbarAutoHide(on: boolean): Promise<boolean> {
+    const reply = await this.request({ op: "taskbar", on });
     return reply.ok === true;
   }
 

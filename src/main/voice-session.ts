@@ -417,7 +417,7 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       "On it.";
     await say(gen, plan);
     if (!alive(gen)) return;
-    host.hide();
+    // Jarvis stays up. Each window the task opens pops up over it.
     await new Promise((resolve) => setTimeout(resolve, 350));
 
     const messages = [...start];

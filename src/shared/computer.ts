@@ -259,6 +259,7 @@ export type ComputerCall =
   | { tool: "open_app"; name: string }
   | { tool: "open_settings"; page: SettingsPage }
   | { tool: "set_theme"; mode: "dark" | "light" }
+  | { tool: "set_taskbar"; autohide: boolean }
   | { tool: "write_code"; filename: string; code: string }
   | { tool: "draft_email"; to: string; subject: string; body: string }
   | { tool: "spotify_search"; query: string }
@@ -276,6 +277,7 @@ export const COMPUTER_TOOL_NAMES = [
   "open_app",
   "open_settings",
   "set_theme",
+  "set_taskbar",
   "write_code",
   "draft_email",
   "spotify_search",
@@ -340,6 +342,10 @@ export function parseComputerCall(
     case "set_theme":
       return args.mode === "dark" || args.mode === "light"
         ? { tool: "set_theme", mode: args.mode }
+        : undefined;
+    case "set_taskbar":
+      return typeof args.autohide === "boolean"
+        ? { tool: "set_taskbar", autohide: args.autohide }
         : undefined;
     case "write_code": {
       const filename = safeFilename(args.filename);
@@ -442,6 +448,10 @@ export function planLine(calls: readonly ComputerCall[]): string {
       return `Opening ${first.page} settings.`;
     case "set_theme":
       return `Switching to ${first.mode} mode.`;
+    case "set_taskbar":
+      return first.autohide
+        ? "Hiding the taskbar."
+        : "Bringing the taskbar back.";
     case "type_text":
       return "Typing that now.";
     default:
@@ -608,6 +618,12 @@ export function computerTools(): Record<string, unknown>[] {
       "Switch Windows between dark mode and light mode.",
       { mode: { type: "string", enum: ["dark", "light"] } },
       ["mode"],
+    ),
+    fn(
+      "set_taskbar",
+      "Hide the Windows taskbar until the mouse touches the bottom of the screen (autohide true), or keep it always showing (autohide false).",
+      { autohide: { type: "boolean" } },
+      ["autohide"],
     ),
     fn(
       "write_code",

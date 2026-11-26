@@ -125,6 +125,8 @@ function fakePc(
   const opened: string[] = [];
   let clock = 0;
   let cleared = 0;
+  const popped: number[] = [];
+  const taskbar: boolean[] = [];
   let front: ForegroundWindow = {
     hwnd: 10,
     pid: 999,
@@ -186,12 +188,29 @@ function fakePc(
       files.set(file, text);
     },
     ownPid: () => 999,
+    popUp: async (hwnd) => {
+      popped.push(hwnd);
+      return true;
+    },
+    setTaskbarAutoHide: async (on) => {
+      taskbar.push(on);
+      return true;
+    },
     now: () => clock,
     sleep: async (ms) => {
       clock += ms;
     },
   };
-  return { host, typed, pressed, files, opened, cleared: () => cleared };
+  return {
+    host,
+    typed,
+    pressed,
+    files,
+    opened,
+    popped,
+    taskbar,
+    cleared: () => cleared,
+  };
 }
 
 describe("computer tasks", () => {
@@ -212,6 +231,8 @@ describe("computer tasks", () => {
       'def main():\n    print("Hello, world!")\n\nmain()',
     );
     expect(pc.pressed).toEqual([KEY_COMBOS["ctrl+s"]]);
+    // VS Code pops up over the HUD instead of Jarvis hiding.
+    expect(pc.popped).toEqual([30]);
     const settings = JSON.parse(
       pc.files.get(
         path.join("Docs", PROJECTS_FOLDER, ".vscode", "settings.json"),
@@ -394,5 +415,18 @@ describe("installed apps and websites", () => {
     );
     expect(pc.opened).toEqual(["microsoft-edge:https://www.youtube.com"]);
     expect(result).toMatch(/^OK: opened YouTube/);
+  });
+
+  it("hides the taskbar by voice", async () => {
+    const pc = fakePc();
+    expect(
+      parseComputerCall("set_taskbar", { autohide: "yes" }),
+    ).toBeUndefined();
+    const result = await new ComputerTask(pc.host).run(
+      { tool: "set_taskbar", autohide: true },
+      new AbortController().signal,
+    );
+    expect(result).toMatch(/^OK: the taskbar now hides/);
+    expect(pc.taskbar).toEqual([true]);
   });
 });

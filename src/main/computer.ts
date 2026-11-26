@@ -47,6 +47,9 @@ export interface ComputerHost {
   mkdir(dir: string): void;
   writeFile(file: string, text: string): void;
   ownPid(): number;
+  /** Center a window over the HUD, the same size a launched tile gets. */
+  popUp(hwnd: number): Promise<boolean>;
+  setTaskbarAutoHide(on: boolean): Promise<boolean>;
   now(): number;
   sleep(ms: number, signal: AbortSignal): Promise<void>;
 }
@@ -138,6 +141,14 @@ export class ComputerTask {
         }
         return ok(`Windows is now in ${call.mode} mode`);
       }
+      case "set_taskbar":
+        return (await this.host.setTaskbarAutoHide(call.autohide))
+          ? ok(
+              call.autohide
+                ? "the taskbar now hides until the mouse touches the bottom edge"
+                : "the taskbar always shows again",
+            )
+          : failed("the taskbar setting did not change");
       case "spotify_search":
         try {
           await this.host.openExternal(spotifySearchUrl(call.query));
@@ -212,6 +223,7 @@ export class ComputerTask {
       return ok(`started ${label}, but its window has not come to the front`);
     }
     this.target = window.hwnd;
+    await this.host.popUp(window.hwnd);
     await this.host.sleep(800, signal);
     return ok(
       `${label} is open and in front (window title: ${window.title || label})`,
@@ -228,6 +240,7 @@ export class ComputerTask {
     await this.host.openExternal(browser === "edge" ? edgeUrl(url) : url);
     const window = await this.waitForNewWindow(before, signal, 6_000);
     this.target = window?.hwnd;
+    if (window) await this.host.popUp(window.hwnd);
     return ok(
       `opened ${label} (${url}) in ${browser === "edge" ? "Microsoft Edge" : "the default browser"}`,
     );
@@ -328,6 +341,7 @@ export class ComputerTask {
         `VS Code did not show ${name}, so nothing was typed. The empty file is in Documents\\${PROJECTS_FOLDER}`,
       );
     this.target = window.hwnd;
+    await this.host.popUp(window.hwnd);
     await this.host.sleep(700, signal);
 
     const lines = codeLines(code);
@@ -382,6 +396,7 @@ export class ComputerTask {
       if (compose) window = compose;
     }
     this.target = window.hwnd;
+    await this.host.popUp(window.hwnd);
     await this.host.sleep(1500, signal);
     const lines = textLines(body);
     const done = await this.typeLines(
