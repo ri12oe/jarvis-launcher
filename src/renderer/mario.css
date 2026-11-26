@@ -1810,3 +1810,26 @@ body,
   height: 670px;
   pointer-events: none;
 }
+
+/* Dock quick-launch buttons sit over the five drawn icons. */
+.dock .dock-btn {
+  position: absolute;
+  top: 627px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+}
+
+.dock .dock-btn:hover,
+.dock .dock-btn:focus-visible {
+  box-shadow: 0 0 0 1.5px #57d4ff, 0 0 8px rgba(87, 212, 255, 0.6);
+}
+
+.dock .dock-btn:active {
+  background: rgba(87, 212, 255, 0.18);
+}
+
+.dock .dock-btn.empty:hover,
+.dock .dock-btn.empty:focus-visible {
+  box-shadow: 0 0 0 1.5px #5d6266;
+}

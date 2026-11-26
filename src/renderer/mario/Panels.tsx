@@ -936,7 +936,14 @@ export function Dock({
   onQuery,
   onSubmit,
   onCancel,
+  dock,
+  onDock,
+  onSettings,
 }: {
+  /** Label of the tile in each of the four quick-launch slots, or null when empty. */
+  dock: readonly (string | null)[];
+  onDock: (index: number) => void;
+  onSettings: () => void;
   query: string;
   inputRef: RefObject<HTMLInputElement>;
   onQuery: (value: string) => void;
@@ -1021,7 +1028,30 @@ export function Dock({
             <circle r="8" className="ring" />
           </g>
         </svg>
+        {DOCK_CENTERS.map((x, index) => {
+          const settings = index === DOCK_CENTERS.length - 1;
+          const label = settings
+            ? "Open config.json"
+            : (dock[index] ??
+              `Empty dock slot ${index + 1}: set "dock" in config.json`);
+          return (
+            <button
+              key={x}
+              type="button"
+              className={
+                settings || dock[index] ? "dock-btn" : "dock-btn empty"
+              }
+              style={{ left: x - 14 }}
+              aria-label={label}
+              title={label}
+              onClick={() => (settings ? onSettings() : onDock(index))}
+            />
+          );
+        })}
       </div>
     </Shift>
   );
 }
+
+/** Centres of the five dock icons, in design pixels. The last one is the gear. */
+const DOCK_CENTERS = [632, 675, 720, 765, 808];

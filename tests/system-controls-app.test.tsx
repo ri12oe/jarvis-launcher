@@ -83,6 +83,7 @@ describe("system controls in the HUD", () => {
         searches.push(query);
         return { ok: true };
       },
+      openConfig: async () => ({ ok: true }),
     };
     (window as { jarvis?: JarvisBridge }).jarvis = bridge;
     host = document.createElement("div");

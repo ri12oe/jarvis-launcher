@@ -68,6 +68,7 @@ const api: JarvisBridge = {
   getSystem: () => ipcRenderer.invoke("jarvis:system-state") as Promise<SystemState | null>,
   systemAction: (action, value) => ipcRenderer.invoke("jarvis:system-action", action, value ?? 0) as Promise<SystemActionResult>,
   webSearch: (query) => ipcRenderer.invoke("jarvis:web-search", query) as Promise<{ ok: boolean; error?: string }>,
+  openConfig: () => ipcRenderer.invoke("jarvis:open-config") as Promise<{ ok: boolean; error?: string }>,
 };
 
 contextBridge.exposeInMainWorld("jarvis", api);

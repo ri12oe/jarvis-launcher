@@ -136,6 +136,10 @@ export interface JarvisConfig {
   voice: VoiceConfig;
   /** Optional. Weather stays "--" until a location is set. */
   weather?: WeatherConfig;
+  /** Tile ids for the four quick-launch icons under the Google box. null leaves a slot empty. */
+  dock: (string | null)[];
+  /** Tile ids for the reactor plates that carry design text, keyed by that text, for example "TEN OPF". */
+  plates: Record<string, string>;
 }
 
 export interface WeatherConfig {
@@ -219,6 +223,10 @@ export interface LauncherState {
   scanning: boolean;
   /** True after a refresh throws. Cleared when the next pass starts. */
   refreshFailed: boolean;
+  /** Tile id for each dock icon, or null when the slot is empty or its tile is gone. */
+  dock: (string | null)[];
+  /** Labelled reactor plates that open a tile. */
+  plates: { slot: number; tileId: string }[];
 }
 
 export interface LaunchResult {
@@ -248,6 +256,7 @@ export interface JarvisBridge {
   getSystem(): Promise<SystemState | null>;
   systemAction(action: SystemAction, value?: number): Promise<SystemActionResult>;
   webSearch(query: string): Promise<{ ok: boolean; error?: string }>;
+  openConfig(): Promise<{ ok: boolean; error?: string }>;
 }
 
 export interface SystemActionResult {

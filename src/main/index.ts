@@ -45,6 +45,7 @@ import type {
   ResolvedTile,
   VoiceSnapshot,
 } from "../shared/types";
+import { resolveHudSlots } from "../shared/mario";
 import {
   checkSystemAction,
   POWER_ACTIONS,
@@ -82,6 +83,8 @@ let launcher: {
   tiles: ResolvedTile[];
   view: LauncherTileView[];
   warnings: string[];
+  dock: (string | null)[];
+  plates: { slot: number; tileId: string }[];
 } | null = null;
 
 function iconImage(): Electron.NativeImage {
@@ -256,7 +259,9 @@ async function refreshSession(): Promise<void> {
     });
     const view = await tileViews(tiles);
     const config = applyHostSettings(loaded.config, loaded.warnings);
-    launcher = { config, tiles, view, warnings: loaded.warnings };
+    const hud = resolveHudSlots(config, tiles.map((tile) => tile.id));
+    loaded.warnings.push(...hud.warnings);
+    launcher = { config, tiles, view, warnings: loaded.warnings, dock: hud.dock, plates: hud.plates };
     stats.setWeather(config.weather);
     scanning = false;
     refreshFailed = false;
@@ -283,6 +288,8 @@ function currentState(): LauncherState {
     warnings: snapshot?.warnings ?? [],
     scanning,
     refreshFailed,
+    dock: snapshot?.dock ?? [null, null, null, null],
+    plates: snapshot?.plates ?? [],
   };
 }
 
@@ -676,6 +683,15 @@ function registerIpc(): void {
       }
     },
   );
+
+  ipcMain.handle("jarvis:open-config", async (event) => {
+    if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
+    // Opens the file in the default editor for .json. Jarvis re-reads it when it is saved.
+    const problem = await shell.openPath(configPath());
+    if (problem) return { ok: false, error: "Could not open config.json" };
+    hideWindow();
+    return { ok: true };
+  });
 
   ipcMain.handle("jarvis:web-search", async (event, query: unknown) => {
     if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };

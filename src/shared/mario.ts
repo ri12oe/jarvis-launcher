@@ -79,6 +79,54 @@ export const RING_PLATES: readonly RingPlate[] = [
   { kind: "text", lines: ["EDAE", "TIEUE"] },
 ];
 
+/** Design text of each labelled plate, one line, mapped to its plate index. "TEN OPF" -> 22. */
+export const PLATE_SLOTS: ReadonlyMap<string, number> = new Map(
+  RING_PLATES.flatMap((plate, slot) => (plate.kind === "text" ? [[plate.lines.join(" "), slot] as const] : [])),
+);
+
+export interface HudSlots {
+  dock: (string | null)[];
+  plates: { slot: number; tileId: string }[];
+  warnings: string[];
+}
+
+/**
+ * Checks the dock and plate ids from config.json against the tiles that exist
+ * now. A missing or disabled tile becomes an empty dock slot or a plain plate,
+ * with a warning naming the id.
+ */
+export function resolveHudSlots(
+  config: { dock: readonly (string | null)[]; plates: Readonly<Record<string, string>> },
+  tileIds: Iterable<string>,
+): HudSlots {
+  const known = new Set(tileIds);
+  const warnings: string[] = [];
+  const dock = config.dock.map((id, index) => {
+    if (id === null) return null;
+    if (known.has(id)) return id;
+    warnings.push(`dock slot ${index + 1}: no tile with id "${id}"`);
+    return null;
+  });
+  const plates: HudSlots["plates"] = [];
+  const used = new Set<string>();
+  for (const [text, id] of Object.entries(config.plates)) {
+    const slot = PLATE_SLOTS.get(text);
+    if (slot === undefined) continue;
+    if (!known.has(id)) {
+      warnings.push(`plates: no tile with id "${id}" for "${text}"`);
+      continue;
+    }
+    if (used.has(id)) {
+      warnings.push(`plates: "${id}" is already on another plate; skipping "${text}"`);
+      continue;
+    }
+    used.add(id);
+    plates.push({ slot, tileId: id });
+  }
+  plates.sort((a, b) => a.slot - b.slot);
+  return { dock, plates, warnings };
+}
+
 /** Plate indexes that take overflow tiles, in fill order (bottom arc first). */
 export const OPEN_PLATES: readonly number[] = [12, 11, 13, 10, 14, 9, 3, 20];
 
@@ -124,11 +172,24 @@ function fillNamed(zone: SlotZone, defs: readonly SlotDef[], byId: Map<string, n
   });
 }
 
-export function layoutMario(tiles: readonly SlotTile[], page: number): MarioLayout {
+export function layoutMario(
+  tiles: readonly SlotTile[],
+  page: number,
+  plates: readonly { slot: number; tileId: string }[] = [],
+): MarioLayout {
   const byId = new Map(tiles.map((tile, index) => [tile.id, index]));
   const used = new Set<number>();
   const tabs = fillNamed("tab", TAB_SLOTS, byId, used);
   const left = fillNamed("left", LEFT_SLOTS, byId, used);
+  // Labelled plates come next and stay on every page. A tile on a named slot keeps that slot.
+  const labelled: PlacedSlot[] = [];
+  for (const entry of plates) {
+    const plate = RING_PLATES[entry.slot];
+    const tile = byId.get(entry.tileId);
+    if (!plate || plate.kind !== "text" || tile === undefined || used.has(tile)) continue;
+    used.add(tile);
+    labelled.push({ zone: "ring", slot: entry.slot, text: plate.lines.join(" "), name: "", tile });
+  }
   const rest = tiles.map((_, index) => index).filter((index) => !used.has(index));
   const perPage = OPEN_PLATES.length;
   const pageCount = Math.max(1, Math.ceil(rest.length / perPage));
@@ -142,7 +203,7 @@ export function layoutMario(tiles: readonly SlotTile[], page: number): MarioLayo
     name: "",
     tile,
   }));
-  return { tabs, left, ring, ringPage, pageCount };
+  return { tabs, left, ring: [...labelled, ...ring], ringPage, pageCount };
 }
 
 /** Name used for filtering a slot: the design text and the real app name both count. */

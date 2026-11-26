@@ -201,10 +201,15 @@ A broken file is left as it is. The launcher uses defaults in memory until the J
     "voiceId": "eve",
     "sttModel": "grok-voice-transcribe-2.0"
   },
-  "weather": { "latitude": 39.77, "longitude": -86.16, "label": "Indianapolis, IN", "units": "fahrenheit" }
+  "weather": { "latitude": 39.77, "longitude": -86.16, "label": "Indianapolis, IN", "units": "fahrenheit" },
+  "dock": ["downloads", "spotify", null, "projects"],
+  "plates": { "TEN OPF": "chatgpt", "CCRP": "cursor" }
 }
 ```
 
+- `dock` sets what the four icons under the Google box open, left to right: a tile id or `null` for an empty slot. The default is `["downloads", null, null, null]`. The icons stay as the design draws them; hover shows the tile's name. Clicking an empty slot says so in the status bar. The fifth icon, the gear, opens this `config.json` in your default editor, and Jarvis picks up the change when you save it.
+- `plates` puts a tile on one of the twelve reactor plates that carry design text: `TEN OPF`, `EDAE TIEUE`, `BARDA DBCM`, `APL DIT`, `APLE`, `CNHBS`, `CMBS`, `LOPE`, `ASNEX`, `ETTAL`, `SEPA`, `CCRP`. Case and extra spaces do not matter. The plate keeps its design text, becomes clickable and part of arrow-key navigation, and the tile leaves the open plates. A tile that already has a named slot (a top tab or a left button) stays there. Each tile can be on one plate.
+- For both, a tile id is any discovered app, built-in, web fallback, pinned folder, or extra tile id. To put any other program or folder on the HUD, add it to `extraTiles` or `pinnedFolders` and use its `id`. An id with no tile (a typo, or a tile in `disabled`) leaves the slot empty and adds a config warning.
 - `weather` is optional. With it set, the launcher asks `api.open-meteo.com` for the forecast every 15 minutes. That request carries only these coordinates and no key. `units` is `"fahrenheit"` (the default) or `"celsius"`. Leave `weather` out and nothing is sent.
 - `pinnedFolders` adds folder tiles. `kind` is not used; they always open the path.
 - `extraTiles` adds a tile that opens a file, shortcut, or folder. `kind` is `"app"` or `"folder"` and only affects the label on the tile.

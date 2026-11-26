@@ -21,6 +21,7 @@ import {
   fitCanvas,
   firstFocus,
   layoutMario,
+  resolveHudSlots,
   plateAngle,
   REACTOR,
   slotMatches,
@@ -70,6 +71,7 @@ import { startMicrophone } from "./mic";
 
 const FILTER_LIMIT = 32;
 const EMPTY_TILES: LauncherTileView[] = [];
+const EMPTY_PLATES: LauncherState["plates"] = [];
 
 const PREVIEW_APPS: DiscoveredApp[] = [
   ["chatgpt", "ChatGPT"],
@@ -92,9 +94,20 @@ const PREVIEW_APPS: DiscoveredApp[] = [
   launchKind: "store" as const,
 }));
 
+function hudSlots(config: Parameters<typeof resolveHudSlots>[0], ids: string[]) {
+  const { dock, plates } = resolveHudSlots(config, ids);
+  return { dock, plates };
+}
+
 function previewState(): LauncherState {
   const home = "/home/mario";
-  const tiles = composeTiles(cloneDefaultConfig(), PREVIEW_APPS, {
+  const config = cloneDefaultConfig();
+  // ?plates=1 puts two sample tiles on labelled plates, to check how they look.
+  if (new URLSearchParams(window.location.search).get("plates") === "1") {
+    config.plates = { "TEN OPF": "chatgpt", CCRP: "cursor" };
+    config.dock = ["downloads", "spotify", null, "documents"];
+  }
+  const tiles = composeTiles(config, PREVIEW_APPS, {
     platform: "linux",
     edgeExecutables: [],
     explorerPath: windowsExplorerPath(),
@@ -117,6 +130,10 @@ function previewState(): LauncherState {
     warnings: [],
     scanning: false,
     refreshFailed: false,
+    ...hudSlots(
+      config,
+      tiles.map((tile) => tile.id),
+    ),
   };
 }
 
@@ -428,7 +445,14 @@ export function App() {
   }, []);
 
   const tiles = state?.tiles ?? EMPTY_TILES;
-  const layout = useMemo(() => layoutMario(tiles, page), [tiles, page]);
+  const platesConfig = state?.plates ?? EMPTY_PLATES;
+  const layout = useMemo(
+    () => layoutMario(tiles, page, platesConfig),
+    [tiles, page, platesConfig],
+  );
+  const dockLabels = (state?.dock ?? []).map((id) =>
+    id ? (tiles.find((tile) => tile.id === id)?.label ?? null) : null,
+  );
   const safePage = Math.min(page, layout.pageCount - 1);
   const selectable = (slot: PlacedSlot) => slotMatches(slot, tiles, query);
   const all = [...layout.tabs, ...layout.left, ...layout.ring];
@@ -483,7 +507,7 @@ export function App() {
       );
       if (next === pageRef.current) return;
       setPage(next);
-      const nextLayout = layoutMario(tiles, next);
+      const nextLayout = layoutMario(tiles, next, platesConfig);
       const first = nextLayout.ring
         .filter(selectable)
         .sort((a, b) => a.slot - b.slot)[0];
@@ -543,6 +567,27 @@ export function App() {
     const step = powerClick(pendingPower, action, Date.now());
     setPendingPower(step.pending);
     if (step.run) runSystem(action);
+  };
+
+  const launchDock = async (index: number) => {
+    const id = state?.dock?.[index];
+    if (!id) {
+      setNotice(`DOCK SLOT ${index + 1} IS EMPTY  SET IT IN CONFIG.JSON`);
+      return;
+    }
+    const bridge = window.jarvis;
+    if (!bridge) return;
+    setNotice("");
+    setStatus((value) => clearLaunchStatus(value));
+    const result = await bridge.launch(id);
+    if (!result.ok) setStatus(launchStatusText(result.error));
+  };
+
+  const openConfig = async () => {
+    const bridge = window.jarvis;
+    if (!bridge) return;
+    const result = await bridge.openConfig();
+    if (!result.ok) setNotice(`SETTINGS FAILED  ${result.error ?? ""}`.trim());
   };
 
   const webSearch = async (value: string) => {
@@ -741,6 +786,9 @@ export function App() {
                 setSearch("");
                 searchRef.current?.blur();
               }}
+              dock={dockLabels}
+              onDock={(index) => void launchDock(index)}
+              onSettings={() => void openConfig()}
             />
 
             <Shift fx={0.5} fy={0}>
@@ -793,7 +841,10 @@ export function App() {
                       left: REACTOR.cx + r * Math.sin(angle) - 21,
                       top: REACTOR.cy - r * Math.cos(angle) - 12,
                     },
-                    <span className="plate-label">{tile?.label ?? ""}</span>,
+                    // A labelled plate keeps the design text, which the reactor art already draws.
+                    <span className="plate-label">
+                      {slot.text ? "" : (tile?.label ?? "")}
+                    </span>,
                   );
                 })}
               </nav>
