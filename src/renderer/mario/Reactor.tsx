@@ -2,6 +2,7 @@ import { memo } from "react";
 import { REACTOR, RING_COUNT, RING_PLATES } from "../../shared/mario";
 import type { VoicePhase } from "../../shared/types";
 import { arc, band, plate, polar, range } from "./geometry";
+import { Orb } from "./Orb";
 import { G } from "./shift";
 
 const { cx, cy, plateInner, plateOuter } = REACTOR;
@@ -247,46 +248,31 @@ export const Reactor = memo(function Reactor({
           filter="url(#r-bloom)"
         />
         <circle cx={cx} cy={cy} r="99" fill="url(#r-core)" />
-        <path className="core-arc" d={arc(cx, cy, 86, -150, -40)} />
-        <path className="core-arc" d={arc(cx, cy, 86, 22, 118)} />
-        <path className="core-arc" d={arc(cx, cy, 86, 150, 200)} />
-        <path className="core-arc thin" d={arc(cx, cy, 76, -120, 60)} />
-        <path className="core-arc thin" d={arc(cx, cy, 76, 95, 190)} />
-        <path className="core-arc faint" d={arc(cx, cy, 66, 200, 330)} />
-        <path className="core-arc faint" d={arc(cx, cy, 66, 20, 140)} />
-        <text className="micro" x="669" y="287">
-          SOT
-        </text>
-        <text className="micro" x="652" y="395">
-          GE
-        </text>
+
+        {/* Plasma orb. It glows up when the wake word is heard. */}
+        <Orb phase={phase} x={cx} y={cy} />
         <path className="warn" d="M597 433 L602 442 L592 442 Z" />
         <text className="micro tiny" x="592.5" y="449">
           ALL
         </text>
 
-        {/* Centre gauge */}
-        <path className="gauge-white" d={arc(cx, cy, 40, -165, -12)} />
-        <path className="gauge-grey" d={arc(cx, cy, 40, -12, 12)} />
-        <path className="gauge-teal" d={arc(cx, cy, 40, 100, 168)} />
-        <circle className="gauge-pip" cx="598" cy="371" r="1.6" />
-        <circle className="gauge-pip" cx="638" cy="345" r="1.4" />
-        <circle className="core-disk" cx={cx} cy={cy} r="27" />
+        {/* Satellite dials. The bottom one shows the CPU reading that used to sit in the centre. */}
+        <circle className="sat" cx="348" cy="232" r="13" />
+        <circle className="sat" cx="350" cy="427" r="13" />
+        <circle className="sat" cx="845" cy="235" r="13" />
+        <circle className="sat cpu-dial" cx="600" cy="598" r="15" />
         <text
           className="core-value"
-          x={cx}
-          y={cy + 1}
+          x="600"
+          y="598.5"
           textAnchor="middle"
           dominantBaseline="central"
         >
           {cpu == null ? "--" : String(cpu)}
         </text>
-
-        {/* Satellite dials */}
-        <circle className="sat" cx="348" cy="232" r="13" />
-        <circle className="sat" cx="350" cy="427" r="13" />
-        <circle className="sat" cx="845" cy="235" r="13" />
-        <circle className="sat" cx="600" cy="598" r="15" />
+        <text className="micro cpu-label" x="600" y="622" textAnchor="middle">
+          CPU %
+        </text>
         <circle className="g-dial" cx="600" cy="72" r="15" />
         <circle className="g-dial-inner" cx="600" cy="72" r="11" />
         <text

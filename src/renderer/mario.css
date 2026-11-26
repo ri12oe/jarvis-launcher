@@ -447,11 +447,32 @@ body,
   stroke-width: 2;
 }
 
+/* CPU reading, in the bottom satellite dial under the reactor. */
 .reactor-art .core-value {
   font-family: var(--f-ui);
   font-weight: 600;
-  font-size: 17px;
+  font-size: 11px;
   fill: #f4f6f7;
+}
+
+.reactor-art .cpu-dial {
+  fill: #071017;
+  stroke: #3a9fd0;
+}
+
+.reactor-art .cpu-label {
+  fill: #5fb6dc;
+}
+
+/* The plasma orb in the centre. */
+.reactor-art .plasma-orb {
+  overflow: visible;
+}
+
+.reactor-art .plasma-orb-canvas {
+  display: block;
+  width: 200px;
+  height: 200px;
 }
 
 .reactor-art .sat {
@@ -1332,9 +1353,9 @@ body,
 
 .subtitle {
   left: 520px;
-  top: 385px;
+  top: 396px;
   width: 160px;
-  max-height: 48px;
+  max-height: 37px;
   overflow: hidden;
   white-space: normal !important;
   text-align: center;
