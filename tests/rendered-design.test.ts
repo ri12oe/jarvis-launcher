@@ -27,8 +27,24 @@ describe("rendered MARIO OS canvas", () => {
     await server?.close();
   });
 
-  it.each(VIEWPORTS)("fills the screen and keeps every label inside its slot at %j", async (viewport) => {
+  const WIDE_FONT = `:root { --f-label: Verdana, "DejaVu Sans", sans-serif !important; }`;
+
+  it.each([
+    ...VIEWPORTS.map((viewport) => ({ viewport, wideFont: false })),
+    // A machine without the narrow design fonts (CI's Linux runner) falls back to a wider face.
+    { viewport: VIEWPORTS[0], wideFont: true },
+    { viewport: VIEWPORTS[1], wideFont: true },
+  ])("fills the screen and keeps every label inside its slot at $viewport.width x $viewport.height, wide font $wideFont", async ({ viewport, wideFont }) => {
     const page = await browser.newPage({ viewport });
+    if (wideFont) {
+      await page.addInitScript((css) => {
+        document.addEventListener("DOMContentLoaded", () => {
+          const style = document.createElement("style");
+          style.textContent = css;
+          document.head.append(style);
+        });
+      }, WIDE_FONT);
+    }
     await page.goto(`http://127.0.0.1:${PORT}/`);
     await page.waitForSelector(".tab .slot-text");
     await page.evaluate(() => document.fonts.ready);

@@ -16,6 +16,7 @@ import {
   voiceStatusText,
 } from "../shared/grid";
 import { tileFallbackIcon } from "../shared/icons";
+import { FitText } from "./mario/FitText";
 import { windowsExplorerPath } from "../shared/launch";
 import {
   fitCanvas,
@@ -800,7 +801,7 @@ export function App() {
                     { left: 368 + slot.slot * 80 },
                     <>
                       {icon(slot)}
-                      <span className="slot-text">{slot.text}</span>
+                      <FitText text={slot.text} slanted />
                       <span className="tab-bar" />
                     </>,
                   ),
@@ -820,7 +821,7 @@ export function App() {
                       <span className="launcher-plate" />
                       <span className="launcher-tick" />
                       {icon(slot)}
-                      <span className="slot-text">{slot.text}</span>
+                      <FitText text={slot.text} />
                       <span className="launcher-bar" />
                     </>,
                   ),
