@@ -21,7 +21,12 @@ import { patchVoiceEnabledText, DEFAULT_HOTKEY } from "../shared/config";
 import { allowMediaPermission } from "../shared/media-permission";
 import { hotkeyRegistrationWarnings } from "../shared/hotkey";
 import { tileFallbackIcon, tileIconFile } from "../shared/icons";
-import { defaultEdgeCandidates, runLaunch, spawnDetached, windowsExplorerPath } from "../shared/launch";
+import {
+  defaultEdgeCandidates,
+  runLaunch,
+  spawnDetached,
+  windowsExplorerPath,
+} from "../shared/launch";
 import {
   centerLaunchedWindow,
   LAUNCH_BASELINE_WAIT_MS,
@@ -40,6 +45,14 @@ import type {
   ResolvedTile,
   VoiceSnapshot,
 } from "../shared/types";
+import { resolveHudSlots } from "../shared/mario";
+import {
+  checkSystemAction,
+  POWER_ACTIONS,
+  webSearchUrl,
+} from "../shared/system";
+import { StatsService } from "./stats";
+import { SystemControls } from "./system-controls";
 import { createVoiceSession, type VoiceSession } from "./voice-session";
 import { resolveWakeDir } from "./wakeword";
 import { createWindowSession, type WindowWatch } from "./window-snapshot";
@@ -56,15 +69,28 @@ let scanning = true;
 let refreshFailed = false;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let configWatchStarted = false;
+const stats = new StatsService();
+const systemControls = new SystemControls();
 let placeSerial = 0;
-const placementHelper = createWindowSession({ platform: process.platform, env: process.env });
+const placementHelper = createWindowSession({
+  platform: process.platform,
+  env: process.env,
+});
 let configFilePath = "";
 let voice: VoiceSession | null = null;
-let launcher: { config: JarvisConfig; tiles: ResolvedTile[]; view: LauncherTileView[]; warnings: string[] } | null =
-  null;
+let launcher: {
+  config: JarvisConfig;
+  tiles: ResolvedTile[];
+  view: LauncherTileView[];
+  warnings: string[];
+  dock: (string | null)[];
+  plates: { slot: number; tileId: string }[];
+} | null = null;
 
 function iconImage(): Electron.NativeImage {
-  return nativeImage.createFromPath(path.join(app.getAppPath(), "assets", "icon.png"));
+  return nativeImage.createFromPath(
+    path.join(app.getAppPath(), "assets", "icon.png"),
+  );
 }
 
 function existingEdgeExecutables(): string[] {
@@ -105,7 +131,10 @@ function registerHotkey(hotkey: string): string {
     hotkeyWarnings = [];
     return next;
   }
-  if (next !== DEFAULT_HOTKEY && globalShortcut.register(DEFAULT_HOTKEY, () => toggleWindow())) {
+  if (
+    next !== DEFAULT_HOTKEY &&
+    globalShortcut.register(DEFAULT_HOTKEY, () => toggleWindow())
+  ) {
     activeHotkey = DEFAULT_HOTKEY;
   }
   hotkeyWarnings = hotkeyRegistrationWarnings(next, activeHotkey);
@@ -115,13 +144,23 @@ function registerHotkey(hotkey: string): string {
 function syncLoginItem(openAtLogin: boolean): void {
   if (process.platform !== "win32" && process.platform !== "darwin") return;
   app.setLoginItemSettings(
-    loginItemOptions(openAtLogin, { PORTABLE_EXECUTABLE_FILE: process.env.PORTABLE_EXECUTABLE_FILE }),
+    loginItemOptions(openAtLogin, {
+      PORTABLE_EXECUTABLE_FILE: process.env.PORTABLE_EXECUTABLE_FILE,
+    }),
   );
 }
 
-function applyHostSettings(config: JarvisConfig, warnings: string[]): JarvisConfig {
-  const registered = activeHotkey !== "" && globalShortcut.isRegistered(activeHotkey);
-  if (config.hotkey !== appliedHotkeyRequest || hotkeyWarnings.length > 0 || !registered) {
+function applyHostSettings(
+  config: JarvisConfig,
+  warnings: string[],
+): JarvisConfig {
+  const registered =
+    activeHotkey !== "" && globalShortcut.isRegistered(activeHotkey);
+  if (
+    config.hotkey !== appliedHotkeyRequest ||
+    hotkeyWarnings.length > 0 ||
+    !registered
+  ) {
     registerHotkey(config.hotkey);
     appliedHotkeyRequest = config.hotkey;
   }
@@ -134,7 +173,9 @@ function applyHostSettings(config: JarvisConfig, warnings: string[]): JarvisConf
   return hotkey === config.hotkey ? config : { ...config, hotkey };
 }
 
-async function fileIcon(target: string | undefined): Promise<string | undefined> {
+async function fileIcon(
+  target: string | undefined,
+): Promise<string | undefined> {
   if (!target) return undefined;
   try {
     if (!fs.existsSync(target)) return undefined;
@@ -146,10 +187,13 @@ async function fileIcon(target: string | undefined): Promise<string | undefined>
   }
 }
 
-async function tileViews(tiles: readonly ResolvedTile[]): Promise<LauncherTileView[]> {
+async function tileViews(
+  tiles: readonly ResolvedTile[],
+): Promise<LauncherTileView[]> {
   return Promise.all(
     tiles.map(async (tile) => {
-      const icon = (await fileIcon(tileIconFile(tile))) ?? tileFallbackIcon(tile);
+      const icon =
+        (await fileIcon(tileIconFile(tile))) ?? tileFallbackIcon(tile);
       return icon
         ? { id: tile.id, label: tile.label, kind: tile.kind, icon }
         : { id: tile.id, label: tile.label, kind: tile.kind };
@@ -171,10 +215,18 @@ function startConfigWatch(filePath: string): void {
   if (configWatchStarted) return;
   configWatchStarted = true;
   configFilePath = filePath;
-  fs.watchFile(filePath, { persistent: true, interval: 1000 }, (current, previous) => {
-    if (current.mtimeMs === previous.mtimeMs && current.size === previous.size) return;
-    scheduleRefresh();
-  });
+  fs.watchFile(
+    filePath,
+    { persistent: true, interval: 1000 },
+    (current, previous) => {
+      if (
+        current.mtimeMs === previous.mtimeMs &&
+        current.size === previous.size
+      )
+        return;
+      scheduleRefresh();
+    },
+  );
 }
 
 async function refreshSession(): Promise<void> {
@@ -207,7 +259,10 @@ async function refreshSession(): Promise<void> {
     });
     const view = await tileViews(tiles);
     const config = applyHostSettings(loaded.config, loaded.warnings);
-    launcher = { config, tiles, view, warnings: loaded.warnings };
+    const hud = resolveHudSlots(config, tiles.map((tile) => tile.id));
+    loaded.warnings.push(...hud.warnings);
+    launcher = { config, tiles, view, warnings: loaded.warnings, dock: hud.dock, plates: hud.plates };
+    stats.setWeather(config.weather);
     scanning = false;
     refreshFailed = false;
     publishState();
@@ -233,6 +288,8 @@ function currentState(): LauncherState {
     warnings: snapshot?.warnings ?? [],
     scanning,
     refreshFailed,
+    dock: snapshot?.dock ?? [null, null, null, null],
+    plates: snapshot?.plates ?? [],
   };
 }
 
@@ -242,19 +299,30 @@ function publishState(): void {
   contents.send("jarvis:state", currentState());
 }
 
-async function execute(action: ResolvedTile["action"]): Promise<number | undefined> {
+async function execute(
+  action: ResolvedTile["action"],
+): Promise<number | undefined> {
   return runLaunch(action, {
     openPath: (targetPath) => shell.openPath(targetPath),
     openExternal: (url) => shell.openExternal(url),
-    spawn: (command, args) => spawnDetached(command, args, (cmd, cmdArgs, options) => spawnProcess(cmd, cmdArgs, options)),
+    spawn: (command, args) =>
+      spawnDetached(command, args, (cmd, cmdArgs, options) =>
+        spawnProcess(cmd, cmdArgs, options),
+      ),
   });
 }
 
 function browserHwnd(win: BrowserWindow): number | undefined {
   try {
     const buf = win.getNativeWindowHandle();
-    const value = buf.length >= 8 ? buf.readBigUInt64LE(0) : buf.length >= 4 ? BigInt(buf.readUInt32LE(0)) : 0n;
-    if (value <= 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) return undefined;
+    const value =
+      buf.length >= 8
+        ? buf.readBigUInt64LE(0)
+        : buf.length >= 4
+          ? BigInt(buf.readUInt32LE(0))
+          : 0n;
+    if (value <= 0n || value > BigInt(Number.MAX_SAFE_INTEGER))
+      return undefined;
     return Number(value);
   } catch {
     return undefined;
@@ -279,7 +347,8 @@ async function centerAfterLaunch(
   const win = mainWindow;
   const launchWindow = launcher?.config.launchWindow;
   if (!win || win.isDestroyed() || !launchWindow) return "skipped";
-  if (process.platform !== "win32" || launchWindow.mode !== "centered") return "skipped";
+  if (process.platform !== "win32" || launchWindow.mode !== "centered")
+    return "skipped";
   const launcherHwnd = browserHwnd(win);
   if (!launcherHwnd) return "missed";
   let workArea: Electron.Rectangle;
@@ -302,8 +371,14 @@ async function centerAfterLaunch(
       target: targetFromAction(action, readShortcutTarget),
       // Physical pixels. The helper is per-monitor v2, so Windows does not scale these again.
       toScreenRect: (rect) => screen.dipToScreenRect(win, rect),
-      nextSample: () => (serial === placeSerial ? watch.nextSample() : Promise.resolve(undefined)),
-      placeWindow: (hwnd, rect) => (serial === placeSerial ? watch.place(hwnd, rect) : Promise.resolve(false)),
+      nextSample: () =>
+        serial === placeSerial
+          ? watch.nextSample()
+          : Promise.resolve(undefined),
+      placeWindow: (hwnd, rect) =>
+        serial === placeSerial
+          ? watch.place(hwnd, rect)
+          : Promise.resolve(false),
     });
     if (serial !== placeSerial) return "cancelled";
     return placed ? "placed" : "missed";
@@ -403,7 +478,10 @@ function createTray(): void {
   const menu = Menu.buildFromTemplate([
     { label: "Show", click: () => showWindow() },
     { label: "Hide", click: () => hideWindow() },
-    { label: "Refresh", click: () => void refreshGate.requestRefresh().catch(() => undefined) },
+    {
+      label: "Refresh",
+      click: () => void refreshGate.requestRefresh().catch(() => undefined),
+    },
     { type: "separator" },
     {
       label: "Quit",
@@ -442,7 +520,10 @@ function publishVoice(snapshot: VoiceSnapshot): void {
 function sendSpeech(audio: Uint8Array, contentType: string): void {
   const contents = mainWindow?.webContents;
   if (!contents || contents.isDestroyed()) return;
-  contents.send("jarvis:voice-speak", { audio: Buffer.from(audio), contentType });
+  contents.send("jarvis:voice-speak", {
+    audio: Buffer.from(audio),
+    contentType,
+  });
 }
 
 function installPermissions(): void {
@@ -453,37 +534,46 @@ function installPermissions(): void {
     if (!contents) return true;
     return contents.id === current.id;
   };
-  session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
-    if (!ownWindow(contents) || details.mediaType === "video") return false;
-    return allowMediaPermission({
-      permission,
-      requestingUrl: details.requestingUrl || requestingOrigin,
-      devServerUrl: devUrl,
-      mainFrame: details.isMainFrame,
-    });
-  });
-  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
-    const mediaTypes = "mediaTypes" in details ? details.mediaTypes : undefined;
-    if (!ownWindow(contents) || mediaTypes?.some((type) => type !== "audio")) {
-      callback(false);
-      return;
-    }
-    callback(
-      allowMediaPermission({
+  session.defaultSession.setPermissionCheckHandler(
+    (contents, permission, requestingOrigin, details) => {
+      if (!ownWindow(contents) || details.mediaType === "video") return false;
+      return allowMediaPermission({
         permission,
-        requestingUrl: details.requestingUrl,
+        requestingUrl: details.requestingUrl || requestingOrigin,
         devServerUrl: devUrl,
         mainFrame: details.isMainFrame,
-      }),
-    );
-  });
+      });
+    },
+  );
+  session.defaultSession.setPermissionRequestHandler(
+    (contents, permission, callback, details) => {
+      const mediaTypes =
+        "mediaTypes" in details ? details.mediaTypes : undefined;
+      if (
+        !ownWindow(contents) ||
+        mediaTypes?.some((type) => type !== "audio")
+      ) {
+        callback(false);
+        return;
+      }
+      callback(
+        allowMediaPermission({
+          permission,
+          requestingUrl: details.requestingUrl,
+          devServerUrl: devUrl,
+          mainFrame: details.isMainFrame,
+        }),
+      );
+    },
+  );
 }
 
 function pcmFromPayload(payload: unknown): Int16Array | undefined {
   let bytes: Buffer | undefined;
   if (payload instanceof ArrayBuffer) bytes = Buffer.from(payload);
   else if (Buffer.isBuffer(payload)) bytes = Buffer.from(payload);
-  else if (ArrayBuffer.isView(payload)) bytes = Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength);
+  else if (ArrayBuffer.isView(payload))
+    bytes = Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength);
   if (!bytes || bytes.length < 2) return undefined;
   const length = bytes.length - (bytes.length % 2);
   const copy = Buffer.from(bytes.subarray(0, length));
@@ -496,7 +586,9 @@ async function launchTile(tileId: string): Promise<LaunchResult> {
   if (!current) return { ok: false, error: "Unknown tile" };
   const tile = current.tiles.find((item) => item.id === tileId);
   if (!tile) return { ok: false, error: "Unknown tile" };
-  const centering = process.platform === "win32" && current.config.launchWindow.mode === "centered";
+  const centering =
+    process.platform === "win32" &&
+    current.config.launchWindow.mode === "centered";
   const serial = centering ? ++placeSerial : placeSerial;
   let baseline: number[] | undefined;
   if (centering) {
@@ -505,7 +597,8 @@ async function launchTile(tileId: string): Promise<LaunchResult> {
       try {
         await execute(tile.action);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Launch failed";
+        const message =
+          error instanceof Error ? error.message : "Launch failed";
         return { ok: false, error: message };
       }
       hideWindow();
@@ -518,7 +611,13 @@ async function launchTile(tileId: string): Promise<LaunchResult> {
     if (!centering) return { ok: true };
     const watch = placementHelper.serve(LAUNCH_WINDOW_WATCH_MS);
     try {
-      const outcome = await centerAfterLaunch(tile.action, spawnedPid, watch, serial, baseline);
+      const outcome = await centerAfterLaunch(
+        tile.action,
+        spawnedPid,
+        watch,
+        serial,
+        baseline,
+      );
       if (outcome === "missed") hideWindow();
       return { ok: true };
     } finally {
@@ -532,7 +631,8 @@ async function launchTile(tileId: string): Promise<LaunchResult> {
 
 function registerIpc(): void {
   ipcMain.handle("jarvis:get-state", (event) => {
-    if (!isAppFrame(event)) return { ...currentState(), warnings: ["Untrusted frame"] };
+    if (!isAppFrame(event))
+      return { ...currentState(), warnings: ["Untrusted frame"] };
     return currentState();
   });
 
@@ -555,6 +655,60 @@ function registerIpc(): void {
     if (!isAppFrame(event)) return;
     quitting = true;
     app.quit();
+  });
+
+  ipcMain.handle("jarvis:system-state", (event) => {
+    if (!isAppFrame(event)) return null;
+    return systemControls.snapshot();
+  });
+
+  ipcMain.handle(
+    "jarvis:system-action",
+    async (event, action: unknown, value: unknown) => {
+      if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
+      const checked = checkSystemAction(action, value);
+      if (!checked) return { ok: false, error: "Unknown action" };
+      // Hide first so the HUD is not left over the desktop after sleep, lock, or sign out.
+      if ((POWER_ACTIONS as readonly string[]).includes(checked.action))
+        hideWindow();
+      try {
+        const state = await systemControls.run(checked.action, checked.value);
+        return { ok: true, state };
+      } catch (error) {
+        return {
+          ok: false,
+          error:
+            error instanceof Error ? error.message : "System action failed",
+        };
+      }
+    },
+  );
+
+  ipcMain.handle("jarvis:open-config", async (event) => {
+    if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
+    // Opens the file in the default editor for .json. Jarvis re-reads it when it is saved.
+    const problem = await shell.openPath(configPath());
+    if (problem) return { ok: false, error: "Could not open config.json" };
+    hideWindow();
+    return { ok: true };
+  });
+
+  ipcMain.handle("jarvis:web-search", async (event, query: unknown) => {
+    if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
+    const url = webSearchUrl(query);
+    if (!url) return { ok: false, error: "Empty search" };
+    try {
+      await shell.openExternal(url);
+      hideWindow();
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Browser did not open" };
+    }
+  });
+
+  ipcMain.handle("jarvis:stats", (event) => {
+    if (!isAppFrame(event)) return null;
+    return stats.snapshot();
   });
 
   ipcMain.handle("jarvis:voice-get", (event) => {
@@ -591,8 +745,12 @@ if (!gotLock) {
     app.setAppUserModelId("com.mario.jarvis-launcher");
     installPermissions();
     voice = createVoiceSession({
-      tiles: () => launcher?.tiles.map((tile) => ({ id: tile.id, label: tile.label })) ?? [],
-      voice: () => launcher?.config.voice ?? loadConfig(app.getPath("userData")).config.voice,
+      tiles: () =>
+        launcher?.tiles.map((tile) => ({ id: tile.id, label: tile.label })) ??
+        [],
+      voice: () =>
+        launcher?.config.voice ??
+        loadConfig(app.getPath("userData")).config.voice,
       env: () => process.env,
       configText: () => {
         try {
@@ -619,6 +777,7 @@ if (!gotLock) {
       patchEnabled: patchVoiceEnabledText,
     });
     registerIpc();
+    stats.start();
     // Paint before discovery. Get-StartApps can use its full timeout.
     const startHidden = loadConfig(app.getPath("userData")).config.startHidden;
     createWindow(startHidden);
@@ -630,6 +789,8 @@ if (!gotLock) {
   });
 
   app.on("before-quit", () => {
+    stats.stop();
+    systemControls.stop();
     quitting = true;
     voice?.stop();
     placementHelper.stop();

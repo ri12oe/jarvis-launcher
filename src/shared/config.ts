@@ -1,5 +1,6 @@
-import type { ExtraTile, JarvisConfig, LaunchWindowConfig, PinnedFolder, VoiceConfig } from "./types";
-import { AI_APP_IDS, BUILTIN_IDS } from "./types";
+import type { ExtraTile, JarvisConfig, LaunchWindowConfig, PinnedFolder, VoiceConfig, WeatherConfig } from "./types";
+import { PLATE_SLOTS } from "./mario";
+import { AI_APP_IDS, BUILTIN_IDS, WEB_TILE_IDS } from "./types";
 
 export const DEFAULT_HOTKEY = "CommandOrControl+Alt+J";
 
@@ -27,6 +28,10 @@ export const DEFAULT_VOICE: VoiceConfig = {
   sttModel: DEFAULT_STT_MODEL,
 };
 
+export const DOCK_SLOTS = 4;
+/** The download icon opens Downloads. The others start empty. */
+export const DEFAULT_DOCK: readonly (string | null)[] = ["downloads", null, null, null];
+
 export const DEFAULT_CONFIG: JarvisConfig = {
   hotkey: DEFAULT_HOTKEY,
   openAtLogin: false,
@@ -38,9 +43,11 @@ export const DEFAULT_CONFIG: JarvisConfig = {
   order: [],
   labels: {},
   voice: { ...DEFAULT_VOICE },
+  dock: [...DEFAULT_DOCK],
+  plates: {},
 };
 
-const RESERVED_IDS = new Set<string>([...AI_APP_IDS, ...BUILTIN_IDS]);
+const RESERVED_IDS = new Set<string>([...AI_APP_IDS, ...BUILTIN_IDS, ...WEB_TILE_IDS]);
 
 const MODIFIER =
   "CommandOrControl|Command|Cmd|Control|Ctrl|Alt|Option|AltGr|Shift|Super|Meta";
@@ -68,6 +75,8 @@ export function cloneDefaultConfig(): JarvisConfig {
     order: [],
     labels: {},
     voice: { ...DEFAULT_VOICE },
+    dock: [...DEFAULT_DOCK],
+    plates: {},
   };
 }
 
@@ -291,8 +300,87 @@ export function parseConfig(input: unknown): ParsedConfig {
     order: readIdList(input.order, warnings, "order"),
     labels: readLabels(input.labels, warnings),
     voice: readVoice(input.voice, warnings),
+    dock: readDock(input.dock, warnings),
+    plates: readPlates(input.plates, warnings),
   };
+  if (input.weather !== undefined) {
+    const weather = readWeather(input.weather, warnings);
+    if (weather) config.weather = weather;
+  }
   return { config, warnings };
+}
+
+function readDock(value: unknown, warnings: string[]): (string | null)[] {
+  if (value === undefined) return [...DEFAULT_DOCK];
+  if (!Array.isArray(value)) {
+    warnings.push("dock must be an array of tile ids or null; using the default");
+    return [...DEFAULT_DOCK];
+  }
+  if (value.length > DOCK_SLOTS) warnings.push(`dock has ${DOCK_SLOTS} slots; ignoring the extra entries`);
+  const dock: (string | null)[] = [];
+  for (let index = 0; index < DOCK_SLOTS; index++) {
+    const entry = value[index];
+    if (entry === undefined || entry === null || entry === "") {
+      dock.push(null);
+      continue;
+    }
+    const id = readId(entry);
+    if (!id) warnings.push(`dock slot ${index + 1} is not a valid tile id; leaving it empty`);
+    dock.push(id ?? null);
+  }
+  return dock;
+}
+
+/** Plate text as the design writes it: upper case, single spaces. */
+export function plateKey(text: string): string {
+  return text.trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+function readPlates(value: unknown, warnings: string[]): Record<string, string> {
+  if (value === undefined) return {};
+  if (!isRecord(value)) {
+    warnings.push("plates must be an object of plate text to tile id; ignoring it");
+    return {};
+  }
+  const plates: Record<string, string> = {};
+  for (const [text, entry] of Object.entries(value)) {
+    const key = plateKey(text);
+    if (!PLATE_SLOTS.has(key)) {
+      warnings.push(`plates: no plate reads "${text}"; ignoring it`);
+      continue;
+    }
+    const id = readId(entry);
+    if (!id) {
+      warnings.push(`plates: "${text}" needs a tile id; ignoring it`);
+      continue;
+    }
+    plates[key] = id;
+  }
+  return plates;
+}
+
+function readWeather(value: unknown, warnings: string[]): WeatherConfig | undefined {
+  if (!isRecord(value)) {
+    warnings.push("weather must be an object; ignoring it");
+    return undefined;
+  }
+  const { latitude, longitude } = value;
+  if (typeof latitude !== "number" || !Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+    warnings.push("weather.latitude must be a number from -90 to 90; ignoring weather");
+    return undefined;
+  }
+  if (typeof longitude !== "number" || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    warnings.push("weather.longitude must be a number from -180 to 180; ignoring weather");
+    return undefined;
+  }
+  let units: WeatherConfig["units"] = "fahrenheit";
+  if (value.units !== undefined) {
+    if (value.units === "fahrenheit" || value.units === "celsius") units = value.units;
+    else warnings.push('weather.units must be "fahrenheit" or "celsius"; using fahrenheit');
+  }
+  const label = readLabel(value.label) ?? "";
+  if (value.label !== undefined && !label) warnings.push("weather.label must be 1 to 80 characters; leaving it blank");
+  return { latitude, longitude, label, units };
 }
 
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;

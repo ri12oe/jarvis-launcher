@@ -6,17 +6,71 @@ Click a tile to open that app or folder. The launcher only reads Start Menu shor
 
 ## UI
 
-The window is a full-screen HUD on a near-black field, with cyan rings and beveled metal panels. The top left is a circular emblem and the word JARVIS with the version. Discovered AI apps sit in the trapezoid tabs across the top. Microsoft Edge, File Explorer, the standard folders, and pinned folders are angled buttons down the left side. Extra tiles sit on the segment buttons around the reactor. The reactor is a cyan core with tick marks, a dashed ring, and two striped rings. The core shows the voice state: standby, listening, thinking, or speaking.
+The HUD is the MARIO OS design from Figma (`MARIO OS UI`, frame `4:2`). It is drawn on a fixed 1192 x 670 canvas and scaled to fill the screen, so every panel sits where it does in the design. The scale is the same on both axes, so circles stay round. On a screen that is not 16:9 (a 3:2 laptop, a 5:4 monitor, an ultrawide) there are no black bars: the header stays on the top edge, the bottom row on the bottom edge, and the panels between spread out to share the extra room. Panels keep their size, and only the gaps between them grow. Text in the slots is copied from the design as it is written there, including spellings such as `Copiiolt`, `Gemmi`, `V3 Code`, `Mircosoft Doc`, and `Spoftiy`.
 
-The left side also has the date, a digital clock with a dim reflection, a level bar, and a wifi ring. The right side has the day number, a small clock, and placeholder blocks for weather, RAM, BIN, and two gauges. Those placeholders read `--`. They do not invent live readings. The top-right power buttons (DOWNT, RESTRT, HIBER, LOGOUT, LOCK) are drawn disabled and do nothing. The footer has the status line, VOICE, REFRESH, QUIT, a search pill that does not take typing, media buttons, and an uptime placeholder.
+Named slots open real apps:
 
-Segment buttons that do not fit move to the next page, in order. The left column and the top tabs stay put. PageUp and PageDown change pages and focus a tile on that page. The previous and next buttons in the footer also change pages, and they keep the keyboard focus so Enter can page again. Pages that contain a filter match are highlighted. Esc clears a filter and leaves the current page up, with focus still on a tile.
+| Slot | Opens |
+| --- | --- |
+| Claude, Copiiolt, Grok | The discovered Claude, Copilot, and Grok apps |
+| Gemmi | Gemini when it is installed, otherwise `https://gemini.google.com/` |
+| V3 Code, Mircosoft Doc | Visual Studio Code and Word, when installed |
+| Microsoft Edge, File Explorer | The built-in tiles |
+| Spoftiy, Outlook | Spotify and Outlook, when installed |
+| GitHub | GitHub Desktop when it is installed, otherwise `https://github.com/` |
+| x | `https://x.com/` |
 
-Left and Right move through the current group (the top tabs, the left column, or the reactor segments). They wrap, and they skip dimmed tiles. Up and Down move to the nearest lit tile in the next group. When only one group is on screen, Up and Down move through that group too. Enter launches the focused tile. Typing filters by name: matching tiles stay bright, the rest dim, and the footer shows the text (`FILTER  EDGE`). A filter that matches nothing shows `NO MATCH`. Backspace edits the filter. The search pill is not an input, so typing still filters. Space activates the focused button. Esc clears the filter, and hides the window when the filter is already empty. Hiding from the hotkey clears the filter too. A failed launch stays in the footer until the next key, a tile click, refresh, or hide. A launch leaves Jarvis up.
+A slot whose app is not installed is still drawn. Clicking it shows `LAUNCH FAILED  <app> not found` in the status bar at the bottom left. Every other tile (ChatGPT, Cursor, Perplexity, Ollama, LM Studio, Desktop, Documents, Downloads, Pictures, pinned folders, and extra tiles) goes on the reactor plates that are blank in the design, eight per page. The labelled plates (`TEN OPF`, `CCRP`, and so on) and the small labels around the reactor are decoration, as in the design.
 
-The footer status is SCANNING, REFRESHING, REFRESH FAILED, LAUNCH FAILED with the reason, the filter text, NO MATCH when the filter hits nothing, or a warning. LAUNCH FAILED is shown in amber.
+The readings are live:
 
-The reactor rings turn slowly, and a short boot sequence plays when the window opens. Motion is CSS transforms and opacity. `prefers-reduced-motion` turns that motion off, including the boot overlay and the voice pulse. The Vite dev server, opened without Electron, fills the HUD with sample tiles (ChatGPT, Claude, Cursor, Grok, Copilot, Perplexity, Ollama, LM Studio, plus the built-ins). Add `?tiles=22` to also place sample extra tiles on the reactor.
+| Design element | Shows |
+| --- | --- |
+| Big clock, date line, day block, analog clock | The local time and date |
+| Reactor centre number and the large gauge | CPU load in percent |
+| Small gauge | System drive use in percent |
+| `wifi: 88%` ring, SSID line, and `WAN` | Wi-Fi signal and network name, from `netsh wlan show interfaces` |
+| Rates on either side of `WAN` | Download and upload rate, from `netstat -e` |
+| `100%` and `AC LINE` | Battery level and charging state (a desktop reads 100% on AC) |
+| Percentage under `100%` | System drive use |
+| Tall meter by the rail | Battery charge when running on battery, CPU load otherwise |
+| `Used:` / `Free:` by RAM | Memory in use and free |
+| `Empty` by BIN | Recycle Bin item count and size |
+| `0d 0h 55m UP` | Time since Windows started |
+| Weather panel | Open-Meteo forecast for the `weather` location in `config.json` |
+
+Anything the PC cannot report shows `--`. The weather panel reads `--` until a location is set. The check and cross box is drawn as in the design and does nothing yet.
+
+### System controls
+
+| Design element | Does |
+| --- | --- |
+| `OPRNLAIS` | Sleep |
+| `NETUAT` | Restart |
+| `REFUET` | Shut down |
+| `NRSAAET` | Sign out |
+| `LCOOST` | Lock |
+| Thin slider after `LCOOST` | Screen brightness. Drag it, scroll on it, or focus it and press Up/Down. Laptops and some all-in-ones support this; most desktop monitors do not, and there the slider is disabled. |
+| `(−)` `(+)` knobs by the identity panel | Volume down and up by 5 |
+| Track bar, `0:00`, and the three buttons, bottom right | The track Windows is playing (Spotify, a browser tab, and so on): title and artist above the bar, time, click the bar to seek, previous, play/pause, next |
+| Second bar under the track bar | Volume. Drag it, click it, scroll on it, or focus it and press Left/Right. |
+| Big dial, bottom right | Shows the volume. Click to mute or unmute. |
+| Small dial with the red ring | Lights red when the microphone is muted. Click to mute or unmute it. |
+| Google pill | A search box. Click it or press `/`, type, and press Enter to search Google in your default browser. Esc clears it. |
+
+Restart, Shut down, and Sign out take two clicks: the first turns the button amber and the status bar reads, for example, `SHUT DOWN?  CLICK AGAIN TO CONFIRM`. A second click within 5 seconds runs it. Any key, or 5 seconds, cancels it. Sleep and Lock run on the first click. The HUD hides before any power action runs.
+
+If the filter matches no tile, Enter searches Google for the filter text.
+
+The media, volume, mic, brightness, and sleep controls go through one Windows PowerShell process that starts on the first reading and stays open while Jarvis runs. It uses the Windows Core Audio API for volume and mute, `WmiMonitorBrightnessMethods` for brightness, and the Windows media session (the same one the volume flyout shows) for the track. With no media session, the transport buttons send the media keys instead. Shut down, Restart, and Sign out run `shutdown.exe`, and Lock runs `rundll32.exe user32.dll,LockWorkStation`. A failed control shows `SYSTEM FAILED` and a reason in the status bar.
+
+The four buttons in the tray at the bottom are Refresh, Hide, Quit, and Voice (blue when voice is on). The up and down arrows on the rail change the reactor page, as do PageUp and PageDown.
+
+Keyboard: focus starts on Microsoft Edge. Left and Right move within the top tabs, the left column, or the reactor plates, and wrap. Up and Down move through the left column, then on to the next group. Enter launches the focused slot. Typing filters by the design text or the real app name: matches stay bright, the rest dim, and the status bar shows `FILTER  <text>` or `NO MATCH`. Esc clears the filter, then hides the window. Launch and voice failures show in the status bar in amber until the next key, click, refresh, or hide.
+
+The reactor's slanted ring turns slowly. While voice is listening the tick ring pulses, while thinking the slanted ring spins faster, and while speaking the blue ring pulses. What was heard and the reply show inside the reactor below the centre. `prefers-reduced-motion` turns all of that motion off. The fonts (Roboto Condensed, Archivo Black, Oswald, Exo 2, Share Tech, all under the SIL Open Font License) are bundled, so the HUD looks the same on every PC. The Microsoft, Alienware, and app logos in the design are replaced with plain shapes or the app's own installed icon.
+
+The Vite dev server, opened without Electron, fills the HUD with sample tiles and sample readings so the layout can be checked against the design.
 
 ## Install
 
@@ -34,13 +88,13 @@ npm run dev
 
 That starts the renderer, compiles the Electron main process, and opens the launcher. The default hotkey is **Ctrl+Alt+J** (`CommandOrControl+Alt+J` in the config). Press it again, or Esc, to hide the window. The process keeps running so the hotkey still works. Quit from the tray icon or the QUIT control.
 
-Keyboard focus, the filter, and the footer are covered in [UI](#ui). A failed launch stays in the footer as `LAUNCH FAILED` plus the reason until the next key, click, refresh, or hide.
+Keyboard focus, the filter, and the status bar are covered in [UI](#ui). A failed launch stays in the status bar as `LAUNCH FAILED` plus the reason until the next key, click, refresh, or hide.
 
 A click launches the app immediately. Jarvis stays full screen behind it and is not always on top, so the centered window can sit in front. Esc and the hotkey still hide it. On Windows one PowerShell helper starts with Jarvis and stays up for the life of the app. It is compiled once. Commands go in on stdin and JSON comes back on stdout, and the helper waits on stdin while it has nothing to do. It exits when that pipe closes, including a crash, Ctrl+C, or Task Manager ending Jarvis, and it also exits if Jarvis's process is gone. Quitting asks it to exit and kills the process tree only if it is still running. The click does not wait for the helper to start. If a fresh window list is not ready, which is only in the moment right after Jarvis itself starts, the click waits at most about 300ms, launches the app, and then hides Jarvis without trying to center. Once the helper is ready, the list taken at the click is the before list: windows already open at that moment.
 
 A window from the before list is moved only when it is the foreground window and its executable or Store app id matches the tile. Waiting longer does not make an old background window eligible. File Explorer is the exception: only a new Explorer window is moved, never one that was already open. A window that appears after the click is moved when its executable matches. A different executable is accepted only when the tile has nothing to match, or the tile is a stub launcher: a Store app opened with `shell:AppsFolder`, an unresolved `.lnk`, or an Update.exe-style launcher. A resolved `.lnk` uses the target executable, so an updater dialog for that app is left alone. A packaged app whose window is hosted by ApplicationFrameHost does not carry the app id on that window, so it is matched as a new window instead of by AUMID. Owned popups are skipped. The helper sets per-monitor DPI awareness, then restores, resizes, and brings the chosen window forward (`ShowWindow`, `SetWindowPos`, `SetForegroundWindow`). The desktop and the taskbar are refused. Nothing is written to the registry, and `explorer.exe` is not restarted or set as a shell. Jarvis hides only when no matching window turns up or the move fails. A click before the helper is ready hides as soon as the app has been launched, without waiting out the watch. A window that was placed stays in front of the full-screen launcher. `"launchWindow": { "mode": "default" }` leaves the app's own size and leaves Jarvis up.
 
-The tray menu is Show, Hide, Refresh, and Quit. The footer REFRESH control runs that same reload. A second click does nothing while a reload is already running, and the control reads REFRESHING until it finishes. The first scan, and any later scan that is not a button click, shows SCANNING in the footer until the list is ready. A reload that throws shows REFRESH FAILED and leaves the previous list in place. Opening the window uses the list already in memory. Saving `config.json` re-reads it too.
+The tray menu is Show, Hide, Refresh, and Quit. The Refresh button in the bottom tray runs that same reload. A second click does nothing while a reload is already running, and the status bar reads REFRESHING until it finishes. The first scan, and any later scan that is not a button click, shows SCANNING in the status bar until the list is ready. A reload that throws shows REFRESH FAILED and leaves the previous list in place. Opening the window uses the list already in memory. Saving `config.json` re-reads it too.
 
 `npm test` runs the unit tests. `npm run typecheck` typechecks the main process and the renderer.
 
@@ -56,7 +110,7 @@ setx XAI_API_KEY "your-key-here"
 
 `setx` does not put the key in this repo. Do not paste it into `config.json`. `voice.apiKeyEnv` can name `XAI_API_KEY` or another variable that starts with `XAI_`. Anything else is ignored. The value is still read from the environment.
 
-With a key present, voice starts on. The footer reads `VOICE ON`. Click it to save `voice.enabled` as `false` (`VOICE OFF`) or `true`. With no key, the footer reads `VOICE: NO KEY` and the app keeps running. A failure stays in the footer as `VOICE FAILED` plus a short reason, the same way a bad launch stays as `LAUNCH FAILED`. The reason never includes the key.
+With a key present, voice starts on and the Voice button in the bottom tray is blue. Click it to save `voice.enabled` as `false` (grey) or `true`. With no key, the button stays grey, its tooltip reads `Voice: no key`, and the app keeps running. A failure stays in the status bar as `VOICE FAILED` plus a short reason, the same way a bad launch stays as `LAUNCH FAILED`. The reason never includes the key.
 
 Say "hey jarvis". The window shows if it was hidden, and the reactor marks listening. Then:
 
@@ -66,7 +120,7 @@ Say "hey jarvis". The window shows if it was hidden, and the reactor marks liste
 - `stop` or `cancel`, said in the utterance after the wake word, ends the turn without calling Grok. Saying "hey jarvis" again, including while a reply is still being written or played, is heard on this PC and starts a new listen. That second phrase is not uploaded by itself
 - anything else is a short chat with Grok, and Jarvis speaks the answer
 
-What was heard and the reply sit in a panel centered above the footer. A long reply scrolls inside that panel. The panel stays clear of the tiles. Grok may also ask to open a tile. Only a tile id that is on screen is accepted.
+What was heard and the reply show inside the reactor, below the centre number. The text stays clear of the tiles. Grok may also ask to open a tile. Only a tile id that is on screen is accepted.
 
 Optional `voice` fields in `config.json`:
 
@@ -146,13 +200,20 @@ A broken file is left as it is. The launcher uses defaults in memory until the J
     "model": "grok-4.7",
     "voiceId": "eve",
     "sttModel": "grok-voice-transcribe-2.0"
-  }
+  },
+  "weather": { "latitude": 39.77, "longitude": -86.16, "label": "Indianapolis, IN", "units": "fahrenheit" },
+  "dock": ["downloads", "spotify", null, "projects"],
+  "plates": { "TEN OPF": "chatgpt", "CCRP": "cursor" }
 }
 ```
 
+- `dock` sets what the four icons under the Google box open, left to right: a tile id or `null` for an empty slot. The default is `["downloads", null, null, null]`. The icons stay as the design draws them; hover shows the tile's name. Clicking an empty slot says so in the status bar. The fifth icon, the gear, opens this `config.json` in your default editor, and Jarvis picks up the change when you save it.
+- `plates` puts a tile on one of the twelve reactor plates that carry design text: `TEN OPF`, `EDAE TIEUE`, `BARDA DBCM`, `APL DIT`, `APLE`, `CNHBS`, `CMBS`, `LOPE`, `ASNEX`, `ETTAL`, `SEPA`, `CCRP`. Case and extra spaces do not matter. The plate keeps its design text, becomes clickable and part of arrow-key navigation, and the tile leaves the open plates. A tile that already has a named slot (a top tab or a left button) stays there. Each tile can be on one plate.
+- For both, a tile id is any discovered app, built-in, web fallback, pinned folder, or extra tile id. To put any other program or folder on the HUD, add it to `extraTiles` or `pinnedFolders` and use its `id`. An id with no tile (a typo, or a tile in `disabled`) leaves the slot empty and adds a config warning.
+- `weather` is optional. With it set, the launcher asks `api.open-meteo.com` for the forecast every 15 minutes. That request carries only these coordinates and no key. `units` is `"fahrenheit"` (the default) or `"celsius"`. Leave `weather` out and nothing is sent.
 - `pinnedFolders` adds folder tiles. `kind` is not used; they always open the path.
 - `extraTiles` adds a tile that opens a file, shortcut, or folder. `kind` is `"app"` or `"folder"` and only affects the label on the tile.
-- `disabled` removes a tile. Built-in ids: `edge`, `explorer`, `desktop`, `documents`, `downloads`, `pictures`. Discovered ids: `chatgpt`, `claude`, `cursor`, `grok`, `copilot`, `perplexity`, `ollama`, `lm-studio`.
+- `disabled` removes a tile. Built-in ids: `edge`, `explorer`, `desktop`, `documents`, `downloads`, `pictures`. Discovered ids: `chatgpt`, `claude`, `cursor`, `grok`, `copilot`, `perplexity`, `ollama`, `lm-studio`, `gemini`, `vscode`, `word`, `spotify`, `outlook`, `github`. Web fallback ids: `gemini-web`, `github-web`, `x`.
 - `order` pulls those ids to the front. Anything you leave out stays in the default order after them.
 - `labels` renames a tile. A custom id cannot reuse a built-in or discovered id.
 - An id is 1 to 64 characters. It starts with a letter or digit. The rest can be letters, digits, `.`, `_`, or `-`.
@@ -178,7 +239,7 @@ Plus display names in these uninstall keys, read with `reg query` only:
 - `HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall`
 - `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`
 
-A match needs a name like ChatGPT, Claude, Cursor, Grok, Copilot, Perplexity, Ollama, or LM Studio. Cursor matches the name `Cursor`, and Copilot matches `Copilot` or `Microsoft Copilot`. A Start Menu shortcut is preferred, then a Store app, then the registry. A registry hit is used only when `DisplayIcon` points at an `.exe`. Shortcuts and registry entries whose name or target looks like an uninstaller are ignored. Uninstall strings are ignored.
+A match needs a name like ChatGPT, Claude, Cursor, Grok, Copilot, Perplexity, Ollama, LM Studio, Gemini, Visual Studio Code, Word, Spotify, Outlook, or GitHub Desktop. Cursor matches the name `Cursor`, and Copilot matches `Copilot` or `Microsoft Copilot`. A Start Menu shortcut is preferred, then a Store app, then the registry. A registry hit is used only when `DisplayIcon` points at an `.exe`. Shortcuts and registry entries whose name or target looks like an uninstaller are ignored. Uninstall strings are ignored.
 
 Fixed tiles:
 
@@ -201,21 +262,27 @@ Check both `JarvisLauncher-Setup.exe` and `JarvisLauncher-portable.exe` where it
 - Desktop, Documents, Downloads, and Pictures open those folders
 - Ctrl+Alt+J shows and hides the window
 - Autostart works for the NSIS install and the portable exe (`openAtLogin`, or a shortcut in the Startup folder)
-- REFRESH reloads the list. The footer reads SCANNING during the first scan, and REFRESH FAILED if a reload throws
-- Arrow keys move through the top tabs, the left column, and the reactor segments. PageUp and PageDown change pages when the segment tiles do not fit. Enter launches the focused tile. Esc clears a filter and then hides. Typing highlights matching tiles and dims the rest
+- Refresh reloads the list. The status bar reads SCANNING during the first scan, and REFRESH FAILED if a reload throws
+- Arrow keys move through the top tabs, the left column, and the reactor plates. PageUp, PageDown, and the rail arrows change pages when the plate tiles do not fit. Enter launches the focused tile. Esc clears a filter and then hides. Typing highlights matching tiles and dims the rest
 - A click leaves Jarvis up and opens the app in a centered window about 70% of the work area on that display. The window list is taken at the click from the helper that stays running for the life of Jarvis. An app that is already open is restored only when its window is in front. File Explorer moves only a new Explorer window. Jarvis stays full screen behind a placed window, and hides only if that window cannot be found or the move fails. A click in the moment after Jarvis starts, before the helper has compiled, launches the app and hides Jarvis without centering. `"launchWindow": { "mode": "default" }` leaves the app's own size and leaves Jarvis up
 
 ## Windows smoke test for voice
 
 On a machine with a microphone and `XAI_API_KEY` set in the environment the app actually runs in:
 
-- The footer reads `VOICE ON`. With the variable removed and the app restarted, it reads `VOICE: NO KEY` and Jarvis does not crash
+- The Voice button is blue. With the variable removed and the app restarted, it is grey with the tooltip `Voice: no key`, and Jarvis does not crash
 - Hide the window, say "hey jarvis", and the HUD comes back. The reactor shows listening, then thinking, then speaking. The subtitle shows what you said and the reply
 - "open edge" opens Microsoft Edge in the centered window, and Jarvis says it is opening
 - "hide" hides the window. "refresh" reloads the tiles. "stop" or "cancel", said after the wake word instead of a question, ends the turn. Saying "hey jarvis" again, including while a reply is still being written or played, is heard on this PC and starts a new listen. That second phrase is not uploaded by itself
 - A question that is not a command gets a spoken answer
-- `VOICE OFF` stops the microphone and survives a restart. `VOICE ON` starts it again
-- A rejected key shows `VOICE FAILED` in the footer and the key itself is not on screen
+- Volume: the `(−)` `(+)` knobs, dragging the volume bar, and the big dial (mute) all change what the Windows volume flyout shows, and the HUD follows when the volume is changed from the keyboard
+- Media: with Spotify or a YouTube tab playing, the title, artist, and time show, play/pause, next, previous, and seeking work. With nothing playing, the buttons still send the media keys
+- Mic dial turns red when the microphone is muted from Windows sound settings, and clicking it toggles that same setting
+- Brightness slider changes the screen on a laptop and is disabled on a desktop monitor
+- Lock locks at once. Sleep sleeps at once. Restart, Shut down, and Sign out need the second click, and waiting 5 seconds cancels them
+- `/` focuses the Google box, Enter opens the search in the default browser and hides the HUD, and Esc in the box clears it without hiding the HUD
+- Turning the Voice button off stops the microphone and survives a restart. Turning it on starts it again
+- A rejected key shows `VOICE FAILED` in the status bar and the key itself is not on screen
 
 The Linux and Windows CI jobs do not have a microphone, so they do not run this list. They do run the unit tests, typecheck, and the production build.
 
@@ -225,4 +292,4 @@ The Linux and Windows CI jobs do not have a microphone, so they do not run this 
 npm test
 ```
 
-Matching, config validation, shortcut scanning, registry parsing, Start menu app parsing, launch plans, the refresh gate, footer hints, HUD slot layout, keyboard navigation, and window placement are covered. Voice tests cover the command parser, fuzzy tile matching, the voice block in config, the listen/think/speak state machine, and the xAI client with a mocked `fetch`. Those tests check that the API key is not written into an error or a log line. Launch tests mock `openPath`, `openExternal`, and `spawn`. The placement tests mock the window list, so they do not need Windows. The Windows CI job also starts the helper, reads a real window list, moves a window that the test created, and checks that closing stdin exits the helper. The wake-word model is not asserted in CI. A real microphone is not available there.
+Matching, config validation, shortcut scanning, registry parsing, Start menu app parsing, launch plans, the refresh gate, status hints, the MARIO OS slot layout, keyboard navigation, the system-stat parsers, the Open-Meteo mapping, and window placement are covered. A browser test renders the built HUD at four screen sizes and checks that the canvas fits and no slot label is clipped. Voice tests cover the command parser, fuzzy tile matching, the voice block in config, the listen/think/speak state machine, and the xAI client with a mocked `fetch`. Those tests check that the API key is not written into an error or a log line. Launch tests mock `openPath`, `openExternal`, and `spawn`. The placement tests mock the window list, so they do not need Windows. The Windows CI job also starts the helper, reads a real window list, moves a window that the test created, and checks that closing stdin exits the helper. The wake-word model is not asserted in CI. A real microphone is not available there.

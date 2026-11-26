@@ -2,6 +2,7 @@ import { planBuiltinLaunch, planDiscoveredLaunch, planExtraLaunch } from "./laun
 import type { LaunchEnvironment } from "./launch";
 import type { BuiltinId, DiscoveredApp, JarvisConfig, ResolvedTile, TileKind } from "./types";
 import { BUILTIN_IDS } from "./types";
+import type { WebTileId } from "./types";
 
 const BUILTIN_LABELS: Record<BuiltinId, string> = {
   edge: "Microsoft Edge",
@@ -20,6 +21,21 @@ const BUILTIN_KINDS: Record<BuiltinId, TileKind> = {
   downloads: "folder",
   pictures: "folder",
 };
+
+interface WebTile {
+  id: WebTileId;
+  label: string;
+  url: string;
+  /** Left out when this desktop app was discovered. */
+  unless?: DiscoveredApp["id"];
+}
+
+/** Slots in the HUD that still work when the desktop app is missing. */
+export const WEB_TILES: readonly WebTile[] = [
+  { id: "gemini-web", label: "Gemini", url: "https://gemini.google.com/", unless: "gemini" },
+  { id: "github-web", label: "GitHub", url: "https://github.com/", unless: "github" },
+  { id: "x", label: "X", url: "https://x.com/" },
+];
 
 export function composeTiles(
   config: JarvisConfig,
@@ -52,6 +68,12 @@ export function composeTiles(
       kind: BUILTIN_KINDS[builtin],
       action: planBuiltinLaunch(builtin, env),
     });
+  }
+
+  const found = new Set(discovered.map((app) => app.id));
+  for (const web of WEB_TILES) {
+    if (web.unless && found.has(web.unless)) continue;
+    push({ id: web.id, label: web.label, kind: "app", action: { type: "openExternal", url: web.url } });
   }
 
   for (const folder of config.pinnedFolders) {

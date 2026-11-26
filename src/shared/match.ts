@@ -22,6 +22,12 @@ export const AI_APP_PATTERNS: readonly AiAppPattern[] = [
   { id: "perplexity", label: "Perplexity", pattern: /\bperplexity\b/i },
   { id: "ollama", label: "Ollama", pattern: /\bollama\b/i },
   { id: "lm-studio", label: "LM Studio", pattern: /\blm[\s-]?studio\b/i },
+  { id: "gemini", label: "Gemini", pattern: /^(?:google\s+)?gemini(?:\s*\([^)]*\))?$/i },
+  { id: "vscode", label: "Visual Studio Code", pattern: /^(?:microsoft\s+)?visual studio code(?:\s*\([^)]*\))?$|^code$/i },
+  { id: "word", label: "Word", pattern: /^(?:microsoft\s+)?word(?:\s+(?:\d{4}|mobile))?$|^winword$/i },
+  { id: "spotify", label: "Spotify", pattern: /^spotify(?:\s+music)?$/i },
+  { id: "outlook", label: "Outlook", pattern: /^(?:microsoft\s+)?outlook(?:\s*\((?:new|classic)\))?(?:\s+\d{4})?$/i },
+  { id: "github", label: "GitHub Desktop", pattern: /^github\s*desktop$/i },
 ];
 
 const PATTERN_BY_ID = new Map(AI_APP_PATTERNS.map((pattern) => [pattern.id, pattern]));

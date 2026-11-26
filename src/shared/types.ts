@@ -1,3 +1,4 @@
+import type { SystemAction, SystemState } from "./system";
 /** Names the matcher looks for. One discovered tile per id. */
 export const AI_APP_IDS = [
   "chatgpt",
@@ -8,6 +9,12 @@ export const AI_APP_IDS = [
   "perplexity",
   "ollama",
   "lm-studio",
+  "gemini",
+  "vscode",
+  "word",
+  "spotify",
+  "outlook",
+  "github",
 ] as const;
 
 export type AiAppId = (typeof AI_APP_IDS)[number];
@@ -22,6 +29,11 @@ export const BUILTIN_IDS = [
 ] as const;
 
 export type BuiltinId = (typeof BUILTIN_IDS)[number];
+
+/** Web fallbacks for HUD slots whose desktop app is not installed. */
+export const WEB_TILE_IDS = ["gemini-web", "github-web", "x"] as const;
+
+export type WebTileId = (typeof WEB_TILE_IDS)[number];
 
 export interface ShortcutRecord {
   /** File name without `.lnk`. */
@@ -122,6 +134,62 @@ export interface JarvisConfig {
   /** Optional label overrides keyed by tile id. */
   labels: Record<string, string>;
   voice: VoiceConfig;
+  /** Optional. Weather stays "--" until a location is set. */
+  weather?: WeatherConfig;
+  /** Tile ids for the four quick-launch icons under the Google box. null leaves a slot empty. */
+  dock: (string | null)[];
+  /** Tile ids for the reactor plates that carry design text, keyed by that text, for example "TEN OPF". */
+  plates: Record<string, string>;
+}
+
+export interface WeatherConfig {
+  latitude: number;
+  longitude: number;
+  /** Shown above the temperature, for example "Indianapolis, IN". */
+  label: string;
+  units: "fahrenheit" | "celsius";
+}
+
+export interface WeatherDay {
+  /** Local date, YYYY-MM-DD. */
+  date: string;
+  high: number;
+  low: number;
+  condition: string;
+}
+
+export interface WeatherReport {
+  label: string;
+  units: "F" | "C";
+  /** ISO time of the reading. */
+  updated: string;
+  temperature: number;
+  condition: string;
+  humidity: number;
+  feelsLike: number;
+  precipitation: number;
+  visibilityKm: number;
+  windSpeed: number;
+  windUnit: string;
+  pressureHpa: number;
+  sunrise: string;
+  sunset: string;
+  uvIndex: number;
+  days: WeatherDay[];
+}
+
+/** Live readings for the HUD. Any field is null when this PC cannot report it. */
+export interface SystemStats {
+  cpuPct: number | null;
+  ramUsedBytes: number;
+  ramFreeBytes: number;
+  ramTotalBytes: number;
+  diskPct: number | null;
+  uptimeSec: number;
+  wifi: { signalPct: number; ssid: string } | null;
+  net: { downBytesPerSec: number; upBytesPerSec: number } | null;
+  recycle: { items: number; bytes: number } | null;
+  weather: WeatherReport | null;
 }
 
 export type TileKind = "app" | "folder" | "system";
@@ -155,6 +223,10 @@ export interface LauncherState {
   scanning: boolean;
   /** True after a refresh throws. Cleared when the next pass starts. */
   refreshFailed: boolean;
+  /** Tile id for each dock icon, or null when the slot is empty or its tile is gone. */
+  dock: (string | null)[];
+  /** Labelled reactor plates that open a tile. */
+  plates: { slot: number; tileId: string }[];
 }
 
 export interface LaunchResult {
@@ -180,4 +252,15 @@ export interface JarvisBridge {
   onSpeak(listener: (audio: ArrayBuffer, contentType: string) => void): () => void;
   playbackEnded(): void;
   reportVoiceError(message: string): void;
+  getStats(): Promise<SystemStats>;
+  getSystem(): Promise<SystemState | null>;
+  systemAction(action: SystemAction, value?: number): Promise<SystemActionResult>;
+  webSearch(query: string): Promise<{ ok: boolean; error?: string }>;
+  openConfig(): Promise<{ ok: boolean; error?: string }>;
+}
+
+export interface SystemActionResult {
+  ok: boolean;
+  error?: string;
+  state?: SystemState;
 }

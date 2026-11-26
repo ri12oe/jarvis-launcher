@@ -439,7 +439,11 @@ export function powershellArgs(command: string): string[] {
 }
 
 function defaultSpawn(file: string, args: string[]): PlacementProcess {
-  const child = spawn(file, args, { shell: false, windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
+  const child = spawn(file, args, {
+    shell: false,
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "ignore"],
+  });
   if (!child.stdin || !child.stdout) {
     child.kill();
     throw new Error("window helper stdio was not piped");
@@ -451,7 +455,8 @@ function defaultSpawn(file: string, args: string[]): PlacementProcess {
 function killProcessTree(child: PlacementProcess): void {
   const pid = child.pid;
   if (process.platform === "win32" && typeof pid === "number" && pid > 0) {
-    const root = process.env.SystemRoot?.trim().replace(/[\\/]+$/, "") || "C:\\Windows";
+    const root =
+      process.env.SystemRoot?.trim().replace(/[\\/]+$/, "") || "C:\\Windows";
     execFile(
       `${root}\\System32\\taskkill.exe`,
       ["/T", "/F", "/PID", String(pid)],
@@ -508,7 +513,10 @@ export interface WindowSession {
 function lineId(line: string): { id?: number; placed?: boolean } {
   try {
     const value = JSON.parse(line) as { id?: unknown; placed?: unknown };
-    const id = typeof value.id === "number" && Number.isSafeInteger(value.id) ? value.id : undefined;
+    const id =
+      typeof value.id === "number" && Number.isSafeInteger(value.id)
+        ? value.id
+        : undefined;
     const placed = typeof value.placed === "boolean" ? value.placed : undefined;
     return { id, placed };
   } catch {
@@ -519,7 +527,9 @@ function lineId(line: string): { id?: number; placed?: boolean } {
 /**
  * One helper for as long as Jarvis is running. Add-Type runs at start, not on each click.
  */
-export function createWindowSession(options: WindowSessionOptions): WindowSession {
+export function createWindowSession(
+  options: WindowSessionOptions,
+): WindowSession {
   const disabled = options.platform !== "win32";
   const parentPid = options.parentPid ?? process.pid;
   let child: PlacementProcess | undefined;
@@ -531,7 +541,10 @@ export function createWindowSession(options: WindowSessionOptions): WindowSessio
   let buffer = "";
   let nextId = 1;
   let activeServe: ServeState | undefined;
-  const sampleWaiters = new Map<number, (snap: WindowSnapshot | undefined) => void>();
+  const sampleWaiters = new Map<
+    number,
+    (snap: WindowSnapshot | undefined) => void
+  >();
 
   const writeLine = (text: string) => {
     const current = child;
@@ -561,7 +574,12 @@ export function createWindowSession(options: WindowSessionOptions): WindowSessio
 
   const onLine = (line: string) => {
     const header = lineId(line);
-    if (header.placed !== undefined && header.id !== undefined && activeServe && header.id === activeServe.id) {
+    if (
+      header.placed !== undefined &&
+      header.id !== undefined &&
+      activeServe &&
+      header.id === activeServe.id
+    ) {
       finishServe(activeServe, header.placed);
       return;
     }
@@ -606,7 +624,10 @@ export function createWindowSession(options: WindowSessionOptions): WindowSessio
       if (!command) return;
       try {
         const spawnImpl = options.spawnImpl ?? defaultSpawn;
-        child = spawnImpl(windowsPowershellPath(options.env?.SystemRoot), powershellArgs(command));
+        child = spawnImpl(
+          windowsPowershellPath(options.env?.SystemRoot),
+          powershellArgs(command),
+        );
       } catch {
         child = undefined;
         ended = true;
@@ -655,7 +676,13 @@ export function createWindowSession(options: WindowSessionOptions): WindowSessio
       });
     },
     sample(timeoutMs: number) {
-      if (disabled || !child || ended || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+      if (
+        disabled ||
+        !child ||
+        ended ||
+        !Number.isSafeInteger(timeoutMs) ||
+        timeoutMs <= 0
+      ) {
         return Promise.resolve(undefined);
       }
       const id = nextId++;
@@ -679,7 +706,14 @@ export function createWindowSession(options: WindowSessionOptions): WindowSessio
       });
     },
     serve(timeoutMs: number) {
-      if (disabled || !child || ended || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) return idleWatch();
+      if (
+        disabled ||
+        !child ||
+        ended ||
+        !Number.isSafeInteger(timeoutMs) ||
+        timeoutMs <= 0
+      )
+        return idleWatch();
       if (activeServe && !activeServe.done) finishServe(activeServe, undefined);
       const id = nextId++;
       const serve: ServeState = { id, snapshots: [], readers: [], done: false };
@@ -700,13 +734,20 @@ export function createWindowSession(options: WindowSessionOptions): WindowSessio
         },
         async place(hwnd, rect) {
           if (!Number.isSafeInteger(hwnd) || hwnd <= 0) return false;
-          if (![rect.x, rect.y, rect.width, rect.height].every((value) => Number.isSafeInteger(value))) return false;
+          if (
+            ![rect.x, rect.y, rect.width, rect.height].every((value) =>
+              Number.isSafeInteger(value),
+            )
+          )
+            return false;
           if (rect.width <= 0 || rect.height <= 0) return false;
           if (serve.done || ended) return false;
           return new Promise((resolve) => {
             serve.placeWaiter = resolve;
             try {
-              writeLine(`PLACE ${id} ${hwnd} ${rect.x} ${rect.y} ${rect.width} ${rect.height}`);
+              writeLine(
+                `PLACE ${id} ${hwnd} ${rect.x} ${rect.y} ${rect.width} ${rect.height}`,
+              );
             } catch {
               if (serve.placeWaiter === resolve) serve.placeWaiter = undefined;
               resolve(false);

@@ -37,6 +37,9 @@ describe("composeTiles", () => {
       "documents",
       "downloads",
       "pictures",
+      "gemini-web",
+      "github-web",
+      "x",
       "projects",
       "scratch",
     ]);
@@ -44,7 +47,7 @@ describe("composeTiles", () => {
 
   it("hides disabled ids, renames tiles, and pulls ordered ids forward", () => {
     const config = cloneDefaultConfig();
-    config.disabled = ["downloads", "cursor"];
+    config.disabled = ["downloads", "cursor", "gemini-web", "github-web", "x"];
     config.labels = { edge: "Browser" };
     config.order = ["pictures", "explorer"];
     const tiles = composeTiles(config, [cursor], env);
@@ -56,5 +59,14 @@ describe("composeTiles", () => {
       "documents",
     ]);
     expect(tiles.find((tile) => tile.id === "edge")?.label).toBe("Browser");
+  });
+
+  it("adds web fallbacks for Gemini, GitHub, and X, and drops one when the desktop app exists", () => {
+    const gemini = { ...cursor, id: "gemini" as const, label: "Gemini", launchPath: "C:\\gemini.lnk" };
+    const tiles = composeTiles(cloneDefaultConfig(), [gemini], env);
+    const ids = tiles.map((tile) => tile.id);
+    expect(ids).not.toContain("gemini-web");
+    expect(ids).toContain("github-web");
+    expect(tiles.find((tile) => tile.id === "x")?.action).toEqual({ type: "openExternal", url: "https://x.com/" });
   });
 });

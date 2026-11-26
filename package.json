@@ -66,6 +66,11 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@fontsource/archivo-black": "^5.3.0",
+    "@fontsource/exo-2": "^5.3.0",
+    "@fontsource/oswald": "^5.3.0",
+    "@fontsource/roboto-condensed": "^5.3.0",
+    "@fontsource/share-tech": "^5.3.0",
     "@types/node": "^22.13.10",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",

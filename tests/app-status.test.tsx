@@ -65,6 +65,11 @@ describe("App launch status", () => {
       onSpeak: () => () => undefined,
       playbackEnded: () => undefined,
       reportVoiceError: () => undefined,
+      getStats: async () => null as never,
+      getSystem: async () => null,
+      systemAction: async () => ({ ok: true }),
+      webSearch: async () => ({ ok: true }),
+      openConfig: async () => ({ ok: true }),
     };
     (window as { jarvis?: JarvisBridge }).jarvis = bridge;
     host = document.createElement("div");
@@ -77,14 +82,14 @@ describe("App launch status", () => {
   }
 
   function footer(): string {
-    return host?.querySelector(".bottom .hint")?.textContent ?? "";
+    return host?.querySelector(".status")?.textContent ?? "";
   }
 
   it("clears LAUNCH FAILED when a tile is clicked and when the window hides", async () => {
     await renderApp();
-    const tile = host?.querySelector(".tile");
+    const tile = host?.querySelector(".launcher");
     expect(tile?.getAttribute("aria-label")).toBe("Microsoft Edge");
-    expect(tile?.textContent?.toUpperCase()).toContain("EDGE");
+    expect(tile?.textContent).toContain("Microsoft Edge");
 
     await act(async () => {
       tile?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
