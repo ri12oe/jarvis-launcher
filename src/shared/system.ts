@@ -110,6 +110,16 @@ export function checkSystemAction(
   };
 }
 
+/**
+ * Windows 11 (build 22000 and later) keeps the calendar in the notification
+ * panel, opened with Win+N. Windows 10 opens its date flyout with Win+Alt+D.
+ * `release` is os.release(), for example "10.0.22631".
+ */
+export function calendarShortcut(release: string): "win-n" | "win-alt-d" {
+  const build = Number.parseInt(release.split(".")[2] ?? "", 10);
+  return Number.isFinite(build) && build >= 22000 ? "win-n" : "win-alt-d";
+}
+
 export type PlaybackStatus = "playing" | "paused" | "stopped";
 
 export interface MediaState {

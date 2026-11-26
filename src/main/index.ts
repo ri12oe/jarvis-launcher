@@ -1,5 +1,6 @@
 import { spawn as spawnProcess } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   app,
@@ -55,6 +56,7 @@ import {
   type SettingsValues,
 } from "../shared/settings";
 import {
+  calendarShortcut,
   checkSystemAction,
   POWER_ACTIONS,
   webSearchUrl,
@@ -712,7 +714,14 @@ function registerIpc(): void {
         return { ok: true };
       }
       try {
-        const state = await systemControls.run(checked.action, checked.value);
+        // The calendar shortcut depends on the Windows version: 1 is Windows 11.
+        const value =
+          checked.action === "open-calendar"
+            ? calendarShortcut(os.release()) === "win-n"
+              ? 1
+              : 0
+            : checked.value;
+        const state = await systemControls.run(checked.action, value);
         if (checked.action === "empty-recyclebin") stats.refreshRecycle();
         return { ok: true, state };
       } catch (error) {
