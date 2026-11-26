@@ -140,6 +140,23 @@ Say "hey jarvis". The window shows if it was hidden, and the reactor marks liste
 
 Web searches use more of Groq's free per-minute token limit. If it runs out, the status bar says `Groq is busy, try again in a minute`.
 
+### Computer control (Windows)
+
+Jarvis can also work the PC for you. It says its plan out loud, hides, and does it in front of you:
+
+- "Open VS Code and write a hello world Python file": VS Code opens a new file in `Documents\Jarvis Projects`, the code is typed in live, and the file is saved. That folder has its own `.vscode/settings.json` that turns off auto-closing brackets, auto-indent, and suggestions, so VS Code types exactly what Jarvis sends. Your other folders are not affected. An existing file is never overwritten; a second `hello.py` becomes `hello-2.py`
+- "Draft an email to my TA at ta@iu.edu about the lab": Outlook opens a new draft with the recipient and subject, and the message is typed in. Jarvis never sends it; you review it and press Send. Outlook must be the default email app (Settings > Apps > Default apps). If Jarvis does not know the address, it asks
+- "Play Blinding Lights on Spotify": Spotify opens on the search results, and you press play
+- "Switch to dark mode", "open Bluetooth settings", "set the volume to 30"
+- "Open Notepad and write a short poem": any installed app opens, and Jarvis types into it
+
+Safety:
+
+- Jarvis only types into the window it opened for the task. Before every line it checks which window is in front, and stops if anything else is, so a click elsewhere can never send keystrokes to the wrong place
+- Saying "hey jarvis" again stops a task between steps and between typed lines
+- It cannot send emails or messages, delete files, close apps, or buy anything. Keys are an allow list that leaves out send and close shortcuts (Ctrl+Enter, Alt+S, Alt+F4, Ctrl+W), select-all, and Delete
+- A task is limited to 6 rounds with the model and 12 actions
+
 What was heard and the reply show inside the reactor, below the centre number. The text stays clear of the tiles. The model may also ask to open a tile. Only a tile id that is on screen is accepted.
 
 Optional `voice` fields in `config.json`:

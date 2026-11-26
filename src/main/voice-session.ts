@@ -1,3 +1,4 @@
+import { planLine, type ComputerCall } from "../shared/computer";
 import { readVoiceApiKey, voicePreferenceOn } from "../shared/config";
 import type { LaunchResult, VoiceConfig, VoiceSnapshot } from "../shared/types";
 import {
@@ -27,7 +28,9 @@ import {
   searchAnswer,
   spokenText,
   transcribeWav,
+  type ChatResult,
   type PcAction,
+  type WireMessage,
   type ChatMessage,
   type SpeechAudio,
 } from "../shared/groq";
@@ -59,9 +62,19 @@ export interface VoiceHost {
   ): Promise<SpeechAudio>;
   /** Run a checked PC control (volume, media, brightness) the model asked for. */
   control(action: PcAction): Promise<void>;
+  /** Computer control for one spoken task, or undefined where it is not available. */
+  computerTask(): ComputerTaskRunner | undefined;
   modelDir(): string;
   patchEnabled(text: string, enabled: boolean): string | undefined;
 }
+
+export interface ComputerTaskRunner {
+  run(call: ComputerCall, signal: AbortSignal): Promise<string>;
+}
+
+/** Model rounds in one task, and tool calls across all of them. */
+const TASK_ROUNDS = 6;
+const TASK_STEPS = 12;
 
 export interface VoiceSession {
   start(): Promise<void>;
@@ -293,19 +306,29 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
     const key = readVoiceApiKey(host.env(), voice.apiKeyEnv);
     if (!key || !alive(gen)) return;
     const tiles = host.tiles();
+    const task = host.computerTask();
     try {
+      const messages: WireMessage[] = [
+        {
+          role: "system",
+          content: jarvisSystemPrompt(tiles, new Date(), Boolean(task)),
+        },
+        ...history,
+        { role: "user", content: text },
+      ];
       const result = await completeChat({
         apiKey: key,
         model: voice.model,
-        messages: [
-          { role: "system", content: jarvisSystemPrompt(tiles) },
-          ...history,
-          { role: "user", content: text },
-        ],
+        messages,
         tileIds: tiles.map((tile) => tile.id),
+        computer: Boolean(task),
         signal: requestSignal(),
       });
       if (!alive(gen)) return;
+      if (task && result.computer.length > 0) {
+        await runTask(gen, text, key, task, messages, result);
+        return;
+      }
       if (result.search) {
         hud = reduceVoice(hud, { type: "working" });
         publish();
@@ -367,6 +390,124 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       hud = reduceVoice(hud, { type: "fail" });
       publish();
     }
+  }
+
+  /**
+   * A multi-step task on the PC. Jarvis says the plan, hides so keystrokes
+   * reach the apps, runs each tool call, and sends the results back to the
+   * model until it is done. "Hey jarvis" bumps the generation and stops it
+   * between steps and between typed lines.
+   */
+  async function runTask(
+    gen: number,
+    text: string,
+    key: string,
+    task: ComputerTaskRunner,
+    start: WireMessage[],
+    first: ChatResult,
+  ): Promise<void> {
+    const voice = host.voice();
+    const tiles = host.tiles();
+    const signal = abort.signal;
+    const plan =
+      spokenText(first.text) ||
+      planLine(
+        first.computer.flatMap((item) => (item.call ? [item.call] : [])),
+      ) ||
+      "On it.";
+    await say(gen, plan);
+    if (!alive(gen)) return;
+    host.hide();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    const messages = [...start];
+    let result = first;
+    let steps = 0;
+    for (
+      let round = 0;
+      round < TASK_ROUNDS && result.calls.length > 0;
+      round++
+    ) {
+      const replies: WireMessage[] = [];
+      for (const call of result.calls) {
+        if (!alive(gen)) return;
+        steps += 1;
+        replies.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content:
+            steps > TASK_STEPS
+              ? "Refused: this task has used its step limit. Stop and tell the user what is done."
+              : await runToolCall(
+                  gen,
+                  call.id,
+                  call.function.name,
+                  result,
+                  tiles,
+                ),
+        });
+      }
+      if (!alive(gen)) return;
+      messages.push(
+        {
+          role: "assistant",
+          content: result.text || null,
+          tool_calls: result.calls,
+        },
+        ...replies,
+      );
+      result = await completeChat({
+        apiKey: key,
+        model: voice.model,
+        messages,
+        tileIds: tiles.map((tile) => tile.id),
+        computer: true,
+        signal: requestSignal(),
+      });
+      if (!alive(gen)) return;
+    }
+
+    async function runToolCall(
+      gen: number,
+      id: string,
+      name: string,
+      current: ChatResult,
+      list: readonly { id: string; label: string }[],
+    ): Promise<string> {
+      const computer = current.computer.find((item) => item.id === id);
+      if (computer) {
+        if (!computer.call)
+          return `Refused: the ${name} arguments were not allowed.`;
+        try {
+          return await task.run(computer.call, signal);
+        } catch (caught) {
+          if (!alive(gen)) return "Stopped by the user.";
+          return `Failed: ${caught instanceof Error ? caught.message : "error"}`;
+        }
+      }
+      if (name === "open_tile" && current.tileId) {
+        const tile = list.find((item) => item.id === current.tileId);
+        const launched = await host.launch(current.tileId);
+        return launched.ok
+          ? `OK: opened ${tile?.label ?? current.tileId}`
+          : `Failed: ${launched.error ?? "launch failed"}`;
+      }
+      if (name === "pc_control" && current.pc.length > 0) {
+        for (const action of current.pc)
+          await host.control(action).catch(() => undefined);
+        return "OK: done.";
+      }
+      if (name === "web_search")
+        return "Refused: web search is not available during a PC task.";
+      return `Refused: ${name} is not available.`;
+    }
+
+    const line = spokenText(result.text) || "Done.";
+    history = appendChatHistory(history, text, line);
+    // The plan was spoken already; speak the outcome as a new reply.
+    hud = { phase: "thinking", heard: hud.heard, reply: "" };
+    publish();
+    await say(gen, line);
   }
 
   async function say(gen: number, line: string): Promise<void> {

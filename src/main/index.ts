@@ -1,4 +1,4 @@
-import { spawn as spawnProcess } from "node:child_process";
+import { execFile, spawn as spawnProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -72,6 +72,11 @@ import { StatsService } from "./stats";
 import { SystemControls } from "./system-controls";
 import { createVoiceSession, type VoiceSession } from "./voice-session";
 import { WindowsSpeech } from "./windows-speech";
+import { WindowsInput } from "./windows-input";
+import { ComputerTask, type ComputerHost } from "./computer";
+import { readStartApps } from "../discovery/start-apps";
+import { matchTile } from "../shared/voice-command";
+import type { StoreApp } from "../shared/start-apps";
 import { resolveWakeDir } from "./wakeword";
 import { createWindowSession, type WindowWatch } from "./window-snapshot";
 
@@ -97,6 +102,7 @@ const placementHelper = createWindowSession({
 let configFilePath = "";
 let voice: VoiceSession | null = null;
 const windowsSpeech = new WindowsSpeech();
+const windowsInput = new WindowsInput();
 let launcher: {
   config: JarvisConfig;
   tiles: ResolvedTile[];
@@ -610,6 +616,103 @@ function publishVoice(snapshot: VoiceSnapshot): void {
   contents.send("jarvis:voice", snapshot);
 }
 
+/** Start menu apps for "open <app>", read at most once every five minutes. */
+let startAppsCache: { at: number; apps: StoreApp[] } | null = null;
+
+/** VS Code's Code.exe in its usual install folders. */
+function findVsCode(): string | undefined {
+  const candidates = [
+    process.env.LOCALAPPDATA &&
+      path.join(
+        process.env.LOCALAPPDATA,
+        "Programs",
+        "Microsoft VS Code",
+        "Code.exe",
+      ),
+    process.env.ProgramFiles &&
+      path.join(process.env.ProgramFiles, "Microsoft VS Code", "Code.exe"),
+    process.env["ProgramFiles(x86)"] &&
+      path.join(
+        process.env["ProgramFiles(x86)"],
+        "Microsoft VS Code",
+        "Code.exe",
+      ),
+  ];
+  return candidates.find(
+    (file): file is string => typeof file === "string" && fs.existsSync(file),
+  );
+}
+
+const computerHost: ComputerHost = {
+  available: () => windowsInput.available(),
+  foreground: () => windowsInput.foreground(),
+  find: (names) => windowsInput.find(names),
+  focus: (hwnd) => windowsInput.focus(hwnd),
+  typeLine: (text, expect, enter, delayMs) =>
+    windowsInput.typeLine(text, expect, enter, delayMs),
+  keys: (vks, expect) => windowsInput.keys(vks, expect),
+  openExternal: (url) => shell.openExternal(url),
+  spawnDetached: (file, args) => {
+    const resolved =
+      file === "explorer.exe" ? windowsSystemFile("explorer.exe", false) : file;
+    spawnProcess(resolved, [...args], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: false,
+    }).unref();
+  },
+  launchTileByName: async (name) => {
+    const tiles =
+      launcher?.tiles.map((tile) => ({ id: tile.id, label: tile.label })) ?? [];
+    const tile = matchTile(name, tiles);
+    if (!tile) return undefined;
+    const result = await launchTile(tile.id);
+    return { ok: result.ok, label: tile.label, error: result.error };
+  },
+  startApps: async () => {
+    if (startAppsCache && Date.now() - startAppsCache.at < 5 * 60_000)
+      return startAppsCache.apps;
+    const read = await readStartApps();
+    startAppsCache = { at: Date.now(), apps: read.apps };
+    return read.apps;
+  },
+  documentsDir: () => app.getPath("documents"),
+  vsCodePath: findVsCode,
+  regExe: () => windowsSystemFile("reg.exe"),
+  runFile: (file, args) =>
+    new Promise((resolve, reject) => {
+      execFile(
+        file,
+        [...args],
+        { windowsHide: true, shell: false, timeout: 10_000 },
+        (error) =>
+          error ? reject(new Error("Setting did not change")) : resolve(),
+      );
+    }),
+  exists: (file) => fs.existsSync(file),
+  mkdir: (dir) => fs.mkdirSync(dir, { recursive: true }),
+  writeFile: (file, text) =>
+    fs.writeFileSync(file, text, { flag: text ? "w" : "wx" }),
+  ownPid: () => process.pid,
+  now: () => Date.now(),
+  sleep: (ms, signal) =>
+    new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new Error("Stopped"));
+        return;
+      }
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new Error("Stopped"));
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+    }),
+};
+
 function sendSpeech(audio: Uint8Array, contentType: string): void {
   const contents = mainWindow?.webContents;
   if (!contents || contents.isDestroyed()) return;
@@ -1040,6 +1143,8 @@ if (!gotLock) {
         windowsSpeech.speak(text, voiceName, signal),
       control: (pc) =>
         systemControls.run(pc.action, pc.value).then(() => undefined),
+      computerTask: () =>
+        windowsInput.available() ? new ComputerTask(computerHost) : undefined,
       modelDir: () => resolveWakeDir(app.getAppPath()),
       patchEnabled: patchVoiceEnabledText,
     });
@@ -1061,6 +1166,7 @@ if (!gotLock) {
     quitting = true;
     voice?.stop();
     windowsSpeech.stop();
+    windowsInput.stop();
     placementHelper.stop();
     if (refreshTimer) clearTimeout(refreshTimer);
     if (configFilePath) fs.unwatchFile(configFilePath);

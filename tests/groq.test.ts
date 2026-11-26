@@ -47,7 +47,7 @@ describe("Groq client", () => {
         },
         ["edge", "explorer"],
       ),
-    ).toEqual({ text: "Opening Edge.", tileId: "edge", pc: [], search: undefined });
+    ).toMatchObject({ text: "Opening Edge.", tileId: "edge", pc: [], search: undefined });
 
     expect(
       parseChatCompletion(
@@ -63,7 +63,7 @@ describe("Groq client", () => {
         },
         ["edge"],
       ),
-    ).toEqual({ text: "I can't open that.", tileId: undefined, pc: [], search: undefined });
+    ).toMatchObject({ text: "I can't open that.", tileId: undefined, pc: [], search: undefined });
 
     expect(
       parseChatCompletion(
@@ -106,7 +106,7 @@ describe("Groq client", () => {
       fetchImpl,
     });
 
-    expect(result).toEqual({ text: "The reactor is nominal.", tileId: undefined, pc: [], search: undefined });
+    expect(result).toEqual({ text: "The reactor is nominal.", calls: [], computer: [], tileId: undefined, pc: [], search: undefined });
     expect(seen[0]?.url).toBe(`${GROQ_API_ROOT}/chat/completions`);
     expect(seen[0]?.authorization).toBe(`Bearer ${KEY}`);
     const body = JSON.parse(seen[0]?.body ?? "{}") as {
@@ -230,6 +230,35 @@ describe("Groq client", () => {
     expect(sent.tools).toEqual([{ type: "browser_search" }]);
     expect(sent.reasoning_effort).toBe("low");
     expect(spokenText("x".repeat(10) + ". Final answer here.", 20)).toBe("Final answer here.");
+  });
+
+  it("keeps computer-control calls with their ids, and refuses bad arguments", () => {
+    const result = parseChatCompletion(
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_a",
+                  function: { name: "write_code", arguments: JSON.stringify({ filename: "hello.py", code: 'print("hi")' }) },
+                },
+                { id: "call_b", function: { name: "write_code", arguments: JSON.stringify({ filename: "../x.py", code: "x" }) } },
+                { id: "call_c", function: { name: "press_keys", arguments: JSON.stringify({ keys: "alt+f4" }) } },
+              ],
+            },
+          },
+        ],
+      },
+      [],
+    );
+    expect(result.calls.map((call) => call.id)).toEqual(["call_a", "call_b", "call_c"]);
+    expect(result.computer[0]?.call).toEqual({ tool: "write_code", filename: "hello.py", code: 'print("hi")' });
+    expect(result.computer[1]?.call).toBeUndefined();
+    expect(result.computer[2]?.call).toBeUndefined();
+    expect(jarvisSystemPrompt([], new Date(), true)).toContain("never send emails");
+    expect(jarvisSystemPrompt([], new Date(), false)).not.toContain("write_code");
   });
 
   it("keeps the last ten exchanges", () => {
