@@ -35,6 +35,7 @@ import { acceptRefreshClick } from "../shared/refresh";
 import {
   confirmText,
   powerClick,
+  type SystemState,
   type PendingPower,
   type PowerAction,
   type SystemAction,
@@ -47,9 +48,11 @@ import type {
   VoicePhase,
   VoiceSnapshot,
 } from "../shared/types";
+import { missingBridgeMethods } from "../shared/types";
 import { NowProvider } from "./hud/time";
 import { Chassis } from "./mario/Chassis";
-import { useBattery, useStats, useSystem } from "./mario/live";
+import { useBattery, useRecent, useStats, useSystem } from "./mario/live";
+import { MessageLog, type LogEntry } from "./mario/MessageLog";
 import {
   AnalogClock,
   DayBlock,
@@ -67,12 +70,25 @@ import {
   WeatherPanel,
 } from "./mario/Panels";
 import { Reactor, type PlateState } from "./mario/Reactor";
+import { SettingsPanel } from "./mario/Settings";
 import { Shift, SpareRoomProvider } from "./mario/shift";
 import { startMicrophone } from "./mic";
 
 const FILTER_LIMIT = 32;
 const EMPTY_TILES: LauncherTileView[] = [];
 const EMPTY_PLATES: LauncherState["plates"] = [];
+const NO_DIALS: LauncherState["dials"] = { G: null, E: null };
+const LOG_LIMIT = 30;
+const INFO_MS = 3000;
+
+/** Short confirmation for a control that worked, or "" when the HUD already shows the change. */
+function confirmationFor(action: SystemAction, state: SystemState | undefined): string {
+  if (action === "volume-step" && state?.volume != null) return `VOLUME ${state.volume}%`;
+  if (action === "mute-toggle" && state?.muted != null) return state.muted ? "MUTED" : "SOUND ON";
+  if (action === "mic-toggle" && state?.micMuted != null) return state.micMuted ? "MIC MUTED" : "MIC ON";
+  if (action === "empty-recyclebin") return "RECYCLE BIN EMPTIED";
+  return "";
+}
 
 const PREVIEW_APPS: DiscoveredApp[] = [
   ["chatgpt", "ChatGPT"],
@@ -95,9 +111,12 @@ const PREVIEW_APPS: DiscoveredApp[] = [
   launchKind: "store" as const,
 }));
 
-function hudSlots(config: Parameters<typeof resolveHudSlots>[0], ids: string[]) {
-  const { dock, plates } = resolveHudSlots(config, ids);
-  return { dock, plates };
+function hudSlots(
+  config: Parameters<typeof resolveHudSlots>[0] & { leftList: LauncherState["leftList"] },
+  ids: string[],
+) {
+  const { dock, plates, dials } = resolveHudSlots(config, ids);
+  return { dock, plates, dials, leftList: config.leftList };
 }
 
 function previewState(): LauncherState {
@@ -224,8 +243,28 @@ export function App() {
   const [page, setPage] = useState(0);
   const [focus, setFocus] = useState<Focus | null>(null);
   const [system, setSystem] = useSystem();
+  const recent = useRecent(true);
   const [pendingPower, setPendingPower] = useState<PendingPower | null>(null);
   const [notice, setNotice] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [stale, setStale] = useState(false);
+  // Short confirmations (cyan, a few seconds) and the message log behind the status bar.
+  const [info, setInfo] = useState("");
+  const [log, setLog] = useState<LogEntry[]>([]);
+  const [logOpen, setLogOpen] = useState(false);
+  const logOpenRef = useRef(false);
+  logOpenRef.current = logOpen;
+  const infoTimer = useRef<number | undefined>(undefined);
+  const record = (text: string, warn = false) =>
+    setLog((entries) => [{ at: Date.now(), text, warn }, ...entries].slice(0, LOG_LIMIT));
+  const flash = (text: string) => {
+    record(text);
+    setInfo(text);
+    window.clearTimeout(infoTimer.current);
+    infoTimer.current = window.setTimeout(() => setInfo(""), INFO_MS);
+  };
+  const settingsOpenRef = useRef(false);
+  settingsOpenRef.current = settingsOpen;
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const [voice, setVoice] = useState<VoiceSnapshot>(() =>
@@ -257,6 +296,8 @@ export function App() {
         cancel = true;
       };
     }
+    // An old main process behind a new page: say so instead of failing quietly.
+    if (missingBridgeMethods(bridge).length > 0) setStale(true);
     let pushed = false;
     const apply = (next: LauncherState) => {
       if (cancel) return;
@@ -272,6 +313,7 @@ export function App() {
       setPendingPower(null);
       setNotice("");
       setSearch("");
+      setSettingsOpen(false);
       queryRef.current = "";
       pageRef.current = 0;
       focusRef.current = null;
@@ -376,6 +418,12 @@ export function App() {
       if (event.isComposing) return;
       // The search box handles its own keys.
       if (event.target instanceof HTMLInputElement) return;
+      // The Settings panel handles its own keys, Esc included.
+      if (settingsOpenRef.current) return;
+      if (logOpenRef.current && event.key === "Escape") {
+        setLogOpen(false);
+        return;
+      }
       const dismiss = () => {
         setStatus((current) => clearLaunchStatus(current));
         setNotice("");
@@ -447,9 +495,14 @@ export function App() {
 
   const tiles = state?.tiles ?? EMPTY_TILES;
   const platesConfig = state?.plates ?? EMPTY_PLATES;
+  const dials = state?.dials ?? NO_DIALS;
+  const reserved = useMemo(
+    () => [dials.G, dials.E].filter((id): id is string => id !== null),
+    [dials.G, dials.E],
+  );
   const layout = useMemo(
-    () => layoutMario(tiles, page, platesConfig),
-    [tiles, page, platesConfig],
+    () => layoutMario(tiles, page, platesConfig, reserved),
+    [tiles, page, platesConfig, reserved],
   );
   const dockLabels = (state?.dock ?? []).map((id) =>
     id ? (tiles.find((tile) => tile.id === id)?.label ?? null) : null,
@@ -475,6 +528,16 @@ export function App() {
     if (current) slotRefs.current.get(keyOf(current))?.focus();
   });
 
+  // Every failure that reaches the status bar also goes in the log.
+  useEffect(() => {
+    if (notice) record(notice, true);
+  }, [notice]);
+  useEffect(() => {
+    if (isLaunchStatus(status) || isVoiceStatus(status)) record(status, true);
+  }, [status]);
+
+  const labelOf = (id: string) => tiles.find((tile) => tile.id === id)?.label ?? id;
+
   const launchSlot = async (slot: PlacedSlot) => {
     const tile = slot.tile >= 0 ? tiles[slot.tile] : undefined;
     setStatus((value) => clearLaunchStatus(value));
@@ -491,6 +554,7 @@ export function App() {
     if (!bridge) return;
     const result = await bridge.launch(tile.id);
     if (!result.ok) setStatus(launchStatusText(result.error));
+    else record(`OPENED ${tile.label.toUpperCase()}`);
   };
 
   actionsRef.current = {
@@ -508,7 +572,7 @@ export function App() {
       );
       if (next === pageRef.current) return;
       setPage(next);
-      const nextLayout = layoutMario(tiles, next, platesConfig);
+      const nextLayout = layoutMario(tiles, next, platesConfig, reserved);
       const first = nextLayout.ring
         .filter(selectable)
         .sort((a, b) => a.slot - b.slot)[0];
@@ -558,10 +622,27 @@ export function App() {
       .systemAction(action, value)
       .then((result) => {
         if (result.state) setSystem(result.state);
-        if (!result.ok)
+        if (!result.ok) {
           setNotice(`SYSTEM FAILED  ${result.error ?? ""}`.trim());
+          return;
+        }
+        if (result.detail) record(result.detail.toUpperCase());
+        const done = confirmationFor(action, result.state);
+        if (done) flash(done);
       })
       .catch(() => setNotice("SYSTEM FAILED"));
+  };
+
+  const dismissStatus = () => {
+    setStatus((value) => clearLaunchStatus(value));
+    setNotice("");
+    setPendingPower(null);
+  };
+
+  const onEmptyBin = () => {
+    const step = powerClick(pendingPower, "empty-recyclebin", Date.now());
+    setPendingPower(step.pending);
+    if (step.run) runSystem("empty-recyclebin");
   };
 
   const onPower = (action: PowerAction) => {
@@ -570,10 +651,10 @@ export function App() {
     if (step.run) runSystem(action);
   };
 
-  const launchDock = async (index: number) => {
-    const id = state?.dock?.[index];
+  const launchDial = async (name: "G" | "E") => {
+    const id = dials[name];
     if (!id) {
-      setNotice(`DOCK SLOT ${index + 1} IS EMPTY  SET IT IN CONFIG.JSON`);
+      setNotice(`DIAL ${name} IS EMPTY  SET IT IN SETTINGS`);
       return;
     }
     const bridge = window.jarvis;
@@ -582,13 +663,45 @@ export function App() {
     setStatus((value) => clearLaunchStatus(value));
     const result = await bridge.launch(id);
     if (!result.ok) setStatus(launchStatusText(result.error));
+    else record(`OPENED ${labelOf(id).toUpperCase()}`);
   };
 
-  const openConfig = async () => {
+  const talk = async () => {
     const bridge = window.jarvis;
     if (!bridge) return;
-    const result = await bridge.openConfig();
-    if (!result.ok) setNotice(`SETTINGS FAILED  ${result.error ?? ""}`.trim());
+    const result = await bridge.talk();
+    if (!result.ok) setNotice((result.error ?? "Voice is unavailable").toUpperCase());
+    else setNotice("");
+  };
+
+  const openRecent = async (id: string) => {
+    const bridge = window.jarvis;
+    if (!bridge) return;
+    const name = recent.find((item) => item.id === id)?.name ?? "file";
+    const result = await bridge.openRecent(id);
+    if (!result.ok) setNotice(`OPEN FAILED  ${result.error ?? ""}`.trim());
+    else record(`OPENED ${name.toUpperCase()}`);
+  };
+
+  const dialLabel = (name: "G" | "E") => {
+    const id = dials[name];
+    const label = id ? tiles.find((tile) => tile.id === id)?.label : undefined;
+    return label ? `${name} dial: ${label}` : `${name} dial: empty`;
+  };
+
+  const launchDock = async (index: number) => {
+    const id = state?.dock?.[index];
+    if (!id) {
+      setNotice(`DOCK SLOT ${index + 1} IS EMPTY  SET IT IN SETTINGS`);
+      return;
+    }
+    const bridge = window.jarvis;
+    if (!bridge) return;
+    setNotice("");
+    setStatus((value) => clearLaunchStatus(value));
+    const result = await bridge.launch(id);
+    if (!result.ok) setStatus(launchStatusText(result.error));
+    else record(`OPENED ${labelOf(id).toUpperCase()}`);
   };
 
   const webSearch = async (value: string) => {
@@ -644,13 +757,24 @@ export function App() {
     warning: "",
   });
   // A pending power confirmation, then a system or search failure, then the usual hint.
-  const line = pendingPower ? confirmText(pendingPower.action) : notice || hint;
+  const line = stale
+    ? "RESTART JARVIS  CODE IS OUT OF DATE"
+    : pendingPower
+      ? confirmText(pendingPower.action)
+      : notice || info || hint;
   const showHint = line !== "SELECT A SYSTEM";
   const warn =
+    stale ||
     Boolean(pendingPower) ||
     Boolean(notice) ||
     isLaunchStatus(hint) ||
     isVoiceStatus(hint);
+
+  const configWarnings = state?.warnings.length ?? 0;
+  const idleText =
+    configWarnings > 0
+      ? `${configWarnings} CONFIG WARNING${configWarnings === 1 ? "" : "S"}`
+      : "ID-6TH / AM";
 
   const slotClass = (slot: PlacedSlot, base: string) => {
     const lit = selectable(slot);
@@ -748,10 +872,91 @@ export function App() {
               battery={battery}
             />
             <Identity />
+            <Shift fx={0} fy={0}>
+              <button
+                type="button"
+                className={`emblem-btn phase-${voice.phase}`}
+                aria-label={voice.phase === "listening" ? "Stop listening" : "Talk to Jarvis"}
+                title={voice.phase === "listening" ? "Stop listening" : "Talk to Jarvis"}
+                onClick={() => void talk()}
+              />
+            </Shift>
+            <Shift fx={0} fy={0.2}>
+              <button
+                type="button"
+                className="clock-btn desk"
+                aria-label="Open the calendar"
+                title="Open the calendar"
+                onClick={() => runSystem("open-calendar")}
+              />
+            </Shift>
+            <Shift fx={1} fy={0}>
+              <button
+                type="button"
+                className="clock-btn day"
+                aria-label="Open the calendar"
+                title="Open the calendar"
+                onClick={() => runSystem("open-calendar")}
+              />
+            </Shift>
+            <Shift fx={1} fy={0.3}>
+              <button
+                type="button"
+                className="clock-btn analog"
+                aria-label="Open the calendar"
+                title="Open the calendar"
+                onClick={() => runSystem("open-calendar")}
+              />
+            </Shift>
+            <Shift fx={0.5} fy={0.5}>
+              <button
+                type="button"
+                className="dial-btn g"
+                aria-label={dialLabel("G")}
+                title={dialLabel("G")}
+                onClick={() => void launchDial("G")}
+              />
+              <button
+                type="button"
+                className="dial-btn e"
+                aria-label={dialLabel("E")}
+                title={dialLabel("E")}
+                onClick={() => void launchDial("E")}
+              />
+            </Shift>
+            <Shift fx={0} fy={0}>
+              <button
+                type="button"
+                className="badge-btn"
+                aria-label="Settings"
+                title="Settings"
+                onClick={() => setSettingsOpen(true)}
+              />
+            </Shift>
+            <Shift fx={1} fy={0.75}>
+              <button
+                type="button"
+                className="ok-btn"
+                aria-label="Dismiss message"
+                title="Dismiss message"
+                onClick={dismissStatus}
+              />
+              <button
+                type="button"
+                className="close-btn"
+                aria-label="Hide Jarvis"
+                title="Hide Jarvis"
+                onClick={() => window.jarvis?.hide()}
+              />
+            </Shift>
             <DesktopClock />
             <DayBlock />
             <SystemButtons
-              pending={pendingPower?.action ?? null}
+              pending={
+                pendingPower && pendingPower.action !== "empty-recyclebin"
+                  ? pendingPower.action
+                  : null
+              }
               onPower={onPower}
               brightness={system.brightness}
               onBrightness={(value) => {
@@ -761,8 +966,18 @@ export function App() {
             />
             <VolumeKnobs onStep={(delta) => runSystem("volume-step", delta)} />
             <WeatherPanel report={live.stats?.weather ?? null} />
-            <RamBin stats={live.stats} />
-            <LeftList />
+            <RamBin
+              stats={live.stats}
+              binArmed={pendingPower?.action === "empty-recyclebin"}
+              onRam={() => runSystem("open-taskmgr")}
+              onBin={() => runSystem("open-recyclebin")}
+              onEmptyBin={onEmptyBin}
+            />
+            <LeftList
+              mode={state?.leftList ?? "recent"}
+              items={recent}
+              onOpen={(id) => void openRecent(id)}
+            />
             <MediaBar
               system={system}
               onAction={(action, value) => {
@@ -789,7 +1004,7 @@ export function App() {
               }}
               dock={dockLabels}
               onDock={(index) => void launchDock(index)}
-              onSettings={() => void openConfig()}
+              onSettings={() => setSettingsOpen(true)}
             />
 
             <Shift fx={0.5} fy={0}>
@@ -939,14 +1154,30 @@ export function App() {
                 className={[
                   "status",
                   showHint ? "live" : "",
-                  warn ? "warn" : "",
+                  warn || (!showHint && configWarnings > 0) ? "warn" : "",
                 ]
                   .filter(Boolean)
                   .join(" ")}
                 aria-live="polite"
               >
-                {showHint ? line : "ID-6TH / AM"}
+                {showHint ? line : idleText}
               </p>
+              <button
+                type="button"
+                className="status-btn"
+                aria-label="Messages"
+                aria-expanded={logOpen}
+                title="Messages"
+                onClick={() => setLogOpen((open) => !open)}
+              />
+              {logOpen ? (
+                <MessageLog
+                  entries={log}
+                  warnings={state?.warnings ?? []}
+                  onClose={() => setLogOpen(false)}
+                  onClear={() => setLog([])}
+                />
+              ) : null}
             </Shift>
 
             <Shift fx={0.5} fy={0.5}>
@@ -964,6 +1195,19 @@ export function App() {
                 </p>
               ) : null}
             </Shift>
+
+            {settingsOpen ? (
+              <Shift fx={0.5} fy={0.5}>
+                <SettingsPanel
+                  tiles={tiles}
+                  onClose={() => setSettingsOpen(false)}
+                  onSaved={() => {
+                    setSettingsOpen(false);
+                    flash("SETTINGS SAVED");
+                  }}
+                />
+              </Shift>
+            ) : null}
           </div>
         </SpareRoomProvider>
       </div>

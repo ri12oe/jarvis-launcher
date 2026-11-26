@@ -1,4 +1,4 @@
-import type { ExtraTile, JarvisConfig, LaunchWindowConfig, PinnedFolder, VoiceConfig, WeatherConfig } from "./types";
+import type { DialConfig, ExtraTile, LeftListMode, JarvisConfig, LaunchWindowConfig, PinnedFolder, VoiceConfig, WeatherConfig } from "./types";
 import { PLATE_SLOTS } from "./mario";
 import { AI_APP_IDS, BUILTIN_IDS, WEB_TILE_IDS } from "./types";
 
@@ -32,6 +32,9 @@ export const DOCK_SLOTS = 4;
 /** The download icon opens Downloads. The others start empty. */
 export const DEFAULT_DOCK: readonly (string | null)[] = ["downloads", null, null, null];
 
+/** G opens Google and E opens File Explorer, as the letters suggest. */
+export const DEFAULT_DIALS: DialConfig = { G: "google", E: "explorer" };
+
 export const DEFAULT_CONFIG: JarvisConfig = {
   hotkey: DEFAULT_HOTKEY,
   openAtLogin: false,
@@ -45,6 +48,8 @@ export const DEFAULT_CONFIG: JarvisConfig = {
   voice: { ...DEFAULT_VOICE },
   dock: [...DEFAULT_DOCK],
   plates: {},
+  dials: { ...DEFAULT_DIALS },
+  leftList: "recent",
 };
 
 const RESERVED_IDS = new Set<string>([...AI_APP_IDS, ...BUILTIN_IDS, ...WEB_TILE_IDS]);
@@ -77,6 +82,8 @@ export function cloneDefaultConfig(): JarvisConfig {
     voice: { ...DEFAULT_VOICE },
     dock: [...DEFAULT_DOCK],
     plates: {},
+    dials: { ...DEFAULT_DIALS },
+    leftList: "recent",
   };
 }
 
@@ -302,6 +309,8 @@ export function parseConfig(input: unknown): ParsedConfig {
     voice: readVoice(input.voice, warnings),
     dock: readDock(input.dock, warnings),
     plates: readPlates(input.plates, warnings),
+    dials: readDials(input.dials, warnings),
+    leftList: readLeftList(input.leftList, warnings),
   };
   if (input.weather !== undefined) {
     const weather = readWeather(input.weather, warnings);
@@ -357,6 +366,37 @@ function readPlates(value: unknown, warnings: string[]): Record<string, string> 
     plates[key] = id;
   }
   return plates;
+}
+
+function readLeftList(value: unknown, warnings: string[]): LeftListMode {
+  if (value === undefined) return "recent";
+  if (value === "recent" || value === "design") return value;
+  warnings.push('leftList must be "recent" or "design"; using "recent"');
+  return "recent";
+}
+
+function readDials(value: unknown, warnings: string[]): DialConfig {
+  if (value === undefined) return { ...DEFAULT_DIALS };
+  if (!isRecord(value)) {
+    warnings.push("dials must be an object with G and E; using the default");
+    return { ...DEFAULT_DIALS };
+  }
+  const dials: DialConfig = { G: null, E: null };
+  for (const [name, entry] of Object.entries(value)) {
+    const key = name.trim().toUpperCase();
+    if (key !== "G" && key !== "E") {
+      warnings.push(`dials: there is no "${name}" dial; use G or E`);
+      continue;
+    }
+    if (entry === null || entry === "") continue;
+    const id = readId(entry);
+    if (!id) {
+      warnings.push(`dials: ${key} needs a tile id or null`);
+      continue;
+    }
+    dials[key] = id;
+  }
+  return dials;
 }
 
 function readWeather(value: unknown, warnings: string[]): WeatherConfig | undefined {

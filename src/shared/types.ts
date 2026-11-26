@@ -1,3 +1,5 @@
+import type { RecentItem } from "./recent";
+import type { Place, SettingsValues } from "./settings";
 import type { SystemAction, SystemState } from "./system";
 /** Names the matcher looks for. One discovered tile per id. */
 export const AI_APP_IDS = [
@@ -31,7 +33,7 @@ export const BUILTIN_IDS = [
 export type BuiltinId = (typeof BUILTIN_IDS)[number];
 
 /** Web fallbacks for HUD slots whose desktop app is not installed. */
-export const WEB_TILE_IDS = ["gemini-web", "github-web", "x"] as const;
+export const WEB_TILE_IDS = ["gemini-web", "github-web", "x", "google"] as const;
 
 export type WebTileId = (typeof WEB_TILE_IDS)[number];
 
@@ -140,6 +142,17 @@ export interface JarvisConfig {
   dock: (string | null)[];
   /** Tile ids for the reactor plates that carry design text, keyed by that text, for example "TEN OPF". */
   plates: Record<string, string>;
+  /** Tile ids for the two small dials on the reactor: G (top) and E (right). null leaves a dial doing nothing. */
+  dials: DialConfig;
+  /** What the text list left of the reactor shows: recent files, or the design's text. */
+  leftList: LeftListMode;
+}
+
+export type LeftListMode = "recent" | "design";
+
+export interface DialConfig {
+  G: string | null;
+  E: string | null;
 }
 
 export interface WeatherConfig {
@@ -227,6 +240,9 @@ export interface LauncherState {
   dock: (string | null)[];
   /** Labelled reactor plates that open a tile. */
   plates: { slot: number; tileId: string }[];
+  /** Tile id for each reactor dial, or null. */
+  dials: DialConfig;
+  leftList: LeftListMode;
 }
 
 export interface LaunchResult {
@@ -257,10 +273,58 @@ export interface JarvisBridge {
   systemAction(action: SystemAction, value?: number): Promise<SystemActionResult>;
   webSearch(query: string): Promise<{ ok: boolean; error?: string }>;
   openConfig(): Promise<{ ok: boolean; error?: string }>;
+  getSettings(): Promise<SettingsValues | null>;
+  saveSettings(values: SettingsValues): Promise<{ ok: boolean; error?: string }>;
+  findPlace(query: string): Promise<{ ok: boolean; error?: string; places?: Place[] }>;
+  talk(): Promise<{ ok: boolean; error?: string }>;
+  getRecent(): Promise<RecentItem[]>;
+  openRecent(id: string): Promise<{ ok: boolean; error?: string }>;
+  locate(): Promise<{ ok: boolean; error?: string; place?: Place }>;
+}
+
+/**
+ * Every method the preload must expose. When the renderer finds one missing,
+ * Electron is running main and preload code that is older than the page.
+ */
+export const BRIDGE_METHODS = [
+  "getState",
+  "onState",
+  "onHidden",
+  "launch",
+  "refresh",
+  "hide",
+  "quit",
+  "getVoice",
+  "onVoice",
+  "setVoiceEnabled",
+  "pushAudio",
+  "onSpeak",
+  "playbackEnded",
+  "reportVoiceError",
+  "getStats",
+  "getSystem",
+  "systemAction",
+  "webSearch",
+  "openConfig",
+  "getSettings",
+  "saveSettings",
+  "findPlace",
+  "talk",
+  "getRecent",
+  "openRecent",
+  "locate",
+] as const satisfies readonly (keyof JarvisBridge)[];
+
+/** Names from BRIDGE_METHODS that this bridge does not have. */
+export function missingBridgeMethods(bridge: object): string[] {
+  const record = bridge as Record<string, unknown>;
+  return BRIDGE_METHODS.filter((name) => typeof record[name] !== "function");
 }
 
 export interface SystemActionResult {
   ok: boolean;
   error?: string;
+  /** What the main process did, for the message log. */
+  detail?: string;
   state?: SystemState;
 }

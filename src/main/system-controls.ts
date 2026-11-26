@@ -99,6 +99,23 @@ public static class JarvisAudio {
     if (v.GetMute(out muted) != 0) return;
     v.SetMute(!muted, Guid.Empty);
   }
+  [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern int SHEmptyRecycleBin(IntPtr hwnd, string root, uint flags);
+  public static void Calendar(bool windows11) {
+    keybd_event(0x5B, 0, 1, UIntPtr.Zero);
+    if (windows11) {
+      keybd_event(0x4E, 0, 0, UIntPtr.Zero);
+      keybd_event(0x4E, 0, 2, UIntPtr.Zero);
+    } else {
+      keybd_event(0x12, 0, 0, UIntPtr.Zero);
+      keybd_event(0x44, 0, 0, UIntPtr.Zero);
+      keybd_event(0x44, 0, 2, UIntPtr.Zero);
+      keybd_event(0x12, 0, 2, UIntPtr.Zero);
+    }
+    keybd_event(0x5B, 0, 3, UIntPtr.Zero);
+  }
+  public static void EmptyBin() {
+    SHEmptyRecycleBin(IntPtr.Zero, null, 7);
+  }
   [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
   public static void MediaKey(int vk) {
     keybd_event((byte)vk, 0, 1, UIntPtr.Zero);
@@ -203,6 +220,8 @@ while ($true) {
       $session = Get-Session;
       if ($session -ne $null) { $null = Wait-Op ($session.TryChangePlaybackPositionAsync([int64]($arg * 10000000))) ([bool]) };
     }
+    elseif ($op -eq 'emptybin') { [JarvisAudio]::EmptyBin() }
+    elseif ($op -eq 'calendar') { Start-Sleep -Milliseconds 100; [JarvisAudio]::Calendar([int]$arg -eq 1) }
     elseif ($op -eq 'sleep') {
       Add-Type -AssemblyName System.Windows.Forms;
       $null = [System.Windows.Forms.Application]::SetSuspendState([System.Windows.Forms.PowerState]::Suspend, $false, $false);
@@ -229,6 +248,8 @@ const HELPER_OP: Partial<Record<SystemAction, string>> = {
   "mute-toggle": "mute",
   "mic-toggle": "mic",
   "brightness-set": "bright",
+  "empty-recyclebin": "emptybin",
+  "open-calendar": "calendar",
 };
 
 const REQUEST_TIMEOUT_MS = 8000;

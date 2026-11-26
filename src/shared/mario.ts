@@ -87,6 +87,7 @@ export const PLATE_SLOTS: ReadonlyMap<string, number> = new Map(
 export interface HudSlots {
   dock: (string | null)[];
   plates: { slot: number; tileId: string }[];
+  dials: { G: string | null; E: string | null };
   warnings: string[];
 }
 
@@ -96,7 +97,11 @@ export interface HudSlots {
  * with a warning naming the id.
  */
 export function resolveHudSlots(
-  config: { dock: readonly (string | null)[]; plates: Readonly<Record<string, string>> },
+  config: {
+    dock: readonly (string | null)[];
+    plates: Readonly<Record<string, string>>;
+    dials?: { G: string | null; E: string | null };
+  },
   tileIds: Iterable<string>,
 ): HudSlots {
   const known = new Set(tileIds);
@@ -124,7 +129,14 @@ export function resolveHudSlots(
     plates.push({ slot, tileId: id });
   }
   plates.sort((a, b) => a.slot - b.slot);
-  return { dock, plates, warnings };
+  const dial = (name: "G" | "E"): string | null => {
+    const id = config.dials?.[name] ?? null;
+    if (id === null) return null;
+    if (known.has(id)) return id;
+    warnings.push(`dials: no tile with id "${id}" for ${name}`);
+    return null;
+  };
+  return { dock, plates, dials: { G: dial("G"), E: dial("E") }, warnings };
 }
 
 /** Plate indexes that take overflow tiles, in fill order (bottom arc first). */
@@ -176,6 +188,8 @@ export function layoutMario(
   tiles: readonly SlotTile[],
   page: number,
   plates: readonly { slot: number; tileId: string }[] = [],
+  /** Tile ids that live on a reactor dial, so they stay off the open plates. */
+  reserved: readonly string[] = [],
 ): MarioLayout {
   const byId = new Map(tiles.map((tile, index) => [tile.id, index]));
   const used = new Set<number>();
@@ -190,7 +204,10 @@ export function layoutMario(
     used.add(tile);
     labelled.push({ zone: "ring", slot: entry.slot, text: plate.lines.join(" "), name: "", tile });
   }
-  const rest = tiles.map((_, index) => index).filter((index) => !used.has(index));
+  const held = new Set(reserved);
+  const rest = tiles
+    .map((_, index) => index)
+    .filter((index) => !used.has(index) && !held.has(tiles[index].id));
   const perPage = OPEN_PLATES.length;
   const pageCount = Math.max(1, Math.ceil(rest.length / perPage));
   const current = Math.max(0, Math.min(page, pageCount - 1));

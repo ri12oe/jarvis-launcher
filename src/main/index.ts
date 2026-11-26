@@ -1,5 +1,6 @@
 import { spawn as spawnProcess } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   app,
@@ -46,7 +47,19 @@ import type {
   VoiceSnapshot,
 } from "../shared/types";
 import { resolveHudSlots } from "../shared/mario";
+import { pickRecent, type RecentItem, type RecentShortcut } from "../shared/recent";
 import {
+  checkSettings,
+  geocodeUrl,
+  IP_LOCATION_URL,
+  parseIpLocation,
+  mergeSettings,
+  parseGeocode,
+  settingsFromConfig,
+  type SettingsValues,
+} from "../shared/settings";
+import {
+  calendarShortcut,
   checkSystemAction,
   POWER_ACTIONS,
   webSearchUrl,
@@ -85,6 +98,7 @@ let launcher: {
   warnings: string[];
   dock: (string | null)[];
   plates: { slot: number; tileId: string }[];
+  dials: { G: string | null; E: string | null };
 } | null = null;
 
 function iconImage(): Electron.NativeImage {
@@ -261,7 +275,7 @@ async function refreshSession(): Promise<void> {
     const config = applyHostSettings(loaded.config, loaded.warnings);
     const hud = resolveHudSlots(config, tiles.map((tile) => tile.id));
     loaded.warnings.push(...hud.warnings);
-    launcher = { config, tiles, view, warnings: loaded.warnings, dock: hud.dock, plates: hud.plates };
+    launcher = { config, tiles, view, warnings: loaded.warnings, dock: hud.dock, plates: hud.plates, dials: hud.dials };
     stats.setWeather(config.weather);
     scanning = false;
     refreshFailed = false;
@@ -290,6 +304,8 @@ function currentState(): LauncherState {
     refreshFailed,
     dock: snapshot?.dock ?? [null, null, null, null],
     plates: snapshot?.plates ?? [],
+    dials: snapshot?.dials ?? { G: null, E: null },
+    leftList: snapshot?.config.leftList ?? "recent",
   };
 }
 
@@ -507,6 +523,56 @@ const EMPTY_VOICE: VoiceSnapshot = {
   launchError: "",
 };
 
+/** C:\Windows\System32\<file>, or C:\Windows\<file> for explorer.exe. */
+function windowsSystemFile(file: string, system32 = true): string {
+  const root = process.env.SystemRoot ?? "C:\\Windows";
+  return system32 ? path.join(root, "System32", file) : path.join(root, file);
+}
+
+/** How long to wait after hiding Jarvis before opening the calendar panel. */
+const CALENDAR_SETTLE_MS = 500;
+
+/** Paths behind the last recent-files list, keyed by the ids the page got. */
+const recentTargets = new Map<string, string>();
+
+/** Newest files from %APPDATA%\Microsoft\Windows\Recent whose targets exist. Windows only. */
+async function readRecentFiles(): Promise<RecentItem[]> {
+  recentTargets.clear();
+  if (process.platform !== "win32") return [];
+  const dir = path.join(app.getPath("appData"), "Microsoft", "Windows", "Recent");
+  let names: string[];
+  try {
+    names = (await fs.promises.readdir(dir)).filter((name) => name.toLowerCase().endsWith(".lnk"));
+  } catch {
+    return [];
+  }
+  const stamped = await Promise.all(
+    names.map(async (name) => {
+      try {
+        return { name, mtimeMs: (await fs.promises.stat(path.join(dir, name))).mtimeMs };
+      } catch {
+        return { name, mtimeMs: 0 };
+      }
+    }),
+  );
+  // Read only the newest shortcuts; resolving every one in a big folder is slow.
+  const newest = stamped.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, 40);
+  const shortcuts: RecentShortcut[] = newest.map((entry) => {
+    let target = "";
+    try {
+      target = shell.readShortcutLink(path.join(dir, entry.name)).target ?? "";
+    } catch {
+      target = "";
+    }
+    return { ...entry, target, exists: target !== "" && fs.existsSync(target) };
+  });
+  return pickRecent(shortcuts).map((item, index) => {
+    const id = String(index);
+    recentTargets.set(id, item.target);
+    return { id, name: item.name };
+  });
+}
+
 function configPath(): string {
   return configFilePath || path.join(app.getPath("userData"), "config.json");
 }
@@ -668,11 +734,63 @@ function registerIpc(): void {
       if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
       const checked = checkSystemAction(action, value);
       if (!checked) return { ok: false, error: "Unknown action" };
-      // Hide first so the HUD is not left over the desktop after sleep, lock, or sign out.
+      // Hide first so the HUD is not left over the desktop after sleep, lock, or
+      // sign out. The calendar is the exception: Windows closes its panel as
+      // soon as focus moves, and hiding Jarvis moves focus. The panel is
+      // topmost, so it opens over the HUD instead.
       if ((POWER_ACTIONS as readonly string[]).includes(checked.action))
         hideWindow();
+      if (checked.action === "open-taskmgr") {
+        // ShellExecute, so Windows can show its own prompt when Task Manager needs one.
+        const problem = await shell.openPath(windowsSystemFile("Taskmgr.exe"));
+        if (problem) return { ok: false, error: "Task Manager did not open" };
+        hideWindow();
+        return { ok: true };
+      }
+      if (checked.action === "open-calendar") {
+        // Windows closes the calendar panel as soon as focus moves. Hide
+        // Jarvis, let focus settle on the window behind it, and only then
+        // open the panel, the same as running the link from a terminal.
+        hideWindow();
+        await new Promise((resolve) => setTimeout(resolve, CALENDAR_SETTLE_MS));
+        const build = os.release();
+        if (calendarShortcut(build) === "win-n") {
+          // Windows 11 keeps the calendar in the Notification Center, which
+          // its ms-actioncenter: link opens.
+          try {
+            spawnProcess(windowsSystemFile("explorer.exe", false), ["ms-actioncenter:"], {
+              detached: true,
+              stdio: "ignore",
+              windowsHide: false,
+            }).unref();
+          } catch {
+            return { ok: false, error: "The calendar did not open" };
+          }
+          return { ok: true, detail: `Calendar: opened ms-actioncenter: on Windows ${build}` };
+        }
+        try {
+          const state = await systemControls.run("open-calendar", 0);
+          return { ok: true, state, detail: `Calendar: sent Win+Alt+D on Windows ${build}` };
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : "The calendar did not open" };
+        }
+      }
+      if (checked.action === "open-recyclebin") {
+        try {
+          spawnProcess(windowsSystemFile("explorer.exe", false), ["shell:RecycleBinFolder"], {
+            detached: true,
+            stdio: "ignore",
+            windowsHide: false,
+          }).unref();
+        } catch {
+          return { ok: false, error: "Recycle Bin did not open" };
+        }
+        hideWindow();
+        return { ok: true };
+      }
       try {
         const state = await systemControls.run(checked.action, checked.value);
+        if (checked.action === "empty-recyclebin") stats.refreshRecycle();
         return { ok: true, state };
       } catch (error) {
         return {
@@ -683,6 +801,85 @@ function registerIpc(): void {
       }
     },
   );
+
+  ipcMain.handle("jarvis:get-settings", (event) => {
+    if (!isAppFrame(event)) return null;
+    const config = launcher?.config ?? loadConfig(app.getPath("userData")).config;
+    return settingsFromConfig(config);
+  });
+
+  ipcMain.handle("jarvis:save-settings", async (event, values: unknown) => {
+    if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
+    const problem = checkSettings(values);
+    if (problem) return { ok: false, error: problem };
+    const file = configPath();
+    let raw: Record<string, unknown> = {};
+    try {
+      const text = fs.readFileSync(file, "utf8");
+      const parsed: unknown = JSON.parse(text);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return { ok: false, error: "config.json is not a JSON object; fix it first" };
+      }
+      raw = parsed as Record<string, unknown>;
+    } catch (error) {
+      // A missing file is fine. A file with a syntax error is not overwritten.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        return { ok: false, error: "config.json has a syntax error; fix it first" };
+      }
+    }
+    const merged = mergeSettings(raw, values as SettingsValues);
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const temp = `${file}.tmp`;
+      fs.writeFileSync(temp, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
+      fs.renameSync(temp, file);
+    } catch {
+      return { ok: false, error: "Could not write config.json" };
+    }
+    void refreshGate.requestRefresh().catch(() => undefined);
+    return { ok: true };
+  });
+
+  ipcMain.handle("jarvis:find-place", async (event, query: unknown) => {
+    if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
+    const url = geocodeUrl(query);
+    if (!url) return { ok: false, error: "Type at least two letters" };
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!response.ok) return { ok: false, error: "Place search failed" };
+      return { ok: true, places: parseGeocode(await response.json()) };
+    } catch {
+      return { ok: false, error: "Place search failed" };
+    }
+  });
+
+  ipcMain.handle("jarvis:recent", async (event) => {
+    if (!isAppFrame(event)) return [];
+    return readRecentFiles();
+  });
+
+  ipcMain.handle("jarvis:open-recent", async (event, id: unknown) => {
+    if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
+    // Only a path this process listed itself can be opened.
+    const target = typeof id === "string" ? recentTargets.get(id) : undefined;
+    if (!target) return { ok: false, error: "That file is no longer in the list" };
+    const problem = await shell.openPath(target);
+    if (problem) return { ok: false, error: "The file did not open" };
+    hideWindow();
+    return { ok: true };
+  });
+
+  ipcMain.handle("jarvis:locate", async (event) => {
+    if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
+    try {
+      const response = await fetch(IP_LOCATION_URL, { signal: AbortSignal.timeout(8000) });
+      if (!response.ok) return { ok: false, error: "Location lookup failed" };
+      const place = parseIpLocation(await response.json());
+      return place ? { ok: true, place } : { ok: false, error: "Location lookup failed" };
+    } catch {
+      return { ok: false, error: "Location lookup failed" };
+    }
+  });
 
   ipcMain.handle("jarvis:open-config", async (event) => {
     if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
@@ -714,6 +911,11 @@ function registerIpc(): void {
   ipcMain.handle("jarvis:voice-get", (event) => {
     if (!isAppFrame(event)) return EMPTY_VOICE;
     return voice?.snapshot() ?? EMPTY_VOICE;
+  });
+  ipcMain.handle("jarvis:voice-talk", (event) => {
+    if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
+    if (!voice) return { ok: false, error: "Voice is not ready" };
+    return voice.talk();
   });
   ipcMain.handle("jarvis:voice-enabled", (event, enabled: unknown) => {
     if (!isAppFrame(event) || typeof enabled !== "boolean") return;

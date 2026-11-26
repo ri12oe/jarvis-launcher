@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { systemHelperScript } from "../src/main/system-controls";
 import {
+  calendarShortcut,
   checkSystemAction,
   confirmText,
   formatTrackTime,
@@ -123,5 +124,14 @@ describe("system helper script", () => {
     for (const op of ["state", "vol", "volstep", "mute", "mic", "bright", "prev", "toggle", "next", "seek", "sleep"]) {
       expect(script).toContain(`$op -eq '${op}'`);
     }
+  });
+});
+
+describe("calendar shortcut", () => {
+  it("uses Win+N on Windows 11 and Win+Alt+D on Windows 10", () => {
+    expect(calendarShortcut("10.0.22631")).toBe("win-n");
+    expect(calendarShortcut("10.0.22000")).toBe("win-n");
+    expect(calendarShortcut("10.0.19045")).toBe("win-alt-d");
+    expect(calendarShortcut("weird")).toBe("win-alt-d");
   });
 });

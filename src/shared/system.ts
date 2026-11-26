@@ -23,6 +23,10 @@ export const SYSTEM_ACTIONS = [
   "mute-toggle",
   "mic-toggle",
   "brightness-set",
+  "open-taskmgr",
+  "open-recyclebin",
+  "empty-recyclebin",
+  "open-calendar",
 ] as const;
 export type SystemAction = (typeof SYSTEM_ACTIONS)[number];
 
@@ -35,16 +39,19 @@ export const POWER_BUTTONS: readonly { action: PowerAction; name: string }[] = [
   { action: "lock", name: "Lock" },
 ];
 
-/** These close apps and can lose unsaved work, so they need a second click. */
-export const CONFIRM_ACTIONS: ReadonlySet<PowerAction> = new Set([
-  "shutdown",
-  "restart",
-  "signout",
-]);
+/** Actions that can lose work or files, so they need a second click. */
+export type ConfirmAction = PowerAction | "empty-recyclebin";
+export const CONFIRM_ACTIONS: ReadonlySet<ConfirmAction> =
+  new Set<ConfirmAction>([
+    "shutdown",
+    "restart",
+    "signout",
+    "empty-recyclebin",
+  ]);
 export const CONFIRM_WINDOW_MS = 5000;
 
 export interface PendingPower {
-  action: PowerAction;
+  action: ConfirmAction;
   until: number;
 }
 
@@ -55,7 +62,7 @@ export interface PendingPower {
  */
 export function powerClick(
   pending: PendingPower | null,
-  action: PowerAction,
+  action: ConfirmAction,
   now: number,
 ): { run: boolean; pending: PendingPower | null } {
   if (!CONFIRM_ACTIONS.has(action)) return { run: true, pending: null };
@@ -64,7 +71,9 @@ export function powerClick(
   return { run: false, pending: { action, until: now + CONFIRM_WINDOW_MS } };
 }
 
-export function confirmText(action: PowerAction): string {
+export function confirmText(action: ConfirmAction): string {
+  if (action === "empty-recyclebin")
+    return "EMPTY RECYCLE BIN?  RIGHT-CLICK AGAIN TO CONFIRM";
   const name =
     POWER_BUTTONS.find((button) => button.action === action)?.name ?? action;
   return `${name.toUpperCase()}?  CLICK AGAIN TO CONFIRM`;
@@ -99,6 +108,17 @@ export function checkSystemAction(
     action: known,
     value: Math.round(Math.max(0, Math.min(100, value))),
   };
+}
+
+/**
+ * Windows 11 (build 22000 and later) keeps the calendar in the Notification
+ * Center, which the main process opens through its ms-actioncenter: link.
+ * Windows 10 opens its date flyout with Win+Alt+D.
+ * `release` is os.release(), for example "10.0.22631".
+ */
+export function calendarShortcut(release: string): "win-n" | "win-alt-d" {
+  const build = Number.parseInt(release.split(".")[2] ?? "", 10);
+  return Number.isFinite(build) && build >= 22000 ? "win-n" : "win-alt-d";
 }
 
 export type PlaybackStatus = "playing" | "paused" | "stopped";

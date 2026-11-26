@@ -83,6 +83,13 @@ describe("dock and labelled plates in the HUD", () => {
         opened++;
         return { ok: true };
       },
+      getSettings: async () => null,
+      saveSettings: async () => ({ ok: true }),
+      findPlace: async () => ({ ok: true, places: [] }),
+      talk: async () => ({ ok: true }),
+      getRecent: async () => [],
+      openRecent: async () => ({ ok: true }),
+      locate: async () => ({ ok: true }),
     };
     (window as { jarvis?: JarvisBridge }).jarvis = bridge;
     host = document.createElement("div");
@@ -103,7 +110,7 @@ describe("dock and labelled plates in the HUD", () => {
     });
   };
 
-  it("launches a dock slot, explains an empty one, and opens config.json from the gear", async () => {
+  it("launches a dock slot, explains an empty one, and opens Settings from the gear", async () => {
     const view = await render();
     const buttons = view.querySelectorAll(".dock-btn");
     expect(buttons).toHaveLength(5);
@@ -112,9 +119,9 @@ describe("dock and labelled plates in the HUD", () => {
     expect(launched).toEqual(["downloads"]);
     await click(buttons[1]);
     expect(launched).toEqual(["downloads"]);
-    expect(view.querySelector(".status")?.textContent).toBe("DOCK SLOT 2 IS EMPTY  SET IT IN CONFIG.JSON");
+    expect(view.querySelector(".status")?.textContent).toBe("DOCK SLOT 2 IS EMPTY  SET IT IN SETTINGS");
     await click(buttons[4]);
-    expect(opened).toBe(1);
+    expect(view.querySelector(".settings")).not.toBeNull();
   });
 
   it("opens the tile on a labelled plate and keeps the design text", async () => {

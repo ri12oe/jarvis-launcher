@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import type { RecentItem } from "../shared/recent";
+import type { Place, SettingsValues } from "../shared/settings";
 import type { SystemState } from "../shared/system";
 import type { JarvisBridge, LauncherState, LaunchResult, SystemActionResult, SystemStats, VoiceSnapshot } from "../shared/types";
 
@@ -36,6 +38,10 @@ const api: JarvisBridge = {
     ipcRenderer.send("jarvis:quit");
   },
   getVoice: () => ipcRenderer.invoke("jarvis:voice-get") as Promise<VoiceSnapshot>,
+  talk: () => ipcRenderer.invoke("jarvis:voice-talk") as Promise<{ ok: boolean; error?: string }>,
+  getRecent: () => ipcRenderer.invoke("jarvis:recent") as Promise<RecentItem[]>,
+  openRecent: (id) => ipcRenderer.invoke("jarvis:open-recent", id) as Promise<{ ok: boolean; error?: string }>,
+  locate: () => ipcRenderer.invoke("jarvis:locate") as Promise<{ ok: boolean; error?: string; place?: Place }>,
   onVoice: (listener) => {
     const wrapped = (_event: IpcRendererEvent, voice: VoiceSnapshot) => listener(voice);
     ipcRenderer.on("jarvis:voice", wrapped);
@@ -69,6 +75,10 @@ const api: JarvisBridge = {
   systemAction: (action, value) => ipcRenderer.invoke("jarvis:system-action", action, value ?? 0) as Promise<SystemActionResult>,
   webSearch: (query) => ipcRenderer.invoke("jarvis:web-search", query) as Promise<{ ok: boolean; error?: string }>,
   openConfig: () => ipcRenderer.invoke("jarvis:open-config") as Promise<{ ok: boolean; error?: string }>,
+  getSettings: () => ipcRenderer.invoke("jarvis:get-settings") as Promise<SettingsValues | null>,
+  saveSettings: (values) => ipcRenderer.invoke("jarvis:save-settings", values) as Promise<{ ok: boolean; error?: string }>,
+  findPlace: (query) =>
+    ipcRenderer.invoke("jarvis:find-place", query) as Promise<{ ok: boolean; error?: string; places?: Place[] }>,
 };
 
 contextBridge.exposeInMainWorld("jarvis", api);

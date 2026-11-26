@@ -1486,12 +1486,13 @@ body,
   color: #dfe2e4;
 }
 
-.round-btn {
+.mario-canvas .round-btn {
   position: absolute;
   width: 54px;
   height: 54px;
   border-radius: 50%;
   border: 3px solid #d3d7da;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
   background: radial-gradient(circle at 50% 45%, #1d2124 0%, #0b0d0e 75%);
   box-shadow: inset 0 0 0 2px #2b2f33;
   display: flex;
@@ -1832,4 +1833,517 @@ body,
 .dock .dock-btn.empty:hover,
 .dock .dock-btn.empty:focus-visible {
   box-shadow: 0 0 0 1.5px #5d6266;
+}
+
+/* RAM and BIN are buttons now. */
+.mario-canvas .round-btn:hover,
+.mario-canvas .round-btn:focus-visible {
+  border-color: #8fe6ff;
+  box-shadow: inset 0 0 0 2px #2b2f33, 0 0 8px rgba(87, 212, 255, 0.6);
+}
+
+.mario-canvas .round-btn.armed {
+  border-color: #ffb547;
+  box-shadow: inset 0 0 0 2px #2b2f33, 0 0 10px rgba(255, 170, 60, 0.9);
+  color: #ffd28a;
+}
+
+/* Click areas over drawn art: the identity badge, and the check and cross box. */
+.badge-btn,
+.ok-btn,
+.close-btn {
+  position: absolute !important;
+}
+
+.badge-btn {
+  left: 194px;
+  top: 17px;
+  width: 42px;
+  height: 31px;
+}
+
+.ok-btn,
+.close-btn {
+  top: 502px;
+  width: 43px;
+  height: 30px;
+}
+
+.ok-btn {
+  left: 1094px;
+}
+
+.close-btn {
+  left: 1137px;
+}
+
+.badge-btn:hover,
+.badge-btn:focus-visible,
+.ok-btn:hover,
+.ok-btn:focus-visible,
+.close-btn:hover,
+.close-btn:focus-visible {
+  box-shadow: inset 0 0 0 1.5px #8fe6ff;
+  background: rgba(87, 212, 255, 0.12) !important;
+}
+
+/* Settings panel, over the reactor. */
+.settings {
+  position: absolute;
+  left: 330px;
+  top: 64px;
+  width: 540px;
+  height: 540px;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  border: 1px solid #2fc3ef;
+  border-radius: 6px;
+  background: rgba(4, 9, 12, 0.96);
+  box-shadow: 0 0 0 1px #0b2b38, 0 0 24px rgba(47, 195, 239, 0.35);
+  font-family: var(--f-ui);
+  font-size: 9px;
+  color: #e4e7e9;
+  user-select: text;
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid #16404f;
+}
+
+.settings h2,
+.settings h3 {
+  margin: 0;
+  font-family: var(--f-tech);
+  font-weight: 400;
+  letter-spacing: 1.5px;
+  color: #57d4ff;
+}
+
+.settings h2 {
+  flex: 1;
+  font-size: 12px;
+}
+
+.settings h3 {
+  margin-bottom: 6px;
+  font-size: 9px;
+}
+
+.settings-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.settings .row,
+.settings .check,
+.settings .cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings .row > span {
+  width: 64px;
+  flex: none;
+  color: #a7b5bd;
+}
+
+.settings .cell {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.settings .cell > span {
+  font-family: var(--f-tech);
+  font-size: 7.5px;
+  color: #a7b5bd;
+}
+
+.settings .grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px 8px;
+}
+
+.settings input:not([type="checkbox"]),
+.settings select {
+  min-width: 0;
+  flex: 1;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid #2b4a57;
+  border-radius: 3px;
+  background: #0b1418;
+  font: inherit;
+  font-size: 9px;
+  color: #eef1f3;
+  outline: none;
+}
+
+.settings select {
+  padding: 0 2px;
+}
+
+.settings input:focus,
+.settings select:focus {
+  border-color: #57d4ff;
+}
+
+.settings input[type="checkbox"] {
+  accent-color: #2fc3ef;
+  margin: 0;
+}
+
+.settings .hotkey {
+  font-family: var(--f-tech);
+  letter-spacing: 0.5px;
+  cursor: pointer;
+}
+
+.settings .hint {
+  position: static;
+  white-space: normal;
+  margin: 0 0 0 70px;
+  font-size: 7.5px;
+  color: #7f8f97;
+}
+
+.settings .places {
+  margin: 0 0 0 70px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings p {
+  position: static;
+}
+
+.settings-error {
+  margin: 0;
+  padding: 6px 12px;
+  white-space: normal !important;
+  color: #ffb547;
+}
+
+.settings-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.settings-foot .spacer {
+  flex: 1;
+}
+
+.settings button {
+  pointer-events: auto;
+}
+
+.settings .settings-x {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px !important;
+  color: #a7b5bd;
+}
+
+.settings .small,
+.settings .ghost,
+.settings .primary,
+.settings .places button {
+  height: 20px;
+  padding: 0 10px !important;
+  border-radius: 3px !important;
+  font-family: var(--f-tech);
+  font-size: 8px;
+  letter-spacing: 1px;
+}
+
+.settings .small,
+.settings .ghost,
+.settings .places button {
+  border: 1px solid #2b4a57 !important;
+  color: #cfe9f2;
+}
+
+.settings .places button {
+  width: 100%;
+  text-align: left;
+  font-family: var(--f-ui);
+  letter-spacing: 0;
+}
+
+.settings .primary {
+  border: 1px solid #57d4ff !important;
+  background: linear-gradient(#1d6f8c, #0e3a4a) !important;
+  color: #ffffff;
+}
+
+.settings .small:hover,
+.settings .ghost:hover,
+.settings .places button:hover,
+.settings .settings-x:hover,
+.settings button:focus-visible {
+  border-color: #57d4ff !important;
+  color: #ffffff;
+}
+
+.settings .primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Emblem: push to talk. It glows while listening and pulses while thinking or speaking. */
+.mario-canvas .emblem-btn {
+  position: absolute;
+  left: 4px;
+  top: 3px;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  transition: box-shadow 0.15s ease;
+}
+
+.mario-canvas .emblem-btn:hover,
+.mario-canvas .emblem-btn:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(143, 230, 255, 0.55);
+}
+
+.mario-canvas .emblem-btn.phase-listening {
+  box-shadow:
+    inset 0 0 18px rgba(87, 212, 255, 0.85),
+    0 0 18px rgba(87, 212, 255, 0.9);
+  background: radial-gradient(circle, rgba(87, 212, 255, 0.35) 0%, rgba(87, 212, 255, 0.05) 70%) !important;
+}
+
+.mario-canvas .emblem-btn.phase-thinking {
+  animation: emblem-pulse 1.4s ease-in-out infinite;
+}
+
+.mario-canvas .emblem-btn.phase-speaking {
+  animation: emblem-pulse 0.7s ease-in-out infinite;
+}
+
+@keyframes emblem-pulse {
+  0%,
+  100% {
+    box-shadow: inset 0 0 6px rgba(87, 212, 255, 0.3), 0 0 6px rgba(87, 212, 255, 0.3);
+  }
+  50% {
+    box-shadow: inset 0 0 16px rgba(87, 212, 255, 0.8), 0 0 16px rgba(87, 212, 255, 0.8);
+  }
+}
+
+/* Clock, date, and analog clock open the calendar. G and E dials open their tiles. */
+.mario-canvas .clock-btn,
+.mario-canvas .dial-btn {
+  position: absolute;
+  border-radius: 4px;
+}
+
+.mario-canvas .clock-btn.desk {
+  left: 125px;
+  top: 90px;
+  width: 235px;
+  height: 95px;
+}
+
+.mario-canvas .clock-btn.day {
+  left: 1058px;
+  top: 6px;
+  width: 92px;
+  height: 116px;
+}
+
+.mario-canvas .clock-btn.analog {
+  left: 1021px;
+  top: 138px;
+  width: 124px;
+  height: 124px;
+  border-radius: 50%;
+}
+
+.mario-canvas .dial-btn {
+  border-radius: 50%;
+}
+
+.mario-canvas .dial-btn.g {
+  left: 585px;
+  top: 57px;
+  width: 30px;
+  height: 30px;
+}
+
+.mario-canvas .dial-btn.e {
+  left: 831px;
+  top: 416px;
+  width: 28px;
+  height: 28px;
+}
+
+.mario-canvas .clock-btn:hover,
+.mario-canvas .clock-btn:focus-visible,
+.mario-canvas .dial-btn:hover,
+.mario-canvas .dial-btn:focus-visible {
+  box-shadow: inset 0 0 0 1.5px rgba(143, 230, 255, 0.7), 0 0 8px rgba(87, 212, 255, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mario-canvas .emblem-btn.phase-thinking,
+  .mario-canvas .emblem-btn.phase-speaking {
+    animation: none;
+    box-shadow: inset 0 0 12px rgba(87, 212, 255, 0.6), 0 0 12px rgba(87, 212, 255, 0.6);
+  }
+}
+
+/* Recent files in the left list. */
+.left-list .recent-row {
+  position: absolute;
+  right: 890px;
+  height: 8px;
+  max-width: 120px;
+  overflow: hidden;
+  font-family: var(--f-tech);
+  font-size: 7.2px;
+  line-height: 8px;
+  letter-spacing: 0.4px;
+  text-align: right;
+  white-space: nowrap;
+  color: #d6d9db;
+}
+
+.left-list .recent-row:hover,
+.left-list .recent-row:focus-visible {
+  color: #8fe6ff;
+  text-shadow: 0 0 4px rgba(87, 212, 255, 0.7);
+}
+
+/* The status bar opens the message log. */
+.mario-canvas .status-btn {
+  position: absolute;
+  left: 55px;
+  top: 646px;
+  width: 135px;
+  height: 19px;
+  border-radius: 3px;
+}
+
+.mario-canvas .status-btn:hover,
+.mario-canvas .status-btn:focus-visible {
+  box-shadow: inset 0 0 0 1px rgba(143, 230, 255, 0.6);
+}
+
+.message-log {
+  position: absolute;
+  left: 55px;
+  top: 452px;
+  width: 300px;
+  height: 188px;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  border: 1px solid #2fc3ef;
+  border-radius: 5px;
+  background: rgba(4, 9, 12, 0.96);
+  box-shadow: 0 0 18px rgba(47, 195, 239, 0.3);
+  font-family: var(--f-ui);
+  font-size: 8px;
+  color: #e4e7e9;
+  user-select: text;
+}
+
+.message-log header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #16404f;
+}
+
+.message-log h2,
+.message-log h3 {
+  margin: 0;
+  font-family: var(--f-tech);
+  font-weight: 400;
+  letter-spacing: 1.2px;
+  color: #57d4ff;
+}
+
+.message-log h2 {
+  flex: 1;
+  font-size: 9px;
+}
+
+.message-log h3 {
+  margin: 2px 0 3px;
+  font-size: 7px;
+}
+
+.message-log .log-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 8px;
+}
+
+.message-log ul {
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.message-log li {
+  display: flex;
+  gap: 6px;
+  padding: 1.5px 0;
+  white-space: normal;
+}
+
+.message-log li.warn {
+  color: #ffb547;
+}
+
+.message-log time {
+  flex: none;
+  width: 28px;
+  color: #7f8f97;
+}
+
+.message-log p.log-empty {
+  position: static;
+  color: #7f8f97;
+}
+
+.message-log .log-clear,
+.message-log .log-x {
+  height: 15px;
+  padding: 0 6px !important;
+  border: 1px solid #2b4a57 !important;
+  border-radius: 3px !important;
+  font-family: var(--f-tech);
+  font-size: 7px;
+  color: #cfe9f2;
+}
+
+.message-log .log-clear:hover,
+.message-log .log-x:hover,
+.message-log button:focus-visible {
+  border-color: #57d4ff !important;
 }

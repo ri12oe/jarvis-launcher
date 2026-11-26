@@ -57,6 +57,8 @@ export interface VoiceSession {
   apply(): void;
   onPcm(samples: Int16Array): void;
   setEnabled(enabled: boolean): Promise<void>;
+  /** Push to talk: start listening as if the wake word was heard, or cancel listening. */
+  talk(): { ok: boolean; error?: string };
   playbackEnded(): void;
   reportError(message: string): void;
   snapshot(): VoiceSnapshot;
@@ -109,7 +111,9 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
     return {
       hasKey: key,
       enabled: on,
-      capture: Boolean(engine) && key && on && !stopped,
+      // A tap on the emblem listens even when the wake word model did not load.
+      capture:
+        (Boolean(engine) || hud.phase === "listening") && key && on && !stopped,
       phase: hud.phase,
       heard: hud.heard,
       reply: hud.reply,
@@ -167,12 +171,19 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
   }
 
   async function consume(chunk: Int16Array): Promise<void> {
+    if (hud.phase === "listening") {
+      try {
+        await consumeCommand(chunk);
+      } catch {
+        error = "Voice failed";
+        generation += 1;
+        hud = reduceVoice(hud, { type: "fail" });
+        publish();
+      }
+      return;
+    }
     if (!engine) return;
     try {
-      if (hud.phase === "listening") {
-        await consumeCommand(chunk);
-        return;
-      }
       const score = await engine.push(chunk);
       if (score !== undefined) {
         const stepped = stepWakeGate(gate, score, Date.now());
@@ -400,6 +411,20 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       error = "";
       if (next) engineFailed = false;
       apply();
+    },
+    talk() {
+      if (stopped) return { ok: false, error: "Voice is stopped" };
+      if (!hasKey()) return { ok: false, error: "Voice needs an xAI API key" };
+      if (!enabled()) return { ok: false, error: "Voice is off" };
+      if (hud.phase === "listening") {
+        generation += 1;
+        refreshAbort();
+        hud = reduceVoice(hud, { type: "stop" });
+        publish();
+        return { ok: true };
+      }
+      onWake();
+      return { ok: true };
     },
     playbackEnded() {
       if (hud.phase !== "speaking") return;

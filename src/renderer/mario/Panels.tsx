@@ -1,5 +1,6 @@
 import iconUrl from "../../../assets/icon.png";
 import { useRef, type PointerEvent, type RefObject } from "react";
+import { recentLabel, type RecentItem } from "../../shared/recent";
 import { formatBytes, formatRate, formatUptime } from "../../shared/stats";
 import {
   formatTrackTime,
@@ -225,7 +226,19 @@ export function AnalogClock() {
   );
 }
 
-export function RamBin({ stats }: { stats: SystemStats | null }) {
+export function RamBin({
+  stats,
+  binArmed,
+  onRam,
+  onBin,
+  onEmptyBin,
+}: {
+  stats: SystemStats | null;
+  binArmed: boolean;
+  onRam: () => void;
+  onBin: () => void;
+  onEmptyBin: () => void;
+}) {
   const recycle = stats?.recycle ?? null;
   return (
     <Shift fx={1} fy={0.6}>
@@ -236,7 +249,15 @@ export function RamBin({ stats }: { stats: SystemStats | null }) {
         <p className="ram-free">
           Free:{stats ? formatBytes(stats.ramFreeBytes) : "--"}
         </p>
-        <div className="round-btn ram-btn">RAM</div>
+        <button
+          type="button"
+          className="round-btn ram-btn"
+          aria-label="Open Task Manager"
+          title="Open Task Manager"
+          onClick={onRam}
+        >
+          RAM
+        </button>
         <p className="bin-state">
           {recycle
             ? recycle.items === 0
@@ -247,7 +268,23 @@ export function RamBin({ stats }: { stats: SystemStats | null }) {
         <p className="bin-size">
           {recycle ? formatBytes(recycle.bytes) : "--"}
         </p>
-        <div className="round-btn bin-btn">BIN</div>
+        <button
+          type="button"
+          className={binArmed ? "round-btn bin-btn armed" : "round-btn bin-btn"}
+          aria-label={
+            binArmed
+              ? "Right-click again to empty the Recycle Bin"
+              : "Open Recycle Bin. Right-click to empty it"
+          }
+          title="Open Recycle Bin (right-click to empty)"
+          onClick={onBin}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            onEmptyBin();
+          }}
+        >
+          BIN
+        </button>
       </>
     </Shift>
   );
@@ -499,39 +536,73 @@ export function LevelMeter({
   );
 }
 
-export function LeftList() {
-  const left = [
-    "UALIRITED",
-    "PLALIST",
-    "-LAISTYRARBITTE",
-    "PATEEJE",
-    "RRHWETCR",
-    "VOL NPHT",
-  ];
-  const lower = [
-    "YOUTUBE",
-    "NEEFLE",
-    "CUSTOBER",
-    "CUSTORS",
-    "TORREOTE",
-    "ERMETEPELETN",
-  ];
+const DESIGN_ABOVE = [
+  "UALIRITED",
+  "PLALIST",
+  "-LAISTYRARBITTE",
+  "PATEEJE",
+  "RRHWETCR",
+  "VOL NPHT",
+];
+const DESIGN_BELOW = [
+  "YOUTUBE",
+  "NEEFLE",
+  "CUSTOBER",
+  "CUSTORS",
+  "TORREOTE",
+  "ERMETEPELETN",
+];
+
+/**
+ * The text list left of the reactor. In "recent" mode the twelve rows are the
+ * newest recent files, six above and six below the cyan line, which reads
+ * RECENT FILES. With no recent files, or in "design" mode, it shows the
+ * design's text.
+ */
+export function LeftList({
+  mode,
+  items,
+  onOpen,
+}: {
+  mode: "recent" | "design";
+  items: readonly RecentItem[];
+  onOpen: (id: string) => void;
+}) {
+  const recent = mode === "recent" && items.length > 0;
+  const row = (index: number, top: number, fallback: string) => {
+    const item = recent ? items[index] : undefined;
+    if (!recent) {
+      return (
+        <p key={`d${index}`} style={{ top }}>
+          {fallback}
+        </p>
+      );
+    }
+    if (!item) return null;
+    return (
+      <button
+        key={item.id}
+        type="button"
+        className="recent-row"
+        style={{ top }}
+        title={item.name}
+        aria-label={`Open ${item.name}`}
+        onClick={() => onOpen(item.id)}
+      >
+        {recentLabel(item.name)}
+      </button>
+    );
+  };
   return (
     <Shift fx={0.25} fy={0.5}>
-      <div className="left-list" aria-hidden="true">
-        {left.map((line, index) => (
-          <p key={line} style={{ top: 272 + index * 9.2 }}>
-            {line}
-          </p>
-        ))}
+      <div className="left-list" aria-hidden={recent ? undefined : true}>
+        {DESIGN_ABOVE.map((line, index) => row(index, 272 + index * 9.2, line))}
         <p className="liriks" style={{ top: 327 }}>
-          LIRIKS
+          {recent ? "RECENT FILES" : "LIRIKS"}
         </p>
-        {lower.map((line, index) => (
-          <p key={line} style={{ top: 339 + index * 9.2 }}>
-            {line}
-          </p>
-        ))}
+        {DESIGN_BELOW.map((line, index) =>
+          row(index + 6, 339 + index * 9.2, line),
+        )}
         <span className="list-rule" />
         <span className="list-chip" />
         <p className="num" style={{ top: 299 }}>
@@ -1031,9 +1102,9 @@ export function Dock({
         {DOCK_CENTERS.map((x, index) => {
           const settings = index === DOCK_CENTERS.length - 1;
           const label = settings
-            ? "Open config.json"
+            ? "Settings"
             : (dock[index] ??
-              `Empty dock slot ${index + 1}: set "dock" in config.json`);
+              `Empty dock slot ${index + 1}: set it in Settings`);
           return (
             <button
               key={x}
