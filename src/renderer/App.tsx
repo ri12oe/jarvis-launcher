@@ -47,6 +47,7 @@ import type {
   VoicePhase,
   VoiceSnapshot,
 } from "../shared/types";
+import { missingBridgeMethods } from "../shared/types";
 import { NowProvider } from "./hud/time";
 import { Chassis } from "./mario/Chassis";
 import { useBattery, useStats, useSystem } from "./mario/live";
@@ -229,6 +230,7 @@ export function App() {
   const [pendingPower, setPendingPower] = useState<PendingPower | null>(null);
   const [notice, setNotice] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [stale, setStale] = useState(false);
   const settingsOpenRef = useRef(false);
   settingsOpenRef.current = settingsOpen;
   const [search, setSearch] = useState("");
@@ -262,6 +264,8 @@ export function App() {
         cancel = true;
       };
     }
+    // An old main process behind a new page: say so instead of failing quietly.
+    if (missingBridgeMethods(bridge).length > 0) setStale(true);
     let pushed = false;
     const apply = (next: LauncherState) => {
       if (cancel) return;
@@ -690,9 +694,14 @@ export function App() {
     warning: "",
   });
   // A pending power confirmation, then a system or search failure, then the usual hint.
-  const line = pendingPower ? confirmText(pendingPower.action) : notice || hint;
+  const line = stale
+    ? "RESTART JARVIS  CODE IS OUT OF DATE"
+    : pendingPower
+      ? confirmText(pendingPower.action)
+      : notice || hint;
   const showHint = line !== "SELECT A SYSTEM";
   const warn =
+    stale ||
     Boolean(pendingPower) ||
     (Boolean(notice) && notice !== "SETTINGS SAVED") ||
     isLaunchStatus(hint) ||

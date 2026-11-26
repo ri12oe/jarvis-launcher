@@ -153,4 +153,25 @@ describe("push to talk, calendar, and dials", () => {
     const open = [...view.querySelectorAll(".plate-label")].map((node) => node.textContent);
     expect(open).not.toContain("Google");
   });
+
+  it("says to restart when the app code behind the page is older than the page", async () => {
+    const view = await render();
+    act(() => root?.unmount());
+    host?.remove();
+    const old = { ...(window as unknown as { jarvis: Record<string, unknown> }).jarvis };
+    delete old.talk;
+    delete old.getSettings;
+    (window as unknown as { jarvis: unknown }).jarvis = old;
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => {
+      root?.render(<App />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(view).toBeTruthy();
+    expect(host.querySelector(".status")?.textContent).toBe("RESTART JARVIS  CODE IS OUT OF DATE");
+    expect(host.querySelector(".status")?.classList.contains("warn")).toBe(true);
+  });
 });

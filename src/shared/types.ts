@@ -273,6 +273,42 @@ export interface JarvisBridge {
   talk(): Promise<{ ok: boolean; error?: string }>;
 }
 
+/**
+ * Every method the preload must expose. When the renderer finds one missing,
+ * Electron is running main and preload code that is older than the page.
+ */
+export const BRIDGE_METHODS = [
+  "getState",
+  "onState",
+  "onHidden",
+  "launch",
+  "refresh",
+  "hide",
+  "quit",
+  "getVoice",
+  "onVoice",
+  "setVoiceEnabled",
+  "pushAudio",
+  "onSpeak",
+  "playbackEnded",
+  "reportVoiceError",
+  "getStats",
+  "getSystem",
+  "systemAction",
+  "webSearch",
+  "openConfig",
+  "getSettings",
+  "saveSettings",
+  "findPlace",
+  "talk",
+] as const satisfies readonly (keyof JarvisBridge)[];
+
+/** Names from BRIDGE_METHODS that this bridge does not have. */
+export function missingBridgeMethods(bridge: object): string[] {
+  const record = bridge as Record<string, unknown>;
+  return BRIDGE_METHODS.filter((name) => typeof record[name] !== "function");
+}
+
 export interface SystemActionResult {
   ok: boolean;
   error?: string;
