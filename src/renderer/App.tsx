@@ -626,6 +626,7 @@ export function App() {
           setNotice(`SYSTEM FAILED  ${result.error ?? ""}`.trim());
           return;
         }
+        if (result.detail) record(result.detail.toUpperCase());
         const done = confirmationFor(action, result.state);
         if (done) flash(done);
       })

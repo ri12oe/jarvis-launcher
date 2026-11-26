@@ -61,7 +61,7 @@ Anything the PC cannot report shows `--`. The weather panel reads `--` until a l
 | Check and cross box | The check clears the status message. The cross hides Jarvis. |
 | Gear in the dock, or the badge in the identity panel | Opens Settings |
 | Emblem (the glowing circle, top left) | Push to talk: starts listening without "hey Jarvis". Click again while it listens to cancel. It glows while listening and pulses while thinking or speaking. It needs a key and voice turned on, and works even if the wake word model did not load. |
-| Big clock, the date block, or the analog clock | Opens the Windows calendar over the HUD: the Notification Center on Windows 11, the date flyout (Win+Alt+D) on Windows 10. Jarvis stays open, because Windows closes that panel as soon as focus moves. |
+| Big clock, the date block, or the analog clock | Hides Jarvis, waits half a second for focus to settle, then opens the Windows calendar: the Notification Center on Windows 11, the date flyout (Win+Alt+D) on Windows 10. The message log records which one it opened. |
 | Text list left of the reactor | Your 12 most recently opened files (from the Windows Recent folder), six above and six below the cyan `RECENT FILES` line. Click one to open it. Settings can switch it back to the design's text. |
 | Status bar, bottom left | Shows short confirmations (`MUTED`, `VOLUME 45%`, `RECYCLE BIN EMPTIED`, `SETTINGS SAVED`) and failures. Click it to see this session's messages and any `config.json` warnings. With warnings and nothing else to say, it reads `2 CONFIG WARNINGS`. |
 | `G` dial at the top of the reactor | Opens Google by default |

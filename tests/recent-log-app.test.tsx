@@ -78,6 +78,7 @@ describe("recent files, confirmations, and the message log", () => {
       systemAction: async (action) => ({
         ok: true,
         state: action === "mute-toggle" ? { ...system, muted: true } : system,
+        detail: action === "open-calendar" ? "Calendar: opened ms-actioncenter: on Windows 10.0.22631" : undefined,
       }),
       webSearch: async () => ({ ok: true }),
       openConfig: async () => ({ ok: true }),
@@ -138,5 +139,14 @@ describe("recent files, confirmations, and the message log", () => {
     expect(log.textContent).toContain("MUTED");
     await flush(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
     expect(view.querySelector(".message-log")).toBeNull();
+  });
+
+  it("logs what the clock did, so a calendar problem can be traced", async () => {
+    const view = await render();
+    await flush(() => view.querySelector<HTMLElement>(".clock-btn.desk")!.click());
+    await flush(() => view.querySelector<HTMLElement>(".status-btn")!.click());
+    expect(view.querySelector(".message-log")?.textContent).toContain(
+      "CALENDAR: OPENED MS-ACTIONCENTER: ON WINDOWS 10.0.22631",
+    );
   });
 });

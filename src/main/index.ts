@@ -529,6 +529,9 @@ function windowsSystemFile(file: string, system32 = true): string {
   return system32 ? path.join(root, "System32", file) : path.join(root, file);
 }
 
+/** How long to wait after hiding Jarvis before opening the calendar panel. */
+const CALENDAR_SETTLE_MS = 500;
+
 /** Paths behind the last recent-files list, keyed by the ids the page got. */
 const recentTargets = new Map<string, string>();
 
@@ -744,23 +747,33 @@ function registerIpc(): void {
         hideWindow();
         return { ok: true };
       }
-      if (
-        checked.action === "open-calendar" &&
-        calendarShortcut(os.release()) === "win-n"
-      ) {
-        // Windows 11 keeps the calendar in the Notification Center. Its
-        // ms-actioncenter: link is what the taskbar clock opens, so no key
-        // presses are faked.
-        try {
-          spawnProcess(windowsSystemFile("explorer.exe", false), ["ms-actioncenter:"], {
-            detached: true,
-            stdio: "ignore",
-            windowsHide: false,
-          }).unref();
-        } catch {
-          return { ok: false, error: "The calendar did not open" };
+      if (checked.action === "open-calendar") {
+        // Windows closes the calendar panel as soon as focus moves. Hide
+        // Jarvis, let focus settle on the window behind it, and only then
+        // open the panel, the same as running the link from a terminal.
+        hideWindow();
+        await new Promise((resolve) => setTimeout(resolve, CALENDAR_SETTLE_MS));
+        const build = os.release();
+        if (calendarShortcut(build) === "win-n") {
+          // Windows 11 keeps the calendar in the Notification Center, which
+          // its ms-actioncenter: link opens.
+          try {
+            spawnProcess(windowsSystemFile("explorer.exe", false), ["ms-actioncenter:"], {
+              detached: true,
+              stdio: "ignore",
+              windowsHide: false,
+            }).unref();
+          } catch {
+            return { ok: false, error: "The calendar did not open" };
+          }
+          return { ok: true, detail: `Calendar: opened ms-actioncenter: on Windows ${build}` };
         }
-        return { ok: true };
+        try {
+          const state = await systemControls.run("open-calendar", 0);
+          return { ok: true, state, detail: `Calendar: sent Win+Alt+D on Windows ${build}` };
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : "The calendar did not open" };
+        }
       }
       if (checked.action === "open-recyclebin") {
         try {
@@ -776,14 +789,7 @@ function registerIpc(): void {
         return { ok: true };
       }
       try {
-        // The calendar shortcut depends on the Windows version: 1 is Windows 11.
-        const value =
-          checked.action === "open-calendar"
-            ? calendarShortcut(os.release()) === "win-n"
-              ? 1
-              : 0
-            : checked.value;
-        const state = await systemControls.run(checked.action, value);
+        const state = await systemControls.run(checked.action, checked.value);
         if (checked.action === "empty-recyclebin") stats.refreshRecycle();
         return { ok: true, state };
       } catch (error) {

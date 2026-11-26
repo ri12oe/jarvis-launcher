@@ -324,5 +324,7 @@ export function missingBridgeMethods(bridge: object): string[] {
 export interface SystemActionResult {
   ok: boolean;
   error?: string;
+  /** What the main process did, for the message log. */
+  detail?: string;
   state?: SystemState;
 }
