@@ -28,6 +28,7 @@ function session(env: NodeJS.ProcessEnv) {
     refresh: async () => undefined,
     publish: (snapshot) => published.push(snapshot),
     speak: () => undefined,
+    synthesize: async () => ({ bytes: new Uint8Array([1]), contentType: "audio/wav" }),
     modelDir: () => "/nowhere",
     patchEnabled: (text) => text,
   });
@@ -37,12 +38,12 @@ function session(env: NodeJS.ProcessEnv) {
 describe("push to talk", () => {
   it("says why it cannot listen without a key", () => {
     const { voice } = session({});
-    expect(voice.talk()).toEqual({ ok: false, error: "Voice needs an xAI API key" });
+    expect(voice.talk()).toEqual({ ok: false, error: "Voice needs a Groq API key" });
     expect(voice.snapshot().phase).toBe("idle");
   });
 
   it("listens on a tap, captures the mic without the wake word model, and a second tap stops", async () => {
-    const { voice, shown } = session({ XAI_API_KEY: "xai-test-key" });
+    const { voice, shown } = session({ GROQ_API_KEY: "gsk_test-key" });
     await voice.start();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(voice.snapshot().capture).toBe(false);

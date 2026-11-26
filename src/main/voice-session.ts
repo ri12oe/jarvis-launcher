@@ -23,10 +23,10 @@ import {
   completeChat,
   jarvisSystemPrompt,
   redactSecret,
-  synthesizeSpeech,
   transcribeWav,
   type ChatMessage,
-} from "../shared/xai";
+  type SpeechAudio,
+} from "../shared/groq";
 import { createWakeWord, type WakeWord } from "./wakeword";
 
 const SAFE_ERRORS = new Set([
@@ -47,6 +47,12 @@ export interface VoiceHost {
   refresh(): Promise<void>;
   publish(snapshot: VoiceSnapshot): void;
   speak(audio: Uint8Array, contentType: string): void;
+  /** Turn reply text into audio with the voice built into Windows. */
+  synthesize(
+    text: string,
+    voice: string,
+    signal: AbortSignal,
+  ): Promise<SpeechAudio>;
   modelDir(): string;
   patchEnabled(text: string, enabled: boolean): string | undefined;
 }
@@ -318,7 +324,7 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       await say(gen, line);
     } catch {
       if (!alive(gen)) return;
-      error = "Could not reach Grok";
+      error = "Could not reach Groq";
       hud = reduceVoice(hud, { type: "fail" });
       publish();
     }
@@ -332,20 +338,12 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       return;
     }
     const voice = host.voice();
-    const key = readVoiceApiKey(host.env(), voice.apiKeyEnv);
-    if (!key) {
-      hud = reduceVoice(hud, { type: "reply", text: trimmed });
-      hud = reduceVoice(hud, { type: "fail" });
-      publish();
-      return;
-    }
     try {
-      const audio = await synthesizeSpeech({
-        apiKey: key,
-        text: trimmed,
-        voiceId: voice.voiceId,
-        signal: requestSignal(),
-      });
+      const audio = await host.synthesize(
+        trimmed,
+        voice.voiceId,
+        requestSignal(),
+      );
       if (!alive(gen)) return;
       hud = reduceVoice(hud, { type: "reply", text: trimmed });
       publish();
@@ -414,7 +412,7 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
     },
     talk() {
       if (stopped) return { ok: false, error: "Voice is stopped" };
-      if (!hasKey()) return { ok: false, error: "Voice needs an xAI API key" };
+      if (!hasKey()) return { ok: false, error: "Voice needs a Groq API key" };
       if (!enabled()) return { ok: false, error: "Voice is off" };
       if (hud.phase === "listening") {
         generation += 1;

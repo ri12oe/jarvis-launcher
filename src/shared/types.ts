@@ -82,13 +82,13 @@ export type VoicePhase = "idle" | "listening" | "thinking" | "speaking";
  */
 export interface VoiceConfig {
   enabled?: boolean;
-  /** Name of the environment variable that holds the xAI key. */
+  /** Name of the environment variable that holds the Groq key. */
   apiKeyEnv: string;
-  /** Model id for POST /v1/chat/completions. */
+  /** Groq chat model id. */
   model: string;
-  /** Voice id for POST /v1/tts. */
+  /** Part of a Windows voice name, such as `david` or `zira`. */
   voiceId: string;
-  /** Model id for POST /v1/stt. */
+  /** Groq speech-to-text model id. */
   sttModel: string;
 }
 

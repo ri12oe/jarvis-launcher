@@ -109,40 +109,53 @@ describe("config parsing", () => {
 
   it("validates the voice block and leaves the key out of the file", () => {
     expect(parseConfig({}).config.voice).toEqual({
-      apiKeyEnv: "XAI_API_KEY",
+      apiKeyEnv: "GROQ_API_KEY",
       model: DEFAULT_CHAT_MODEL,
-      voiceId: "eve",
+      voiceId: "david",
       sttModel: DEFAULT_STT_MODEL,
     });
     expect(parseConfig({}).config.voice.enabled).toBeUndefined();
     const turnedOff = parseConfig({
-      voice: { enabled: false, model: "grok-4", voiceId: "REX", apiKeyEnv: "XAI_CUSTOM", sttModel: "grok-voice-transcribe-2.0" },
+      voice: {
+        enabled: false,
+        model: "llama-3.3-70b-versatile",
+        voiceId: "ZIRA",
+        apiKeyEnv: "GROQ_CUSTOM",
+        sttModel: "whisper-large-v3",
+      },
     });
     expect(turnedOff.warnings).toEqual([]);
     expect(turnedOff.config.voice).toEqual({
       enabled: false,
-      apiKeyEnv: "XAI_CUSTOM",
-      model: "grok-4",
-      voiceId: "rex",
-      sttModel: DEFAULT_STT_MODEL,
+      apiKeyEnv: "GROQ_CUSTOM",
+      model: "llama-3.3-70b-versatile",
+      voiceId: "zira",
+      sttModel: "whisper-large-v3",
     });
-    expect(isAllowedKeyEnv("XAI_API_KEY")).toBe(true);
+    // A config written for xAI falls back to the Groq models.
+    const old = parseConfig({
+      voice: { model: "grok-4.7", voiceId: "eve", apiKeyEnv: "XAI_API_KEY", sttModel: "grok-voice-transcribe-2.0" },
+    });
+    expect(old.config.voice).toEqual(parseConfig({}).config.voice);
+    expect(old.warnings.join(" ")).toMatch(/GROQ_/);
+    expect(isAllowedKeyEnv("GROQ_API_KEY")).toBe(true);
+    expect(isAllowedKeyEnv("XAI_API_KEY")).toBe(false);
     expect(isAllowedKeyEnv("JARVIS_KEY")).toBe(false);
     const foreign = parseConfig({ voice: { apiKeyEnv: "JARVIS_KEY" } });
-    expect(foreign.config.voice.apiKeyEnv).toBe("XAI_API_KEY");
-    expect(foreign.warnings.join(" ")).toMatch(/XAI_/);
+    expect(foreign.config.voice.apiKeyEnv).toBe("GROQ_API_KEY");
+    expect(foreign.warnings.join(" ")).toMatch(/GROQ_/);
     const broken = parseConfig({ voice: { enabled: "yes", model: "not a model", apiKeyEnv: "1KEY", voiceId: "" } });
     expect(broken.config.voice.enabled).toBeUndefined();
     expect(broken.config.voice.model).toBe(DEFAULT_CHAT_MODEL);
-    expect(broken.config.voice.apiKeyEnv).toBe("XAI_API_KEY");
+    expect(broken.config.voice.apiKeyEnv).toBe("GROQ_API_KEY");
     expect(broken.warnings.join(" ")).toMatch(/voice.enabled/);
     expect(parseConfig({ voice: [] }).warnings).toEqual(["voice must be an object; using defaults"]);
     expect(voicePreferenceOn(parseConfig({}).config.voice, true)).toBe(true);
     expect(voicePreferenceOn(parseConfig({}).config.voice, false)).toBe(false);
     expect(voicePreferenceOn(parseConfig({ voice: { enabled: false } }).config.voice, true)).toBe(false);
     expect(voicePreferenceOn(parseConfig({ voice: { enabled: true } }).config.voice, false)).toBe(true);
-    expect(readVoiceApiKey({ XAI_API_KEY: "  secret  " }, "XAI_API_KEY")).toBe("secret");
-    expect(readVoiceApiKey({ XAI_API_KEY: "   " }, "XAI_API_KEY")).toBeUndefined();
+    expect(readVoiceApiKey({ GROQ_API_KEY: "  secret  " }, "GROQ_API_KEY")).toBe("secret");
+    expect(readVoiceApiKey({ GROQ_API_KEY: "   " }, "GROQ_API_KEY")).toBeUndefined();
     const patched = patchVoiceEnabledText('{"hotkey":"Ctrl+Alt+J","voice":{"model":"grok-4.7"}}', false);
     expect(patched).toBeDefined();
     expect(JSON.parse(patched ?? "{}")).toEqual({

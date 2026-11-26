@@ -126,9 +126,9 @@ describe("push to talk, calendar, and dials", () => {
     expect(emblem.getAttribute("aria-label")).toBe("Talk to Jarvis");
     await flush(() => emblem.click());
     expect(talks).toBe(1);
-    talkResult = { ok: false, error: "Voice needs an xAI API key" };
+    talkResult = { ok: false, error: "Voice needs a Groq API key" };
     await flush(() => emblem.click());
-    expect(view.querySelector(".status")?.textContent).toBe("VOICE NEEDS AN XAI API KEY");
+    expect(view.querySelector(".status")?.textContent).toBe("VOICE NEEDS A GROQ API KEY");
   });
 
   it("shows the emblem listening and offers to stop", async () => {

@@ -67,6 +67,7 @@ import {
 import { StatsService } from "./stats";
 import { SystemControls } from "./system-controls";
 import { createVoiceSession, type VoiceSession } from "./voice-session";
+import { WindowsSpeech } from "./windows-speech";
 import { resolveWakeDir } from "./wakeword";
 import { createWindowSession, type WindowWatch } from "./window-snapshot";
 
@@ -91,6 +92,7 @@ const placementHelper = createWindowSession({
 });
 let configFilePath = "";
 let voice: VoiceSession | null = null;
+const windowsSpeech = new WindowsSpeech();
 let launcher: {
   config: JarvisConfig;
   tiles: ResolvedTile[];
@@ -975,6 +977,8 @@ if (!gotLock) {
       refresh: () => refreshGate.requestRefresh(),
       publish: publishVoice,
       speak: sendSpeech,
+      synthesize: (text, voiceName, signal) =>
+        windowsSpeech.speak(text, voiceName, signal),
       modelDir: () => resolveWakeDir(app.getAppPath()),
       patchEnabled: patchVoiceEnabledText,
     });
@@ -995,6 +999,7 @@ if (!gotLock) {
     systemControls.stop();
     quitting = true;
     voice?.stop();
+    windowsSpeech.stop();
     placementHelper.stop();
     if (refreshTimer) clearTimeout(refreshTimer);
     if (configFilePath) fs.unwatchFile(configFilePath);

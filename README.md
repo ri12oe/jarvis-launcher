@@ -116,15 +116,15 @@ The tray menu is Show, Hide, Refresh, and Quit. The Refresh button in the bottom
 
 ## Voice
 
-Jarvis can listen for "hey jarvis" and answer out loud. While voice is on, the microphone stays open and the wake word is detected on this PC, including when the window is hidden. That always-on audio is not uploaded. After the wake word, one utterance is sent to xAI for speech-to-text. The chat request also sends the tile labels and the last 8 messages and replies. The spoken reply is synthesized by xAI from the reply text. The API key stays in the Electron main process. It is never written into the window, the renderer bundle, or the log.
+Jarvis can listen for "hey jarvis" and answer out loud. While voice is on, the microphone stays open and the wake word is detected on this PC, including when the window is hidden. That always-on audio is not uploaded. After the wake word, one utterance is sent to [Groq](https://console.groq.com) for speech-to-text (Whisper). The chat request also sends the tile labels and the last 8 messages and replies. The spoken reply is made on this PC by the voice built into Windows, so speaking costs nothing and nothing is uploaded for it. Groq's free plan needs no card. It is rate limited, which is far more than a personal launcher uses. The API key stays in the Electron main process. It is never written into the window, the renderer bundle, or the log.
 
-Set the key for your Windows user, then open a new terminal so the app can see it:
+Create a free key at [console.groq.com/keys](https://console.groq.com/keys). Set it for your Windows user, then open a new terminal so the app can see it:
 
 ```powershell
-setx XAI_API_KEY "your-key-here"
+setx GROQ_API_KEY "your-key-here"
 ```
 
-`setx` does not put the key in this repo. Do not paste it into `config.json`. `voice.apiKeyEnv` can name `XAI_API_KEY` or another variable that starts with `XAI_`. Anything else is ignored. The value is still read from the environment.
+`setx` does not put the key in this repo. Do not paste it into `config.json`. `voice.apiKeyEnv` can name `GROQ_API_KEY` or another variable that starts with `GROQ_`. Anything else is ignored. The value is still read from the environment.
 
 With a key present, voice starts on and the Voice button in the bottom tray is blue. Click it to save `voice.enabled` as `false` (grey) or `true`. With no key, the button stays grey, its tooltip reads `Voice: no key`, and the app keeps running. A failure stays in the status bar as `VOICE FAILED` plus a short reason, the same way a bad launch stays as `LAUNCH FAILED`. The reason never includes the key.
 
@@ -133,23 +133,23 @@ Say "hey jarvis". The window shows if it was hidden, and the reactor marks liste
 - `open <name>` matches a tile label, including a fuzzy name, and launches it through the same path as a click, including the centered window on Windows
 - `hide` hides the window
 - `refresh` reloads the tile list
-- `stop` or `cancel`, said in the utterance after the wake word, ends the turn without calling Grok. Saying "hey jarvis" again, including while a reply is still being written or played, is heard on this PC and starts a new listen. That second phrase is not uploaded by itself
-- anything else is a short chat with Grok, and Jarvis speaks the answer
+- `stop` or `cancel`, said in the utterance after the wake word, ends the turn without calling Groq. Saying "hey jarvis" again, including while a reply is still being written or played, is heard on this PC and starts a new listen. That second phrase is not uploaded by itself
+- anything else is a short chat with the Groq model, and Jarvis speaks the answer
 
-What was heard and the reply show inside the reactor, below the centre number. The text stays clear of the tiles. Grok may also ask to open a tile. Only a tile id that is on screen is accepted.
+What was heard and the reply show inside the reactor, below the centre number. The text stays clear of the tiles. The model may also ask to open a tile. Only a tile id that is on screen is accepted.
 
 Optional `voice` fields in `config.json`:
 
 ```json
 "voice": {
-  "apiKeyEnv": "XAI_API_KEY",
-  "model": "grok-4.7",
-  "voiceId": "eve",
-  "sttModel": "grok-voice-transcribe-2.0"
+  "apiKeyEnv": "GROQ_API_KEY",
+  "model": "openai/gpt-oss-20b",
+  "voiceId": "david",
+  "sttModel": "whisper-large-v3-turbo"
 }
 ```
 
-`model` is the chat model for `POST /v1/chat/completions`. `voiceId` is a built-in text-to-speech voice such as `eve`, `ara`, `leo`, `rex`, or `sal`. `sttModel` is the speech-to-text model. Leave `enabled` out to turn voice on when a key is present.
+`model` is a Groq chat model that supports tool calls. `sttModel` is a Groq speech-to-text model, `whisper-large-v3-turbo` or `whisper-large-v3`. `voiceId` is part of the name of a Windows voice, such as `david` or `zira`. If no installed voice matches, the Windows default voice speaks. More voices can be added in Windows Settings > Time & language > Speech. A config from the old xAI setup still loads: Grok model names and the `eve` voice fall back to these defaults. Leave `enabled` out to turn voice on when a key is present.
 
 The microphone permission is granted only for this app's own window, and only for `media`. The wake-word files under `assets/wake` are openWakeWord pre-trained models (CC BY-NC-SA 4.0, David Scripka). The openWakeWord code is Apache-2.0. The models are not, and they stay on the machine. See `assets/wake/NOTICE`.
 
@@ -212,10 +212,10 @@ A broken file is left as it is. The launcher uses defaults in memory until the J
   "order": ["cursor", "claude", "edge", "explorer"],
   "labels": { "cursor": "Cursor IDE" },
   "voice": {
-    "apiKeyEnv": "XAI_API_KEY",
-    "model": "grok-4.7",
-    "voiceId": "eve",
-    "sttModel": "grok-voice-transcribe-2.0"
+    "apiKeyEnv": "GROQ_API_KEY",
+    "model": "openai/gpt-oss-20b",
+    "voiceId": "david",
+    "sttModel": "whisper-large-v3-turbo"
   },
   "weather": { "latitude": 39.77, "longitude": -86.16, "label": "Indianapolis, IN", "units": "fahrenheit" },
   "dock": ["downloads", "spotify", null, "projects"],
@@ -286,7 +286,7 @@ Check both `JarvisLauncher-Setup.exe` and `JarvisLauncher-portable.exe` where it
 
 ## Windows smoke test for voice
 
-On a machine with a microphone and `XAI_API_KEY` set in the environment the app actually runs in:
+On a machine with a microphone and `GROQ_API_KEY` set in the environment the app actually runs in:
 
 - The Voice button is blue. With the variable removed and the app restarted, it is grey with the tooltip `Voice: no key`, and Jarvis does not crash
 - Hide the window, say "hey jarvis", and the HUD comes back. The reactor shows listening, then thinking, then speaking. The subtitle shows what you said and the reply
@@ -310,4 +310,4 @@ The Linux and Windows CI jobs do not have a microphone, so they do not run this 
 npm test
 ```
 
-Matching, config validation, shortcut scanning, registry parsing, Start menu app parsing, launch plans, the refresh gate, status hints, the MARIO OS slot layout, keyboard navigation, the system-stat parsers, the Open-Meteo mapping, and window placement are covered. A browser test renders the built HUD at four screen sizes and checks that the canvas fits and no slot label is clipped. Voice tests cover the command parser, fuzzy tile matching, the voice block in config, the listen/think/speak state machine, and the xAI client with a mocked `fetch`. Those tests check that the API key is not written into an error or a log line. Launch tests mock `openPath`, `openExternal`, and `spawn`. The placement tests mock the window list, so they do not need Windows. The Windows CI job also starts the helper, reads a real window list, moves a window that the test created, and checks that closing stdin exits the helper. The wake-word model is not asserted in CI. A real microphone is not available there.
+Matching, config validation, shortcut scanning, registry parsing, Start menu app parsing, launch plans, the refresh gate, status hints, the MARIO OS slot layout, keyboard navigation, the system-stat parsers, the Open-Meteo mapping, and window placement are covered. A browser test renders the built HUD at four screen sizes and checks that the canvas fits and no slot label is clipped. Voice tests cover the command parser, fuzzy tile matching, the voice block in config, the listen/think/speak state machine, the Groq client with a mocked `fetch`, and the Windows speech helper's request and reply lines. Those tests check that the API key is not written into an error or a log line. Launch tests mock `openPath`, `openExternal`, and `spawn`. The placement tests mock the window list, so they do not need Windows. The Windows CI job also starts the helper, reads a real window list, moves a window that the test created, and checks that closing stdin exits the helper. The wake-word model is not asserted in CI. A real microphone is not available there.

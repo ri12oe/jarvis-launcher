@@ -1,6 +1,7 @@
 import type { VoiceTile } from "./voice-command";
 
-export const XAI_API_ROOT = "https://api.x.ai/v1";
+/** Groq's OpenAI-compatible API. The free plan needs no card. */
+export const GROQ_API_ROOT = "https://api.groq.com/openai/v1";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -13,10 +14,10 @@ export interface ChatResult {
   tileId?: string;
 }
 
-export class XaiError extends Error {
+export class GroqError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "XaiError";
+    this.name = "GroqError";
   }
 }
 
@@ -64,9 +65,9 @@ interface ChatPayload {
 
 /** Keep a tool call only when its tile id was one we offered. */
 export function parseChatCompletion(payload: unknown, allowedIds: readonly string[]): ChatResult {
-  if (!payload || typeof payload !== "object") throw new XaiError("xAI request failed (bad response)");
+  if (!payload || typeof payload !== "object") throw new GroqError("Groq request failed (bad response)");
   const message = (payload as ChatPayload).choices?.[0]?.message;
-  if (!message) throw new XaiError("xAI request failed (bad response)");
+  if (!message) throw new GroqError("Groq request failed (bad response)");
   const allowed = new Set(allowedIds);
   const tileId = readOpenTile(message.tool_calls, allowed);
   return { text: typeof message.content === "string" ? message.content.trim() : "", tileId };
@@ -107,7 +108,7 @@ function parseArguments(value: unknown): Record<string, unknown> | undefined {
   return parsed as Record<string, unknown>;
 }
 
-export interface XaiRequest {
+export interface GroqRequest {
   apiKey: string;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
@@ -122,28 +123,31 @@ function apiFetch(url: string, apiKey: string, init: RequestInit, fetchImpl: typ
       if (response.ok) return response;
       return response.arrayBuffer().then(
         () => {
-          throw new XaiError(`xAI request failed (${response.status})`);
+          throw new GroqError(`Groq request failed (${response.status})`);
         },
         () => {
-          throw new XaiError(`xAI request failed (${response.status})`);
+          throw new GroqError(`Groq request failed (${response.status})`);
         },
       );
     },
     () => {
-      throw new XaiError("xAI request failed (network)");
+      throw new GroqError("Groq request failed (network)");
     },
   );
 }
 
 export async function completeChat(
-  input: XaiRequest & { model: string; messages: readonly ChatMessage[]; tileIds: readonly string[] },
+  input: GroqRequest & { model: string; messages: readonly ChatMessage[]; tileIds: readonly string[] },
 ): Promise<ChatResult> {
   const tileIds = [...new Set(input.tileIds.filter((id) => id.length > 0))];
   const body: Record<string, unknown> = {
     model: input.model,
     messages: input.messages,
     temperature: 0.4,
-    max_completion_tokens: 160,
+    // gpt-oss models think before they answer. Keep that short and out of the reply.
+    max_completion_tokens: 600,
+    reasoning_effort: "low",
+    include_reasoning: false,
   };
   if (tileIds.length > 0) {
     body.tools = [openTileTool(tileIds)];
@@ -151,7 +155,7 @@ export async function completeChat(
     body.parallel_tool_calls = false;
   }
   const response = await apiFetch(
-    `${XAI_API_ROOT}/chat/completions`,
+    `${GROQ_API_ROOT}/chat/completions`,
     input.apiKey,
     {
       method: "POST",
@@ -165,7 +169,7 @@ export async function completeChat(
   try {
     payload = await response.json();
   } catch {
-    throw new XaiError("xAI request failed (bad response)");
+    throw new GroqError("Groq request failed (bad response)");
   }
   return parseChatCompletion(payload, tileIds);
 }
@@ -189,15 +193,16 @@ function openTileTool(tileIds: readonly string[]): Record<string, unknown> {
 }
 
 export async function transcribeWav(
-  input: XaiRequest & { model: string; wav: Uint8Array; language?: string },
+  input: GroqRequest & { model: string; wav: Uint8Array; language?: string },
 ): Promise<string> {
   const form = new FormData();
   form.append("model", input.model);
   form.append("language", input.language ?? "en");
-  form.append("format", "true");
+  form.append("response_format", "json");
+  form.append("temperature", "0");
   form.append("file", new Blob([input.wav.slice()], { type: "audio/wav" }), "utterance.wav");
   const response = await apiFetch(
-    `${XAI_API_ROOT}/stt`,
+    `${GROQ_API_ROOT}/audio/transcriptions`,
     input.apiKey,
     { method: "POST", body: form, signal: input.signal },
     input.fetchImpl,
@@ -206,66 +211,14 @@ export async function transcribeWav(
   try {
     payload = await response.json();
   } catch {
-    throw new XaiError("xAI request failed (bad response)");
+    throw new GroqError("Groq request failed (bad response)");
   }
   const text = payload && typeof payload === "object" ? (payload as { text?: unknown }).text : undefined;
-  if (typeof text !== "string") throw new XaiError("xAI request failed (bad response)");
+  if (typeof text !== "string") throw new GroqError("Groq request failed (bad response)");
   return text.trim();
 }
 
 export interface SpeechAudio {
   bytes: Uint8Array;
   contentType: string;
-}
-
-export async function synthesizeSpeech(
-  input: XaiRequest & { text: string; voiceId: string; language?: string },
-): Promise<SpeechAudio> {
-  const response = await apiFetch(
-    `${XAI_API_ROOT}/tts`,
-    input.apiKey,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: input.text.slice(0, 2000),
-        voice_id: input.voiceId,
-        language: input.language ?? "en",
-        output_format: { codec: "mp3", sample_rate: 24000, bit_rate: 128000 },
-      }),
-      signal: input.signal,
-    },
-    input.fetchImpl,
-  );
-  return readSpeech(response);
-}
-
-async function readSpeech(response: Response): Promise<SpeechAudio> {
-  const type = response.headers.get("content-type") ?? "";
-  if (type.includes("json")) {
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      throw new XaiError("xAI request failed (bad response)");
-    }
-    const record = payload && typeof payload === "object" ? (payload as { audio?: unknown; content_type?: unknown }) : {};
-    if (typeof record.audio !== "string" || record.audio.length === 0) {
-      throw new XaiError("xAI request failed (empty audio)");
-    }
-    const bytes = decodeBase64(record.audio);
-    const contentType = typeof record.content_type === "string" ? record.content_type : "audio/mpeg";
-    return { bytes, contentType };
-  }
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.length === 0) throw new XaiError("xAI request failed (empty audio)");
-  const contentType = type.startsWith("audio/") ? type.split(";")[0].trim() : "audio/mpeg";
-  return { bytes, contentType };
-}
-
-function decodeBase64(value: string): Uint8Array {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
 }

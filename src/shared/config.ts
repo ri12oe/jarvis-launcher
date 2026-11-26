@@ -10,16 +10,20 @@ export const DEFAULT_LAUNCH_WINDOW: LaunchWindowConfig = {
   heightPct: 70,
 };
 
-/** Current Grok chat model from the xAI chat-completions guide. */
-export const DEFAULT_CHAT_MODEL = "grok-4.7";
+/** Chat model on Groq's free plan. It supports the open_tile tool call. */
+export const DEFAULT_CHAT_MODEL = "openai/gpt-oss-20b";
 
-/** Default speech-to-text model. xAI uses this when `model` is omitted. */
-export const DEFAULT_STT_MODEL = "grok-voice-transcribe-2.0";
+/** Speech-to-text model on Groq's free plan. */
+export const DEFAULT_STT_MODEL = "whisper-large-v3-turbo";
 
-/** Built-in TTS voice. `eve` is the voice the xAI text-to-speech examples use. */
-export const DEFAULT_VOICE_ID = "eve";
+/**
+ * Part of the name of a Windows voice, such as `david` or `zira`. Replies are
+ * spoken by the voice built into Windows, so speaking costs nothing. When no
+ * installed voice matches, the Windows default voice is used.
+ */
+export const DEFAULT_VOICE_ID = "david";
 
-export const DEFAULT_API_KEY_ENV = "XAI_API_KEY";
+export const DEFAULT_API_KEY_ENV = "GROQ_API_KEY";
 
 export const DEFAULT_VOICE: VoiceConfig = {
   apiKeyEnv: DEFAULT_API_KEY_ENV,
@@ -425,9 +429,17 @@ function readWeather(value: unknown, warnings: string[]): WeatherConfig | undefi
 
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
-/** Only the xAI key variable, or another variable whose name starts with XAI_. */
+/** Groq model ids can have one owner prefix, such as openai/gpt-oss-20b. */
+const MODEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,63})?$/;
+
+/** Only the Groq key variable, or another variable whose name starts with GROQ_. */
 export function isAllowedKeyEnv(name: string): boolean {
-  return /^XAI_[A-Za-z0-9_]+$/.test(name);
+  return /^GROQ_[A-Za-z0-9_]+$/.test(name);
+}
+
+/** Model and voice names from the old xAI setup. They do not exist on Groq. */
+function isXaiName(value: unknown): boolean {
+  return typeof value === "string" && /^(grok|xai)\b/i.test(value.trim());
 }
 
 function readToken(value: unknown, fallback: string, warnings: string[], label: string, pattern: RegExp): string {
@@ -440,7 +452,7 @@ function readToken(value: unknown, fallback: string, warnings: string[], label: 
 function readKeyEnv(value: unknown, warnings: string[]): string {
   if (value === undefined) return DEFAULT_API_KEY_ENV;
   if (typeof value === "string" && isAllowedKeyEnv(value.trim())) return value.trim();
-  warnings.push(`voice.apiKeyEnv must be XAI_API_KEY or start with XAI_; using ${DEFAULT_API_KEY_ENV}`);
+  warnings.push(`voice.apiKeyEnv must be GROQ_API_KEY or start with GROQ_; using ${DEFAULT_API_KEY_ENV}`);
   return DEFAULT_API_KEY_ENV;
 }
 
@@ -450,11 +462,15 @@ function readVoice(value: unknown, warnings: string[]): VoiceConfig {
     warnings.push("voice must be an object; using defaults");
     return { ...DEFAULT_VOICE };
   }
+  // A config written for xAI still works: its Grok model names fall back to the Groq defaults.
+  const model = isXaiName(value.model) ? undefined : value.model;
+  const sttModel = isXaiName(value.sttModel) ? undefined : value.sttModel;
+  const voiceId = value.voiceId === "eve" ? undefined : value.voiceId;
   const voice: VoiceConfig = {
     apiKeyEnv: readKeyEnv(value.apiKeyEnv, warnings),
-    model: readToken(value.model, DEFAULT_VOICE.model, warnings, "voice.model", TOKEN),
-    voiceId: readToken(value.voiceId, DEFAULT_VOICE.voiceId, warnings, "voice.voiceId", TOKEN).toLowerCase(),
-    sttModel: readToken(value.sttModel, DEFAULT_VOICE.sttModel, warnings, "voice.sttModel", TOKEN),
+    model: readToken(model, DEFAULT_VOICE.model, warnings, "voice.model", MODEL),
+    voiceId: readToken(voiceId, DEFAULT_VOICE.voiceId, warnings, "voice.voiceId", TOKEN).toLowerCase(),
+    sttModel: readToken(sttModel, DEFAULT_VOICE.sttModel, warnings, "voice.sttModel", MODEL),
   };
   if (value.enabled !== undefined) {
     if (typeof value.enabled === "boolean") voice.enabled = value.enabled;

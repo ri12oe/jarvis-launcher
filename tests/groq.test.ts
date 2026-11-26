@@ -1,17 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  XAI_API_ROOT,
-  XaiError,
+  GROQ_API_ROOT,
+  GroqError,
   appendChatHistory,
   completeChat,
   jarvisSystemPrompt,
   parseChatCompletion,
   redactSecret,
-  synthesizeSpeech,
   transcribeWav,
-} from "../src/shared/xai";
+} from "../src/shared/groq";
 
-const KEY = "xai-test-key-should-not-leak";
+const KEY = "gsk_test-key-should-not-leak";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -28,7 +27,7 @@ function spyConsole(): string[] {
   return calls;
 }
 
-describe("xAI client", () => {
+describe("Groq client", () => {
   it("parses a chat completion and drops an unknown tile id", () => {
     expect(
       parseChatCompletion(
@@ -94,7 +93,7 @@ describe("xAI client", () => {
 
     const result = await completeChat({
       apiKey: KEY,
-      model: "grok-4.7",
+      model: "openai/gpt-oss-20b",
       messages: [
         { role: "system", content: jarvisSystemPrompt([{ id: "edge", label: "Microsoft Edge" }]) },
         { role: "user", content: "hello" },
@@ -104,13 +103,14 @@ describe("xAI client", () => {
     });
 
     expect(result).toEqual({ text: "The reactor is nominal.", tileId: undefined });
-    expect(seen[0]?.url).toBe(`${XAI_API_ROOT}/chat/completions`);
+    expect(seen[0]?.url).toBe(`${GROQ_API_ROOT}/chat/completions`);
     expect(seen[0]?.authorization).toBe(`Bearer ${KEY}`);
     const body = JSON.parse(seen[0]?.body ?? "{}") as {
       model: string;
       tools: Array<{ function: { parameters: { properties: { tile_id: { enum: string[] } } } } }>;
     };
-    expect(body.model).toBe("grok-4.7");
+    expect(body.model).toBe("openai/gpt-oss-20b");
+    expect((body as unknown as { include_reasoning: boolean }).include_reasoning).toBe(false);
     expect(body.tools[0]?.function.parameters.properties.tile_id.enum).toEqual(["edge"]);
     expect(seen[0]?.url.includes(KEY)).toBe(false);
     expect(seen[0]?.body.includes(KEY)).toBe(false);
@@ -124,7 +124,7 @@ describe("xAI client", () => {
       new Response(`denied ${KEY}`, { status: 401, headers: { "content-type": "text/plain" } });
     const error = await completeChat({
       apiKey: KEY,
-      model: "grok-4.7",
+      model: "openai/gpt-oss-20b",
       messages: [{ role: "user", content: "hello" }],
       tileIds: [],
       fetchImpl,
@@ -132,8 +132,8 @@ describe("xAI client", () => {
       () => undefined,
       (caught: unknown) => caught,
     );
-    expect(error).toBeInstanceOf(XaiError);
-    expect(error instanceof Error ? error.message : "").toBe("xAI request failed (401)");
+    expect(error).toBeInstanceOf(GroqError);
+    expect(error instanceof Error ? error.message : "").toBe("Groq request failed (401)");
     expect(error instanceof Error ? error.message.includes(KEY) : false).toBe(false);
     expect(logs.join("\n").includes(KEY)).toBe(false);
     expect(redactSecret(`bearer ${KEY}`, KEY)).toBe("bearer [redacted]");
@@ -145,41 +145,28 @@ describe("xAI client", () => {
       throw new Error(`socket ${KEY}`);
     };
     await expect(
-      synthesizeSpeech({ apiKey: KEY, text: "Hello.", voiceId: "eve", fetchImpl }),
-    ).rejects.toThrow("xAI request failed (network)");
+      transcribeWav({ apiKey: KEY, model: "whisper-large-v3-turbo", wav: Uint8Array.from([1]), fetchImpl }),
+    ).rejects.toThrow("Groq request failed (network)");
     expect(logs.join("\n").includes(KEY)).toBe(false);
   });
 
-  it("sends the utterance to speech-to-text and reads raw or json speech audio", async () => {
+  it("sends the utterance to Groq speech-to-text", async () => {
     const fetchImpl: typeof fetch = async (input, init) => {
-      const url = String(input);
-      if (url.endsWith("/stt")) {
-        const form = init?.body as FormData;
-        expect(form).toBeInstanceOf(FormData);
-        expect(form.get("model")).toBe("grok-voice-transcribe-2.0");
-        expect([...form.keys()].at(-1)).toBe("file");
-        expect(new Headers(init?.headers).get("Authorization")).toBe(`Bearer ${KEY}`);
-        return new Response(JSON.stringify({ text: " open edge " }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
-      return new Response(Uint8Array.from([1, 2, 3]), { status: 200, headers: { "content-type": "audio/mpeg" } });
-    };
-    await expect(
-      transcribeWav({ apiKey: KEY, model: "grok-voice-transcribe-2.0", wav: Uint8Array.from([1, 2]), fetchImpl }),
-    ).resolves.toBe("open edge");
-    const spoken = await synthesizeSpeech({ apiKey: KEY, text: "Opening Edge.", voiceId: "rex", fetchImpl });
-    expect(spoken.contentType).toBe("audio/mpeg");
-    expect(Array.from(spoken.bytes)).toEqual([1, 2, 3]);
-
-    const jsonVoice: typeof fetch = async () =>
-      new Response(JSON.stringify({ audio: btoa("hi"), content_type: "audio/mpeg" }), {
+      expect(String(input)).toBe(`${GROQ_API_ROOT}/audio/transcriptions`);
+      const form = init?.body as FormData;
+      expect(form).toBeInstanceOf(FormData);
+      expect(form.get("model")).toBe("whisper-large-v3-turbo");
+      expect(form.get("response_format")).toBe("json");
+      expect([...form.keys()].at(-1)).toBe("file");
+      expect(new Headers(init?.headers).get("Authorization")).toBe(`Bearer ${KEY}`);
+      return new Response(JSON.stringify({ text: " open edge " }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
-    const decoded = await synthesizeSpeech({ apiKey: KEY, text: "Hi.", voiceId: "eve", fetchImpl: jsonVoice });
-    expect(Array.from(decoded.bytes)).toEqual(Array.from(new TextEncoder().encode("hi")));
+    };
+    await expect(
+      transcribeWav({ apiKey: KEY, model: "whisper-large-v3-turbo", wav: Uint8Array.from([1, 2]), fetchImpl }),
+    ).resolves.toBe("open edge");
   });
 
   it("keeps a short session history", () => {
