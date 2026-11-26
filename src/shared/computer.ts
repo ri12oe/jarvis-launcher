@@ -326,19 +326,77 @@ export function textLines(value: string): string[] {
  * what Jarvis sends: no auto-closing brackets, no auto-indent, and no
  * suggestion accepted by Enter. They apply only inside that folder.
  */
-export const JARVIS_WORKSPACE_SETTINGS = {
+const TYPING_EDITOR = {
   "editor.autoClosingBrackets": "never",
   "editor.autoClosingQuotes": "never",
   "editor.autoClosingOvertype": "never",
   "editor.autoSurround": "never",
   "editor.autoIndent": "none",
   "editor.formatOnType": false,
+  "editor.formatOnPaste": false,
+  "editor.formatOnSave": false,
+} as const;
+
+/**
+ * Language settings beat plain ones, and extensions such as Python (Pylance)
+ * turn on indent-as-you-type for their language. So the overrides are repeated
+ * for each language Jarvis writes.
+ */
+const TYPING_LANGUAGES = [
+  "python",
+  "javascript",
+  "typescript",
+  "html",
+  "css",
+  "json",
+  "markdown",
+  "java",
+  "c",
+  "cpp",
+  "csharp",
+  "go",
+  "rust",
+  "ruby",
+  "php",
+  "shellscript",
+  "sql",
+  "plaintext",
+];
+
+export const JARVIS_WORKSPACE_SETTINGS: Record<string, unknown> = {
+  ...TYPING_EDITOR,
   "editor.acceptSuggestionOnEnter": "off",
   "editor.quickSuggestions": { other: false, comments: false, strings: false },
   "editor.suggestOnTriggerCharacters": false,
   "editor.inlineSuggest.enabled": false,
+  "editor.tabCompletion": "off",
+  "python.analysis.autoIndent": false,
   "github.copilot.enable": { "*": false },
-} as const;
+  ...Object.fromEntries(
+    TYPING_LANGUAGES.map((language) => [`[${language}]`, { ...TYPING_EDITOR }]),
+  ),
+};
+
+/**
+ * Jarvis's typing settings laid over an existing settings.json, keeping any
+ * other keys. Undefined when the file is not a JSON object, so it is left alone.
+ */
+export function mergeWorkspaceSettings(
+  existing: string | undefined,
+): string | undefined {
+  let current: Record<string, unknown> = {};
+  if (existing !== undefined && existing.trim()) {
+    try {
+      const parsed = JSON.parse(existing) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        return undefined;
+      current = parsed as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+  }
+  return `${JSON.stringify({ ...current, ...JARVIS_WORKSPACE_SETTINGS }, null, 2)}\n`;
+}
 
 /** Process names of apps Jarvis types into. */
 export const VSCODE_PROCESSES = ["Code"] as const;

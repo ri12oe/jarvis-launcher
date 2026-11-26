@@ -1,8 +1,8 @@
 import path from "node:path";
 import type { StoreApp } from "../shared/start-apps";
 import {
-  JARVIS_WORKSPACE_SETTINGS,
   KEY_COMBOS,
+  mergeWorkspaceSettings,
   OUTLOOK_PROCESSES,
   VSCODE_PROCESSES,
   SETTINGS_PAGES,
@@ -27,6 +27,7 @@ export interface ComputerHost {
     expect: number,
     enter: boolean,
     delayMs: number,
+    clear?: boolean,
   ): Promise<boolean>;
   keys(vks: readonly number[], expect: number): Promise<boolean>;
   openExternal(url: string): Promise<void>;
@@ -41,6 +42,7 @@ export interface ComputerHost {
   regExe(): string;
   runFile(file: string, args: readonly string[]): Promise<void>;
   exists(file: string): boolean;
+  readFile(file: string): string | undefined;
   mkdir(dir: string): void;
   writeFile(file: string, text: string): void;
   ownPid(): number;
@@ -229,6 +231,7 @@ export class ComputerTask {
     hwnd: number,
     delayMs: number,
     signal: AbortSignal,
+    clearIndent = false,
   ): Promise<number> {
     for (let index = 0; index < lines.length; index++) {
       if (signal.aborted) return index;
@@ -237,6 +240,7 @@ export class ComputerTask {
         hwnd,
         index < lines.length - 1,
         delayMs,
+        clearIndent,
       );
       if (!typed) return index;
     }
@@ -278,12 +282,13 @@ export class ComputerTask {
     const dir = path.join(this.host.documentsDir(), PROJECTS_FOLDER);
     this.host.mkdir(path.join(dir, ".vscode"));
     const settings = path.join(dir, ".vscode", "settings.json");
-    if (!this.host.exists(settings)) {
-      this.host.writeFile(
-        settings,
-        `${JSON.stringify(JARVIS_WORKSPACE_SETTINGS, null, 2)}\n`,
-      );
-    }
+    // Lay Jarvis's typing settings over the folder's settings each time, so an
+    // older or edited file still turns auto-indent off.
+    const current = this.host.exists(settings)
+      ? this.host.readFile(settings)
+      : undefined;
+    const merged = mergeWorkspaceSettings(current);
+    if (merged && merged !== current) this.host.writeFile(settings, merged);
     const name = freeName(dir, filename, (file) => this.host.exists(file));
     const file = path.join(dir, name);
     this.host.writeFile(file, "");
@@ -308,11 +313,13 @@ export class ComputerTask {
     await this.host.sleep(700, signal);
 
     const lines = codeLines(code);
+    // Clear any indent VS Code adds after Enter; each line types its own.
     const done = await this.typeLines(
       lines,
       window.hwnd,
       CODE_DELAY_MS,
       signal,
+      true,
     );
     if (done < lines.length) {
       return failed(

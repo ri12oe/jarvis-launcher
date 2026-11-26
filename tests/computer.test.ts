@@ -118,6 +118,7 @@ function fakePc(
   const files = new Map<string, string>();
   const opened: string[] = [];
   let clock = 0;
+  let cleared = 0;
   let front: ForegroundWindow = {
     hwnd: 10,
     pid: 999,
@@ -129,9 +130,10 @@ function fakePc(
     foreground: async () => front,
     find: async () => 0,
     focus: async () => front,
-    typeLine: async (text, expect, enter) => {
+    typeLine: async (text, expect, enter, _delay, clear) => {
       if (front.hwnd !== expect) return false;
       typed.push(text + (enter ? "\n" : ""));
+      if (clear && enter) cleared += 1;
       if (
         options.stealFocusAfter !== undefined &&
         typed.length >= options.stealFocusAfter
@@ -172,6 +174,7 @@ function fakePc(
     regExe: () => "reg.exe",
     runFile: async () => undefined,
     exists: (file) => files.has(file),
+    readFile: (file) => files.get(file),
     mkdir: () => undefined,
     writeFile: (file, text) => {
       files.set(file, text);
@@ -182,7 +185,7 @@ function fakePc(
       clock += ms;
     },
   };
-  return { host, typed, pressed, files, opened };
+  return { host, typed, pressed, files, opened, cleared: () => cleared };
 }
 
 describe("computer tasks", () => {
@@ -203,11 +206,31 @@ describe("computer tasks", () => {
       'def main():\n    print("Hello, world!")\n\nmain()',
     );
     expect(pc.pressed).toEqual([KEY_COMBOS["ctrl+s"]]);
-    expect(
+    const settings = JSON.parse(
       pc.files.get(
         path.join("Docs", PROJECTS_FOLDER, ".vscode", "settings.json"),
-      ),
-    ).toContain("autoClosingBrackets");
+      ) ?? "{}",
+    );
+    expect(settings["[python]"]["editor.autoIndent"]).toBe("none");
+    expect(settings["python.analysis.autoIndent"]).toBe(false);
+    // Every Enter is followed by Shift+Home, so VS Code's own indent is replaced.
+    expect(pc.cleared()).toBe(3);
+  });
+
+  it("updates older Jarvis settings but keeps the user's own keys", async () => {
+    const pc = fakePc({ vscode: true });
+    const file = path.join("Docs", PROJECTS_FOLDER, ".vscode", "settings.json");
+    pc.files.set(
+      file,
+      JSON.stringify({ "editor.fontSize": 16, "editor.autoIndent": "full" }),
+    );
+    await new ComputerTask(pc.host).run(
+      { tool: "write_code", filename: "a.py", code: "x = 1" },
+      signal,
+    );
+    const settings = JSON.parse(pc.files.get(file) ?? "{}");
+    expect(settings["editor.fontSize"]).toBe(16);
+    expect(settings["editor.autoIndent"]).toBe("none");
   });
 
   it("stops typing when another window comes to the front", async () => {

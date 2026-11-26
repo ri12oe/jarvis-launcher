@@ -648,8 +648,8 @@ const computerHost: ComputerHost = {
   foreground: () => windowsInput.foreground(),
   find: (names) => windowsInput.find(names),
   focus: (hwnd) => windowsInput.focus(hwnd),
-  typeLine: (text, expect, enter, delayMs) =>
-    windowsInput.typeLine(text, expect, enter, delayMs),
+  typeLine: (text, expect, enter, delayMs, clear) =>
+    windowsInput.typeLine(text, expect, enter, delayMs, clear),
   keys: (vks, expect) => windowsInput.keys(vks, expect),
   openExternal: (url) => shell.openExternal(url),
   spawnDetached: (file, args) => {
@@ -690,6 +690,13 @@ const computerHost: ComputerHost = {
       );
     }),
   exists: (file) => fs.existsSync(file),
+  readFile: (file) => {
+    try {
+      return fs.readFileSync(file, "utf8");
+    } catch {
+      return undefined;
+    }
+  },
   mkdir: (dir) => fs.mkdirSync(dir, { recursive: true }),
   writeFile: (file, text) =>
     fs.writeFileSync(file, text, { flag: text ? "w" : "wx" }),

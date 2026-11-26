@@ -72,7 +72,7 @@ public static class JarvisInput {
     }
     return 0;
   }
-  public static bool TypeLine(string text, int delay, bool enter, long expect) {
+  public static bool TypeLine(string text, int delay, bool enter, long expect, bool clear) {
     foreach (char c in text) {
       if (expect != 0 && Foreground() != expect) return false;
       if (c == (char)9) Send(new INPUT[] { Key(0x09, 0, 0), Key(0x09, 0, 2) });
@@ -83,6 +83,10 @@ public static class JarvisInput {
       if (expect != 0 && Foreground() != expect) return false;
       Send(new INPUT[] { Key(0x0D, 0, 0), Key(0x0D, 0, 2) });
       if (delay > 0) Thread.Sleep(delay * 2);
+      if (clear) {
+        Send(new INPUT[] { Key(0x10, 0, 0), Key(0x24, 0, 1), Key(0x24, 0, 3), Key(0x10, 0, 2) });
+        if (delay > 0) Thread.Sleep(delay);
+      }
     }
     return true;
   }
@@ -112,7 +116,7 @@ while ($true) {
     if ($req.op -eq 'fg') { $data = [JarvisInput]::Describe() }
     elseif ($req.op -eq 'find') { $data = [string][JarvisInput]::FindWindow([string]$req.names) }
     elseif ($req.op -eq 'focus') { [JarvisInput]::Focus([long]$req.hwnd); Start-Sleep -Milliseconds 250; $data = [JarvisInput]::Describe() }
-    elseif ($req.op -eq 'type') { $ok = [JarvisInput]::TypeLine([string]$req.text, [int]$req.delay, [bool]$req.enter, [long]$req.expect) }
+    elseif ($req.op -eq 'type') { $ok = [JarvisInput]::TypeLine([string]$req.text, [int]$req.delay, [bool]$req.enter, [long]$req.expect, [bool]$req.clear) }
     elseif ($req.op -eq 'keys') { $ok = [JarvisInput]::Combo([string]$req.vks, [long]$req.expect) }
     else { throw 'unknown op' };
     $json = @{ id = $req.id; ok = $ok; data = $data } | ConvertTo-Json -Compress;
@@ -206,12 +210,17 @@ export class WindowsInput {
     return parseForeground(reply.data);
   }
 
-  /** Types one line into `expect`. False when another window came to the front. */
+  /**
+   * Types one line into `expect`. False when another window came to the front.
+   * With `clear`, Shift+Home after Enter selects any indent the editor added,
+   * so the next line's own indent replaces it.
+   */
   async typeLine(
     text: string,
     expect: number,
     enter: boolean,
     delayMs: number,
+    clear = false,
   ): Promise<boolean> {
     const reply = await this.request({
       op: "type",
@@ -219,6 +228,7 @@ export class WindowsInput {
       expect,
       enter,
       delay: delayMs,
+      clear,
     });
     return reply.ok === true;
   }
