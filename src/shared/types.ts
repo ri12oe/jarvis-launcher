@@ -1,3 +1,4 @@
+import type { RecentItem } from "./recent";
 import type { Place, SettingsValues } from "./settings";
 import type { SystemAction, SystemState } from "./system";
 /** Names the matcher looks for. One discovered tile per id. */
@@ -143,7 +144,11 @@ export interface JarvisConfig {
   plates: Record<string, string>;
   /** Tile ids for the two small dials on the reactor: G (top) and E (right). null leaves a dial doing nothing. */
   dials: DialConfig;
+  /** What the text list left of the reactor shows: recent files, or the design's text. */
+  leftList: LeftListMode;
 }
+
+export type LeftListMode = "recent" | "design";
 
 export interface DialConfig {
   G: string | null;
@@ -237,6 +242,7 @@ export interface LauncherState {
   plates: { slot: number; tileId: string }[];
   /** Tile id for each reactor dial, or null. */
   dials: DialConfig;
+  leftList: LeftListMode;
 }
 
 export interface LaunchResult {
@@ -271,6 +277,9 @@ export interface JarvisBridge {
   saveSettings(values: SettingsValues): Promise<{ ok: boolean; error?: string }>;
   findPlace(query: string): Promise<{ ok: boolean; error?: string; places?: Place[] }>;
   talk(): Promise<{ ok: boolean; error?: string }>;
+  getRecent(): Promise<RecentItem[]>;
+  openRecent(id: string): Promise<{ ok: boolean; error?: string }>;
+  locate(): Promise<{ ok: boolean; error?: string; place?: Place }>;
 }
 
 /**
@@ -301,6 +310,9 @@ export const BRIDGE_METHODS = [
   "saveSettings",
   "findPlace",
   "talk",
+  "getRecent",
+  "openRecent",
+  "locate",
 ] as const satisfies readonly (keyof JarvisBridge)[];
 
 /** Names from BRIDGE_METHODS that this bridge does not have. */

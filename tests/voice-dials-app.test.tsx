@@ -95,6 +95,9 @@ describe("push to talk, calendar, and dials", () => {
         talks++;
         return talkResult;
       },
+      getRecent: async () => [],
+      openRecent: async () => ({ ok: true }),
+      locate: async () => ({ ok: true }),
     };
     (window as { jarvis?: JarvisBridge }).jarvis = bridge;
     host = document.createElement("div");

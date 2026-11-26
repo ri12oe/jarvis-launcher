@@ -35,6 +35,7 @@ import { acceptRefreshClick } from "../shared/refresh";
 import {
   confirmText,
   powerClick,
+  type SystemState,
   type PendingPower,
   type PowerAction,
   type SystemAction,
@@ -50,7 +51,8 @@ import type {
 import { missingBridgeMethods } from "../shared/types";
 import { NowProvider } from "./hud/time";
 import { Chassis } from "./mario/Chassis";
-import { useBattery, useStats, useSystem } from "./mario/live";
+import { useBattery, useRecent, useStats, useSystem } from "./mario/live";
+import { MessageLog, type LogEntry } from "./mario/MessageLog";
 import {
   AnalogClock,
   DayBlock,
@@ -76,6 +78,17 @@ const FILTER_LIMIT = 32;
 const EMPTY_TILES: LauncherTileView[] = [];
 const EMPTY_PLATES: LauncherState["plates"] = [];
 const NO_DIALS: LauncherState["dials"] = { G: null, E: null };
+const LOG_LIMIT = 30;
+const INFO_MS = 3000;
+
+/** Short confirmation for a control that worked, or "" when the HUD already shows the change. */
+function confirmationFor(action: SystemAction, state: SystemState | undefined): string {
+  if (action === "volume-step" && state?.volume != null) return `VOLUME ${state.volume}%`;
+  if (action === "mute-toggle" && state?.muted != null) return state.muted ? "MUTED" : "SOUND ON";
+  if (action === "mic-toggle" && state?.micMuted != null) return state.micMuted ? "MIC MUTED" : "MIC ON";
+  if (action === "empty-recyclebin") return "RECYCLE BIN EMPTIED";
+  return "";
+}
 
 const PREVIEW_APPS: DiscoveredApp[] = [
   ["chatgpt", "ChatGPT"],
@@ -98,9 +111,12 @@ const PREVIEW_APPS: DiscoveredApp[] = [
   launchKind: "store" as const,
 }));
 
-function hudSlots(config: Parameters<typeof resolveHudSlots>[0], ids: string[]) {
+function hudSlots(
+  config: Parameters<typeof resolveHudSlots>[0] & { leftList: LauncherState["leftList"] },
+  ids: string[],
+) {
   const { dock, plates, dials } = resolveHudSlots(config, ids);
-  return { dock, plates, dials };
+  return { dock, plates, dials, leftList: config.leftList };
 }
 
 function previewState(): LauncherState {
@@ -227,10 +243,26 @@ export function App() {
   const [page, setPage] = useState(0);
   const [focus, setFocus] = useState<Focus | null>(null);
   const [system, setSystem] = useSystem();
+  const recent = useRecent(true);
   const [pendingPower, setPendingPower] = useState<PendingPower | null>(null);
   const [notice, setNotice] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [stale, setStale] = useState(false);
+  // Short confirmations (cyan, a few seconds) and the message log behind the status bar.
+  const [info, setInfo] = useState("");
+  const [log, setLog] = useState<LogEntry[]>([]);
+  const [logOpen, setLogOpen] = useState(false);
+  const logOpenRef = useRef(false);
+  logOpenRef.current = logOpen;
+  const infoTimer = useRef<number | undefined>(undefined);
+  const record = (text: string, warn = false) =>
+    setLog((entries) => [{ at: Date.now(), text, warn }, ...entries].slice(0, LOG_LIMIT));
+  const flash = (text: string) => {
+    record(text);
+    setInfo(text);
+    window.clearTimeout(infoTimer.current);
+    infoTimer.current = window.setTimeout(() => setInfo(""), INFO_MS);
+  };
   const settingsOpenRef = useRef(false);
   settingsOpenRef.current = settingsOpen;
   const [search, setSearch] = useState("");
@@ -388,6 +420,10 @@ export function App() {
       if (event.target instanceof HTMLInputElement) return;
       // The Settings panel handles its own keys, Esc included.
       if (settingsOpenRef.current) return;
+      if (logOpenRef.current && event.key === "Escape") {
+        setLogOpen(false);
+        return;
+      }
       const dismiss = () => {
         setStatus((current) => clearLaunchStatus(current));
         setNotice("");
@@ -492,6 +528,16 @@ export function App() {
     if (current) slotRefs.current.get(keyOf(current))?.focus();
   });
 
+  // Every failure that reaches the status bar also goes in the log.
+  useEffect(() => {
+    if (notice) record(notice, true);
+  }, [notice]);
+  useEffect(() => {
+    if (isLaunchStatus(status) || isVoiceStatus(status)) record(status, true);
+  }, [status]);
+
+  const labelOf = (id: string) => tiles.find((tile) => tile.id === id)?.label ?? id;
+
   const launchSlot = async (slot: PlacedSlot) => {
     const tile = slot.tile >= 0 ? tiles[slot.tile] : undefined;
     setStatus((value) => clearLaunchStatus(value));
@@ -508,6 +554,7 @@ export function App() {
     if (!bridge) return;
     const result = await bridge.launch(tile.id);
     if (!result.ok) setStatus(launchStatusText(result.error));
+    else record(`OPENED ${tile.label.toUpperCase()}`);
   };
 
   actionsRef.current = {
@@ -575,8 +622,12 @@ export function App() {
       .systemAction(action, value)
       .then((result) => {
         if (result.state) setSystem(result.state);
-        if (!result.ok)
+        if (!result.ok) {
           setNotice(`SYSTEM FAILED  ${result.error ?? ""}`.trim());
+          return;
+        }
+        const done = confirmationFor(action, result.state);
+        if (done) flash(done);
       })
       .catch(() => setNotice("SYSTEM FAILED"));
   };
@@ -611,6 +662,7 @@ export function App() {
     setStatus((value) => clearLaunchStatus(value));
     const result = await bridge.launch(id);
     if (!result.ok) setStatus(launchStatusText(result.error));
+    else record(`OPENED ${labelOf(id).toUpperCase()}`);
   };
 
   const talk = async () => {
@@ -619,6 +671,15 @@ export function App() {
     const result = await bridge.talk();
     if (!result.ok) setNotice((result.error ?? "Voice is unavailable").toUpperCase());
     else setNotice("");
+  };
+
+  const openRecent = async (id: string) => {
+    const bridge = window.jarvis;
+    if (!bridge) return;
+    const name = recent.find((item) => item.id === id)?.name ?? "file";
+    const result = await bridge.openRecent(id);
+    if (!result.ok) setNotice(`OPEN FAILED  ${result.error ?? ""}`.trim());
+    else record(`OPENED ${name.toUpperCase()}`);
   };
 
   const dialLabel = (name: "G" | "E") => {
@@ -630,7 +691,7 @@ export function App() {
   const launchDock = async (index: number) => {
     const id = state?.dock?.[index];
     if (!id) {
-      setNotice(`DOCK SLOT ${index + 1} IS EMPTY  SET IT IN CONFIG.JSON`);
+      setNotice(`DOCK SLOT ${index + 1} IS EMPTY  SET IT IN SETTINGS`);
       return;
     }
     const bridge = window.jarvis;
@@ -639,6 +700,7 @@ export function App() {
     setStatus((value) => clearLaunchStatus(value));
     const result = await bridge.launch(id);
     if (!result.ok) setStatus(launchStatusText(result.error));
+    else record(`OPENED ${labelOf(id).toUpperCase()}`);
   };
 
   const webSearch = async (value: string) => {
@@ -698,14 +760,20 @@ export function App() {
     ? "RESTART JARVIS  CODE IS OUT OF DATE"
     : pendingPower
       ? confirmText(pendingPower.action)
-      : notice || hint;
+      : notice || info || hint;
   const showHint = line !== "SELECT A SYSTEM";
   const warn =
     stale ||
     Boolean(pendingPower) ||
-    (Boolean(notice) && notice !== "SETTINGS SAVED") ||
+    Boolean(notice) ||
     isLaunchStatus(hint) ||
     isVoiceStatus(hint);
+
+  const configWarnings = state?.warnings.length ?? 0;
+  const idleText =
+    configWarnings > 0
+      ? `${configWarnings} CONFIG WARNING${configWarnings === 1 ? "" : "S"}`
+      : "ID-6TH / AM";
 
   const slotClass = (slot: PlacedSlot, base: string) => {
     const lit = selectable(slot);
@@ -904,7 +972,11 @@ export function App() {
               onBin={() => runSystem("open-recyclebin")}
               onEmptyBin={onEmptyBin}
             />
-            <LeftList />
+            <LeftList
+              mode={state?.leftList ?? "recent"}
+              items={recent}
+              onOpen={(id) => void openRecent(id)}
+            />
             <MediaBar
               system={system}
               onAction={(action, value) => {
@@ -1081,14 +1153,30 @@ export function App() {
                 className={[
                   "status",
                   showHint ? "live" : "",
-                  warn ? "warn" : "",
+                  warn || (!showHint && configWarnings > 0) ? "warn" : "",
                 ]
                   .filter(Boolean)
                   .join(" ")}
                 aria-live="polite"
               >
-                {showHint ? line : "ID-6TH / AM"}
+                {showHint ? line : idleText}
               </p>
+              <button
+                type="button"
+                className="status-btn"
+                aria-label="Messages"
+                aria-expanded={logOpen}
+                title="Messages"
+                onClick={() => setLogOpen((open) => !open)}
+              />
+              {logOpen ? (
+                <MessageLog
+                  entries={log}
+                  warnings={state?.warnings ?? []}
+                  onClose={() => setLogOpen(false)}
+                  onClear={() => setLog([])}
+                />
+              ) : null}
             </Shift>
 
             <Shift fx={0.5} fy={0.5}>
@@ -1114,7 +1202,7 @@ export function App() {
                   onClose={() => setSettingsOpen(false)}
                   onSaved={() => {
                     setSettingsOpen(false);
-                    setNotice("SETTINGS SAVED");
+                    flash("SETTINGS SAVED");
                   }}
                 />
               </Shift>

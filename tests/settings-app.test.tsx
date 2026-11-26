@@ -102,6 +102,9 @@ describe("RAM, BIN, the check box, and Settings", () => {
       },
       findPlace: async () => ({ ok: true, places: [{ label: "Indianapolis, Indiana, US", latitude: 39.77, longitude: -86.16 }] }),
       talk: async () => ({ ok: true }),
+      getRecent: async () => [],
+      openRecent: async () => ({ ok: true }),
+      locate: async () => ({ ok: true }),
     };
     (window as { jarvis?: JarvisBridge }).jarvis = bridge;
     host = document.createElement("div");
@@ -140,7 +143,7 @@ describe("RAM, BIN, the check box, and Settings", () => {
   it("clears the message with the check and hides with the cross", async () => {
     const view = await render();
     await flush(() => view.querySelectorAll<HTMLElement>(".dock-btn")[1].click());
-    expect(view.querySelector(".status")?.textContent).toBe("DOCK SLOT 2 IS EMPTY  SET IT IN CONFIG.JSON");
+    expect(view.querySelector(".status")?.textContent).toBe("DOCK SLOT 2 IS EMPTY  SET IT IN SETTINGS");
     await flush(() => view.querySelector<HTMLElement>(".ok-btn")!.click());
     expect(view.querySelector(".status")?.textContent).toBe("ID-6TH / AM");
     await flush(() => view.querySelector<HTMLElement>(".close-btn")!.click());

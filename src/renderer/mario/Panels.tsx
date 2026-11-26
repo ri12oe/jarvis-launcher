@@ -1,5 +1,6 @@
 import iconUrl from "../../../assets/icon.png";
 import { useRef, type PointerEvent, type RefObject } from "react";
+import { recentLabel, type RecentItem } from "../../shared/recent";
 import { formatBytes, formatRate, formatUptime } from "../../shared/stats";
 import {
   formatTrackTime,
@@ -535,39 +536,73 @@ export function LevelMeter({
   );
 }
 
-export function LeftList() {
-  const left = [
-    "UALIRITED",
-    "PLALIST",
-    "-LAISTYRARBITTE",
-    "PATEEJE",
-    "RRHWETCR",
-    "VOL NPHT",
-  ];
-  const lower = [
-    "YOUTUBE",
-    "NEEFLE",
-    "CUSTOBER",
-    "CUSTORS",
-    "TORREOTE",
-    "ERMETEPELETN",
-  ];
+const DESIGN_ABOVE = [
+  "UALIRITED",
+  "PLALIST",
+  "-LAISTYRARBITTE",
+  "PATEEJE",
+  "RRHWETCR",
+  "VOL NPHT",
+];
+const DESIGN_BELOW = [
+  "YOUTUBE",
+  "NEEFLE",
+  "CUSTOBER",
+  "CUSTORS",
+  "TORREOTE",
+  "ERMETEPELETN",
+];
+
+/**
+ * The text list left of the reactor. In "recent" mode the twelve rows are the
+ * newest recent files, six above and six below the cyan line, which reads
+ * RECENT FILES. With no recent files, or in "design" mode, it shows the
+ * design's text.
+ */
+export function LeftList({
+  mode,
+  items,
+  onOpen,
+}: {
+  mode: "recent" | "design";
+  items: readonly RecentItem[];
+  onOpen: (id: string) => void;
+}) {
+  const recent = mode === "recent" && items.length > 0;
+  const row = (index: number, top: number, fallback: string) => {
+    const item = recent ? items[index] : undefined;
+    if (!recent) {
+      return (
+        <p key={`d${index}`} style={{ top }}>
+          {fallback}
+        </p>
+      );
+    }
+    if (!item) return null;
+    return (
+      <button
+        key={item.id}
+        type="button"
+        className="recent-row"
+        style={{ top }}
+        title={item.name}
+        aria-label={`Open ${item.name}`}
+        onClick={() => onOpen(item.id)}
+      >
+        {recentLabel(item.name)}
+      </button>
+    );
+  };
   return (
     <Shift fx={0.25} fy={0.5}>
-      <div className="left-list" aria-hidden="true">
-        {left.map((line, index) => (
-          <p key={line} style={{ top: 272 + index * 9.2 }}>
-            {line}
-          </p>
-        ))}
+      <div className="left-list" aria-hidden={recent ? undefined : true}>
+        {DESIGN_ABOVE.map((line, index) => row(index, 272 + index * 9.2, line))}
         <p className="liriks" style={{ top: 327 }}>
-          LIRIKS
+          {recent ? "RECENT FILES" : "LIRIKS"}
         </p>
-        {lower.map((line, index) => (
-          <p key={line} style={{ top: 339 + index * 9.2 }}>
-            {line}
-          </p>
-        ))}
+        {DESIGN_BELOW.map((line, index) =>
+          row(index + 6, 339 + index * 9.2, line),
+        )}
         <span className="list-rule" />
         <span className="list-chip" />
         <p className="num" style={{ top: 299 }}>
@@ -1069,7 +1104,7 @@ export function Dock({
           const label = settings
             ? "Settings"
             : (dock[index] ??
-              `Empty dock slot ${index + 1}: set "dock" in config.json`);
+              `Empty dock slot ${index + 1}: set it in Settings`);
           return (
             <button
               key={x}

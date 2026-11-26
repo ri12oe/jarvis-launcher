@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { RecentItem } from "../../shared/recent";
 import { EMPTY_SYSTEM, type SystemState } from "../../shared/system";
 import type { SystemStats } from "../../shared/types";
 
@@ -175,4 +176,40 @@ export function useTicker(active: boolean): number {
     return () => window.clearInterval(timer);
   }, [active]);
   return active ? now : Date.now();
+}
+
+/**
+ * Recent files for the left list. Reads them when the page opens, whenever the
+ * window gets focus (Jarvis was shown), and every 30 seconds.
+ */
+export function useRecent(enabled: boolean): RecentItem[] {
+  const [items, setItems] = useState<RecentItem[]>(() =>
+    !window.jarvis && import.meta.env.DEV && new URLSearchParams(window.location.search).get("recent") === "1"
+      ? ["Resume.pdf", "Q3 budget.xlsx", "jarvis-launcher", "notes.txt", "Screenshot 2026-11-25.png", "Project brief.docx", "song.mp3", "README.md", "photo.jpg", "slides.pptx", "Downloads", "data.csv"].map(
+          (name, index) => ({ id: String(index), name }),
+        )
+      : [],
+  );
+  useEffect(() => {
+    const bridge = window.jarvis;
+    if (!bridge || !enabled) return;
+    let cancelled = false;
+    const read = () => {
+      void bridge
+        .getRecent()
+        .then((next) => {
+          if (!cancelled) setItems(next);
+        })
+        .catch(() => {});
+    };
+    read();
+    const timer = window.setInterval(read, 30_000);
+    window.addEventListener("focus", read);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", read);
+    };
+  }, [enabled]);
+  return items;
 }

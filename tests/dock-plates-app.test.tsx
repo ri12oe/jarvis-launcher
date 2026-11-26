@@ -87,6 +87,9 @@ describe("dock and labelled plates in the HUD", () => {
       saveSettings: async () => ({ ok: true }),
       findPlace: async () => ({ ok: true, places: [] }),
       talk: async () => ({ ok: true }),
+      getRecent: async () => [],
+      openRecent: async () => ({ ok: true }),
+      locate: async () => ({ ok: true }),
     };
     (window as { jarvis?: JarvisBridge }).jarvis = bridge;
     host = document.createElement("div");
@@ -116,7 +119,7 @@ describe("dock and labelled plates in the HUD", () => {
     expect(launched).toEqual(["downloads"]);
     await click(buttons[1]);
     expect(launched).toEqual(["downloads"]);
-    expect(view.querySelector(".status")?.textContent).toBe("DOCK SLOT 2 IS EMPTY  SET IT IN CONFIG.JSON");
+    expect(view.querySelector(".status")?.textContent).toBe("DOCK SLOT 2 IS EMPTY  SET IT IN SETTINGS");
     await click(buttons[4]);
     expect(view.querySelector(".settings")).not.toBeNull();
   });

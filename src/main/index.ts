@@ -47,9 +47,12 @@ import type {
   VoiceSnapshot,
 } from "../shared/types";
 import { resolveHudSlots } from "../shared/mario";
+import { pickRecent, type RecentItem, type RecentShortcut } from "../shared/recent";
 import {
   checkSettings,
   geocodeUrl,
+  IP_LOCATION_URL,
+  parseIpLocation,
   mergeSettings,
   parseGeocode,
   settingsFromConfig,
@@ -302,6 +305,7 @@ function currentState(): LauncherState {
     dock: snapshot?.dock ?? [null, null, null, null],
     plates: snapshot?.plates ?? [],
     dials: snapshot?.dials ?? { G: null, E: null },
+    leftList: snapshot?.config.leftList ?? "recent",
   };
 }
 
@@ -523,6 +527,47 @@ const EMPTY_VOICE: VoiceSnapshot = {
 function windowsSystemFile(file: string, system32 = true): string {
   const root = process.env.SystemRoot ?? "C:\\Windows";
   return system32 ? path.join(root, "System32", file) : path.join(root, file);
+}
+
+/** Paths behind the last recent-files list, keyed by the ids the page got. */
+const recentTargets = new Map<string, string>();
+
+/** Newest files from %APPDATA%\Microsoft\Windows\Recent whose targets exist. Windows only. */
+async function readRecentFiles(): Promise<RecentItem[]> {
+  recentTargets.clear();
+  if (process.platform !== "win32") return [];
+  const dir = path.join(app.getPath("appData"), "Microsoft", "Windows", "Recent");
+  let names: string[];
+  try {
+    names = (await fs.promises.readdir(dir)).filter((name) => name.toLowerCase().endsWith(".lnk"));
+  } catch {
+    return [];
+  }
+  const stamped = await Promise.all(
+    names.map(async (name) => {
+      try {
+        return { name, mtimeMs: (await fs.promises.stat(path.join(dir, name))).mtimeMs };
+      } catch {
+        return { name, mtimeMs: 0 };
+      }
+    }),
+  );
+  // Read only the newest shortcuts; resolving every one in a big folder is slow.
+  const newest = stamped.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, 40);
+  const shortcuts: RecentShortcut[] = newest.map((entry) => {
+    let target = "";
+    try {
+      target = shell.readShortcutLink(path.join(dir, entry.name)).target ?? "";
+    } catch {
+      target = "";
+    }
+    return { ...entry, target, exists: target !== "" && fs.existsSync(target) };
+  });
+  return pickRecent(shortcuts).map((item, index) => {
+    const id = String(index);
+    recentTargets.set(id, item.target);
+    return { id, name: item.name };
+  });
 }
 
 function configPath(): string {
@@ -799,6 +844,34 @@ function registerIpc(): void {
       return { ok: true, places: parseGeocode(await response.json()) };
     } catch {
       return { ok: false, error: "Place search failed" };
+    }
+  });
+
+  ipcMain.handle("jarvis:recent", async (event) => {
+    if (!isAppFrame(event)) return [];
+    return readRecentFiles();
+  });
+
+  ipcMain.handle("jarvis:open-recent", async (event, id: unknown) => {
+    if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
+    // Only a path this process listed itself can be opened.
+    const target = typeof id === "string" ? recentTargets.get(id) : undefined;
+    if (!target) return { ok: false, error: "That file is no longer in the list" };
+    const problem = await shell.openPath(target);
+    if (problem) return { ok: false, error: "The file did not open" };
+    hideWindow();
+    return { ok: true };
+  });
+
+  ipcMain.handle("jarvis:locate", async (event) => {
+    if (!isAppFrame(event)) return { ok: false, error: "Untrusted frame" };
+    try {
+      const response = await fetch(IP_LOCATION_URL, { signal: AbortSignal.timeout(8000) });
+      if (!response.ok) return { ok: false, error: "Location lookup failed" };
+      const place = parseIpLocation(await response.json());
+      return place ? { ok: true, place } : { ok: false, error: "Location lookup failed" };
+    } catch {
+      return { ok: false, error: "Location lookup failed" };
     }
   });
 

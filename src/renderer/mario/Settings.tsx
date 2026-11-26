@@ -124,6 +124,27 @@ export function SettingsPanel({
     }
   };
 
+  const locate = async () => {
+    const bridge = window.jarvis;
+    if (!bridge) return;
+    setPlaceNote("Finding your location...");
+    setPlaces([]);
+    try {
+      const result = await bridge.locate();
+      if (!result.ok || !result.place) {
+        setPlaceNote(result.error ?? "Location lookup failed");
+        return;
+      }
+      const place = result.place;
+      setPlaceNote(`Found ${place.label}. Check it, then SAVE.`);
+      setValues((current) =>
+        current && current.weather ? { ...current, weather: { ...current.weather, ...place } } : current,
+      );
+    } catch {
+      setPlaceNote("Location lookup failed");
+    }
+  };
+
   const weather = values?.weather ?? null;
 
   return (
@@ -231,7 +252,14 @@ export function SettingsPanel({
                   <button type="button" className="small" onClick={() => void findPlace()}>
                     FIND
                   </button>
+                  <button type="button" className="small" onClick={() => void locate()}>
+                    USE MY LOCATION
+                  </button>
                 </div>
+                <p className="hint">
+                  USE MY LOCATION looks up your approximate city from your internet address (ipapi.co), only when you
+                  press it.
+                </p>
                 {placeNote ? <p className="hint">{placeNote}</p> : null}
                 {places.length > 0 ? (
                   <ul className="places">
@@ -287,6 +315,21 @@ export function SettingsPanel({
                 </div>
               </>
             ) : null}
+          </section>
+
+          <section>
+            <h3>LEFT LIST</h3>
+            <label className="row">
+              <span>Shows</span>
+              <select
+                aria-label="Left list shows"
+                value={values.leftList}
+                onChange={(event) => update({ leftList: event.target.value === "design" ? "design" : "recent" })}
+              >
+                <option value="recent">My recent files</option>
+                <option value="design">The design text</option>
+              </select>
+            </label>
           </section>
 
           <section>

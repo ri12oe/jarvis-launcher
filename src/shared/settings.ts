@@ -11,6 +11,7 @@ export interface SettingsValues {
   dock: (string | null)[];
   plates: Record<string, string>;
   dials: { G: string | null; E: string | null };
+  leftList: "recent" | "design";
 }
 
 export function settingsFromConfig(config: JarvisConfig): SettingsValues {
@@ -22,6 +23,7 @@ export function settingsFromConfig(config: JarvisConfig): SettingsValues {
     dock: [...config.dock],
     plates: { ...config.plates },
     dials: { ...config.dials },
+    leftList: config.leftList,
   };
 }
 
@@ -33,6 +35,7 @@ function settingsObject(values: SettingsValues): Record<string, unknown> {
     dock: values.dock,
     plates: values.plates,
     dials: values.dials,
+    leftList: values.leftList,
   };
   if (values.weather) object.weather = values.weather;
   return object;
@@ -51,6 +54,7 @@ export function checkSettings(values: unknown): string | null {
   if (!Array.isArray(record.dock)) return "Dock is missing";
   if (!record.plates || typeof record.plates !== "object" || Array.isArray(record.plates)) return "Plates are missing";
   if (!record.dials || typeof record.dials !== "object" || Array.isArray(record.dials)) return "Dials are missing";
+  if (record.leftList !== "recent" && record.leftList !== "design") return "Left list choice is missing";
   if (record.weather !== null && (typeof record.weather !== "object" || Array.isArray(record.weather))) {
     return "Weather is not valid";
   }
@@ -73,6 +77,7 @@ export function mergeSettings(raw: Record<string, unknown>, values: SettingsValu
   merged.dock = values.dock.map((id) => id ?? null);
   merged.plates = { ...values.plates };
   merged.dials = { G: values.dials.G ?? null, E: values.dials.E ?? null };
+  merged.leftList = values.leftList;
   if (values.weather) merged.weather = { ...values.weather };
   else delete merged.weather;
   return merged;
@@ -154,3 +159,23 @@ export function acceleratorFromKey(event: {
   if (parts.length === 0) return null;
   return [...parts, key].join("+");
 }
+
+/** ipapi.co reply to an approximate place, or null when the lookup failed. */
+export function parseIpLocation(body: unknown): Place | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as Record<string, unknown>;
+  if (record.error === true) return null;
+  const { latitude, longitude } = record;
+  if (typeof latitude !== "number" || typeof longitude !== "number") return null;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  const parts = [record.city, record.region_code ?? record.region, record.country_code].filter(
+    (part): part is string => typeof part === "string" && part.length > 0,
+  );
+  return {
+    label: parts.join(", ").slice(0, 80) || "My location",
+    latitude: Math.round(latitude * 100) / 100,
+    longitude: Math.round(longitude * 100) / 100,
+  };
+}
+
+export const IP_LOCATION_URL = "https://ipapi.co/json/";

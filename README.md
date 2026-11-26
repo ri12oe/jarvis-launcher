@@ -62,6 +62,8 @@ Anything the PC cannot report shows `--`. The weather panel reads `--` until a l
 | Gear in the dock, or the badge in the identity panel | Opens Settings |
 | Emblem (the glowing circle, top left) | Push to talk: starts listening without "hey Jarvis". Click again while it listens to cancel. It glows while listening and pulses while thinking or speaking. It needs a key and voice turned on, and works even if the wake word model did not load. |
 | Big clock, the date block, or the analog clock | Opens the Windows calendar over the HUD: the Notification Center on Windows 11, the date flyout (Win+Alt+D) on Windows 10. Jarvis stays open, because Windows closes that panel as soon as focus moves. |
+| Text list left of the reactor | Your 12 most recently opened files (from the Windows Recent folder), six above and six below the cyan `RECENT FILES` line. Click one to open it. Settings can switch it back to the design's text. |
+| Status bar, bottom left | Shows short confirmations (`MUTED`, `VOLUME 45%`, `RECYCLE BIN EMPTIED`, `SETTINGS SAVED`) and failures. Click it to see this session's messages and any `config.json` warnings. With warnings and nothing else to say, it reads `2 CONFIG WARNINGS`. |
 | `G` dial at the top of the reactor | Opens Google by default |
 | `E` dial at the right of the reactor | Opens File Explorer by default |
 | Google pill | A search box. Click it or press `/`, type, and press Enter to search Google in your default browser. Esc clears it. |
@@ -74,7 +76,7 @@ If the filter matches no tile, Enter searches Google for the filter text.
 
 Settings opens over the reactor from the dock's gear or the badge in the identity panel. It edits the hotkey (click the box and press the new combination), starting with Windows, starting hidden, the weather location (type a city and press FIND, then pick it), the four dock icons, and the twelve labelled reactor plates. Save checks the values with the same rules `config.json` uses and writes only those keys; tiles, folders, voice, labels, and anything else in the file stay as they are. Jarvis reloads at once. Esc or CANCEL closes it without saving. OPEN CONFIG.JSON opens the file for everything else.
 
-The city search asks `geocoding-api.open-meteo.com` for the name you typed, only when you press FIND. A `config.json` with a syntax error is never overwritten; Save says so instead.
+The city search asks `geocoding-api.open-meteo.com` for the name you typed, only when you press FIND. USE MY LOCATION asks `ipapi.co` for the approximate city of your internet address, only when you press it, and fills the fields for you to check and save. A `config.json` with a syntax error is never overwritten; Save says so instead.
 
 The media, volume, mic, brightness, and sleep controls go through one Windows PowerShell process that starts on the first reading and stays open while Jarvis runs. It uses the Windows Core Audio API for volume and mute, `WmiMonitorBrightnessMethods` for brightness, and the Windows media session (the same one the volume flyout shows) for the track. With no media session, the transport buttons send the media keys instead. Shut down, Restart, and Sign out run `shutdown.exe`, and Lock runs `rundll32.exe user32.dll,LockWorkStation`. A failed control shows `SYSTEM FAILED` and a reason in the status bar.
 
@@ -223,6 +225,7 @@ A broken file is left as it is. The launcher uses defaults in memory until the J
 
 - `dock` sets what the four icons under the Google box open, left to right: a tile id or `null` for an empty slot. The default is `["downloads", null, null, null]`. The icons stay as the design draws them; hover shows the tile's name. Clicking an empty slot says so in the status bar. The fifth icon, the gear, opens Settings.
 - `plates` puts a tile on one of the twelve reactor plates that carry design text: `TEN OPF`, `EDAE TIEUE`, `BARDA DBCM`, `APL DIT`, `APLE`, `CNHBS`, `CMBS`, `LOPE`, `ASNEX`, `ETTAL`, `SEPA`, `CCRP`. Case and extra spaces do not matter. The plate keeps its design text, becomes clickable and part of arrow-key navigation, and the tile leaves the open plates. A tile that already has a named slot (a top tab or a left button) stays there. Each tile can be on one plate.
+- `leftList` is `"recent"` (the default: your recent files) or `"design"` (the design's text).
 - `dials` sets what the two small dials on the reactor open: `{ "G": "google", "E": "explorer" }` by default. Use `null` to make a dial do nothing. A tile on a dial stays off the open plates, the same as a labelled plate. Settings has a REACTOR DIALS section for these.
 - For both, a tile id is any discovered app, built-in, web fallback, pinned folder, or extra tile id. To put any other program or folder on the HUD, add it to `extraTiles` or `pinnedFolders` and use its `id`. An id with no tile (a typo, or a tile in `disabled`) leaves the slot empty and adds a config warning.
 - `weather` is optional. With it set, the launcher asks `api.open-meteo.com` for the forecast every 15 minutes. That request carries only these coordinates and no key. `units` is `"fahrenheit"` (the default) or `"celsius"`. Leave `weather` out and nothing is sent.

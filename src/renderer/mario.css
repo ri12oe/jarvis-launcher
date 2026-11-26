@@ -2213,3 +2213,137 @@ body,
     box-shadow: inset 0 0 12px rgba(87, 212, 255, 0.6), 0 0 12px rgba(87, 212, 255, 0.6);
   }
 }
+
+/* Recent files in the left list. */
+.left-list .recent-row {
+  position: absolute;
+  right: 890px;
+  height: 8px;
+  max-width: 120px;
+  overflow: hidden;
+  font-family: var(--f-tech);
+  font-size: 7.2px;
+  line-height: 8px;
+  letter-spacing: 0.4px;
+  text-align: right;
+  white-space: nowrap;
+  color: #d6d9db;
+}
+
+.left-list .recent-row:hover,
+.left-list .recent-row:focus-visible {
+  color: #8fe6ff;
+  text-shadow: 0 0 4px rgba(87, 212, 255, 0.7);
+}
+
+/* The status bar opens the message log. */
+.mario-canvas .status-btn {
+  position: absolute;
+  left: 55px;
+  top: 646px;
+  width: 135px;
+  height: 19px;
+  border-radius: 3px;
+}
+
+.mario-canvas .status-btn:hover,
+.mario-canvas .status-btn:focus-visible {
+  box-shadow: inset 0 0 0 1px rgba(143, 230, 255, 0.6);
+}
+
+.message-log {
+  position: absolute;
+  left: 55px;
+  top: 452px;
+  width: 300px;
+  height: 188px;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  border: 1px solid #2fc3ef;
+  border-radius: 5px;
+  background: rgba(4, 9, 12, 0.96);
+  box-shadow: 0 0 18px rgba(47, 195, 239, 0.3);
+  font-family: var(--f-ui);
+  font-size: 8px;
+  color: #e4e7e9;
+  user-select: text;
+}
+
+.message-log header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #16404f;
+}
+
+.message-log h2,
+.message-log h3 {
+  margin: 0;
+  font-family: var(--f-tech);
+  font-weight: 400;
+  letter-spacing: 1.2px;
+  color: #57d4ff;
+}
+
+.message-log h2 {
+  flex: 1;
+  font-size: 9px;
+}
+
+.message-log h3 {
+  margin: 2px 0 3px;
+  font-size: 7px;
+}
+
+.message-log .log-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 8px;
+}
+
+.message-log ul {
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.message-log li {
+  display: flex;
+  gap: 6px;
+  padding: 1.5px 0;
+  white-space: normal;
+}
+
+.message-log li.warn {
+  color: #ffb547;
+}
+
+.message-log time {
+  flex: none;
+  width: 28px;
+  color: #7f8f97;
+}
+
+.message-log p.log-empty {
+  position: static;
+  color: #7f8f97;
+}
+
+.message-log .log-clear,
+.message-log .log-x {
+  height: 15px;
+  padding: 0 6px !important;
+  border: 1px solid #2b4a57 !important;
+  border-radius: 3px !important;
+  font-family: var(--f-tech);
+  font-size: 7px;
+  color: #cfe9f2;
+}
+
+.message-log .log-clear:hover,
+.message-log .log-x:hover,
+.message-log button:focus-visible {
+  border-color: #57d4ff !important;
+}

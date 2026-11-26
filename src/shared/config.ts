@@ -1,4 +1,4 @@
-import type { DialConfig, ExtraTile, JarvisConfig, LaunchWindowConfig, PinnedFolder, VoiceConfig, WeatherConfig } from "./types";
+import type { DialConfig, ExtraTile, LeftListMode, JarvisConfig, LaunchWindowConfig, PinnedFolder, VoiceConfig, WeatherConfig } from "./types";
 import { PLATE_SLOTS } from "./mario";
 import { AI_APP_IDS, BUILTIN_IDS, WEB_TILE_IDS } from "./types";
 
@@ -49,6 +49,7 @@ export const DEFAULT_CONFIG: JarvisConfig = {
   dock: [...DEFAULT_DOCK],
   plates: {},
   dials: { ...DEFAULT_DIALS },
+  leftList: "recent",
 };
 
 const RESERVED_IDS = new Set<string>([...AI_APP_IDS, ...BUILTIN_IDS, ...WEB_TILE_IDS]);
@@ -82,6 +83,7 @@ export function cloneDefaultConfig(): JarvisConfig {
     dock: [...DEFAULT_DOCK],
     plates: {},
     dials: { ...DEFAULT_DIALS },
+    leftList: "recent",
   };
 }
 
@@ -308,6 +310,7 @@ export function parseConfig(input: unknown): ParsedConfig {
     dock: readDock(input.dock, warnings),
     plates: readPlates(input.plates, warnings),
     dials: readDials(input.dials, warnings),
+    leftList: readLeftList(input.leftList, warnings),
   };
   if (input.weather !== undefined) {
     const weather = readWeather(input.weather, warnings);
@@ -363,6 +366,13 @@ function readPlates(value: unknown, warnings: string[]): Record<string, string> 
     plates[key] = id;
   }
   return plates;
+}
+
+function readLeftList(value: unknown, warnings: string[]): LeftListMode {
+  if (value === undefined) return "recent";
+  if (value === "recent" || value === "design") return value;
+  warnings.push('leftList must be "recent" or "design"; using "recent"');
+  return "recent";
 }
 
 function readDials(value: unknown, warnings: string[]): DialConfig {
