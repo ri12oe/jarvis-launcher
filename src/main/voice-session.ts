@@ -268,10 +268,15 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
   async function consumeCommand(chunk: Int16Array): Promise<void> {
     const gen = generation;
     if (!acceptsCloudAudio(hud.phase)) return;
-    const stepped = stepEndpoint(endpoint, chunk, VOICE_SAMPLE_RATE);
+    const stepped = stepEndpoint(endpoint, chunk, VOICE_SAMPLE_RATE, host.voice().pauseMs);
     endpoint = stepped.state;
     if (!stepped.done) return;
-    if (!stepped.speech) {
+    finishListening(gen, stepped.speech);
+  }
+
+  /** Done listening: send what was said, or settle back if it was only silence. */
+  function finishListening(gen: number, speech: boolean): void {
+    if (!speech) {
       hud = reduceVoice(hud, { type: "transcript", text: "" });
       publish();
       return;
@@ -654,6 +659,11 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       if (!hasKey()) return { ok: false, error: "Voice needs a Groq API key" };
       if (!enabled()) return { ok: false, error: "Voice is off" };
       if (hud.phase === "listening") {
+        // A tap mid-request sends it now, so a long request never has to wait for a pause.
+        if (endpoint.heardSpeech && endpoint.speechMs >= 280) {
+          finishListening(generation, true);
+          return { ok: true };
+        }
         generation += 1;
         refreshAbort();
         hud = reduceVoice(hud, { type: "stop" });

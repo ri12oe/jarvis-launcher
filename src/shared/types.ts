@@ -95,6 +95,8 @@ export interface VoiceConfig {
   sttModel: string;
   /** "jarvis" (the default when unset) plays replies through an AI-style filter. "none" plays the plain voice. */
   effect?: VoiceEffect;
+  /** Milliseconds of silence that end a spoken request (700 to 4000). Unset: 1600. */
+  pauseMs?: number;
 }
 
 export type VoiceEffect = "jarvis" | "none";

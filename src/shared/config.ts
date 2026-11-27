@@ -1,3 +1,4 @@
+import { DEFAULT_PAUSE_MS, PAUSE_RANGE } from "./voice-audio";
 import { readDeepConfig } from "./deep";
 import { DEFAULT_GREETING, type GreetingConfig } from "./greeting";
 import { HUD_ICON_KINDS, isHudIconKind, type HudIconKind } from "./hud-icons";
@@ -525,6 +526,11 @@ function readVoice(value: unknown, warnings: string[]): VoiceConfig {
   if (value.effect !== undefined) {
     if (value.effect === "jarvis" || value.effect === "none") voice.effect = value.effect;
     else warnings.push('voice.effect must be "jarvis" or "none"; using jarvis');
+  }
+  if (value.pauseMs !== undefined) {
+    const pause = value.pauseMs;
+    if (typeof pause === "number" && pause >= PAUSE_RANGE.min && pause <= PAUSE_RANGE.max) voice.pauseMs = Math.round(pause);
+    else warnings.push(`voice.pauseMs must be a number from ${PAUSE_RANGE.min} to ${PAUSE_RANGE.max}; using ${DEFAULT_PAUSE_MS}`);
   }
   return voice;
 }

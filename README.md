@@ -204,7 +204,7 @@ Big jobs go to Claude Code, a much stronger AI, which works on its own for a few
 - "Make a two-week study plan for my chemistry final"
 - "Change the portfolio colors to purple": the same project name continues the earlier work
 
-Each project gets its own folder in `FA26\jarvis-builds` (or `Documents\jarvis-builds` when there is no FA26 folder). While it works, a `DEEP THINK` line under the orb shows the project, the time, and the current step. When it finishes, Jarvis says what was made and opens it: a site in Edge, a plan file, or the Figma file. Ask "how is deep think going?" or "cancel deep think" anytime. The `jarvis` terminal command works too: `jarvis deep think build a landing page for my club`.
+Each project gets its own folder in `FA26\jarvis-builds` (or `Documents\jarvis-builds` when there is no FA26 folder). While it works, a `DEEP THINK` line under the orb shows the project, the time, and the current step. When it finishes, Jarvis says what was made and opens it: a plan file, the Figma file, or a website in Edge. Websites are served from a small preview server at `http://127.0.0.1:5510` that only this PC can reach, so built React and Vite sites work (browsers block their JavaScript when a page is opened straight from disk). Say "open my portfolio site" later to see a project again. Ask "how is deep think going?" or "cancel deep think" anytime. The `jarvis` terminal command works too: `jarvis deep think build a landing page for my club`.
 
 Set up once:
 
@@ -241,6 +241,8 @@ Optional `voice` fields in `config.json`:
   "sttModel": "whisper-large-v3-turbo"
 }
 ```
+
+Jarvis listens until you pause for about 1.6 seconds (a little longer once you've talked for a few seconds), and a request can be up to a minute long. Tap the emblem while you're talking to send right away. `"pauseMs": 2200` in `voice` makes it wait longer before it decides you're done (700 to 4000).
 
 `model` is a Groq chat model that supports tool calls. `sttModel` is a Groq speech-to-text model, `whisper-large-v3-turbo` or `whisper-large-v3`. `voiceId` is part of the name of a Windows voice, such as `george`, `david`, `mark`, or `zira`. The default, `george`, is a British male voice from the English (United Kingdom) speech pack: in Windows Settings > Time & language > Speech, under Manage voices, click Add voices and pick English (United Kingdom). If the voice is not installed, David speaks. `effect` is `"jarvis"` (the default), which plays replies through an AI-style filter (a clean comms tone, a light metallic sheen, and a faint echo), or `"none"` for the plain voice. Jarvis is told the PC's local date and time with each question, so "what day is it" and "what time is it" are answered correctly. A config from the old xAI setup still loads: Grok model names and the `eve` voice fall back to these defaults. Leave `enabled` out to turn voice on when a key is present.
 

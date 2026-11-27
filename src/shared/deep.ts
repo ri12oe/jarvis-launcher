@@ -31,7 +31,7 @@ export const DEFAULT_DEEP: DeepConfig = {
   openResult: true,
 };
 
-export type DeepAction = "start" | "status" | "cancel";
+export type DeepAction = "start" | "status" | "cancel" | "open";
 
 export interface DeepCall {
   tool: "deep_task";
@@ -57,11 +57,12 @@ export function projectSlug(value: string): string {
 
 export function parseDeepCall(args: Record<string, unknown>): DeepCall | undefined {
   const action = args.action === undefined ? "start" : args.action;
-  if (action !== "start" && action !== "status" && action !== "cancel") return undefined;
+  if (action !== "start" && action !== "status" && action !== "cancel" && action !== "open") return undefined;
   const project = typeof args.project === "string" ? args.project.trim() : "";
   const task = typeof args.task === "string" ? args.task.replace(/\r\n?/g, "\n").trim() : "";
   if (project.length > DEEP_LIMITS.project || task.length > DEEP_LIMITS.task) return undefined;
   if (action === "start" && (!task || !project)) return undefined;
+  if (action === "open" && !project) return undefined;
   return { tool: "deep_task", action, project, task };
 }
 
@@ -71,12 +72,12 @@ export function deepTool(): Record<string, unknown> {
     function: {
       name: "deep_task",
       description:
-        "Hand a big job to Claude Code, a much stronger AI that works for minutes in its own project folder: building a whole website or app, creating a Figma design or UI, writing or fixing a real codebase, planning a project or schedule in detail, or research written up as a document. Use it whenever the user says \"deep think\". It runs in the background and Jarvis announces the result; meanwhile you can keep helping. To change something built before, use the same project name. action status reports progress and the recent projects; action cancel stops the run.",
+        "Hand a big job to Claude Code, a much stronger AI that works for minutes in its own project folder: building a whole website or app, creating a Figma design or UI, writing or fixing a real codebase, planning a project or schedule in detail, or research written up as a document. Use it whenever the user says \"deep think\". It runs in the background and Jarvis announces the result; meanwhile you can keep helping. To change something built before, use the same project name. action open shows a finished project again (its website, plan, or Figma file); action status reports progress and the recent projects; action cancel stops the run.",
       parameters: {
         type: "object",
         additionalProperties: false,
         properties: {
-          action: { type: "string", enum: ["start", "status", "cancel"] },
+          action: { type: "string", enum: ["start", "status", "cancel", "open"] },
           project: {
             type: "string",
             description: "Short project name, such as portfolio-site or chem-study-plan. Reuse an earlier name to continue that project.",
@@ -94,7 +95,7 @@ export function deepTool(): Record<string, unknown> {
 }
 
 export const DEEP_PROMPT =
-  'Use deep_task for anything big: building a website, app, or game; a Figma design or UI mockup; real coding in a project; a detailed plan; or a written research report. Always use it when the user says "deep think". Tell the user in one short sentence that deep think is on it and that you will tell them when it is done.';
+  'Use deep_task for anything big: building a website, app, or game; a Figma design or UI mockup; real coding in a project; a detailed plan; or a written research report. Always use it when the user says "deep think". Tell the user in one short sentence that deep think is on it and that you will tell them when it is done. When the user wants to see something deep think built before ("open my portfolio site"), use deep_task with action open and that project name.';
 
 /**
  * Commands Claude Code may run without asking. Everything else is denied in a
@@ -163,7 +164,7 @@ export function deepPrompt(input: {
     "Nobody can answer questions while you work, so make sensible choices yourself and mention the important ones in your summary.",
     "",
     "How to work:",
-    "- Websites and UI: make them polished, modern, responsive, and accessible. A plain site is index.html with its CSS and JavaScript, and must open straight from disk. For a framework app (React, Vite, and so on), set relative asset paths (Vite base: \"./\"), run the build, and point OPEN at the built index.html.",
+    "- Websites and UI: make them polished, modern, responsive, and accessible. Jarvis shows the result from a local web server rooted at this folder, so use relative paths. A plain site is index.html with its CSS and JavaScript. For a framework app (React, Vite, and so on), set relative asset paths (Vite base: \"./\"), run the build, and point OPEN at the built index.html.",
     "- Never start a dev server, watcher, or any command that keeps running.",
     "- Figma: if the user wants a Figma design and Figma tools are available, create it in Figma and put its link in OPEN. If they are not available, say so in SPOKEN and build an HTML mockup instead.",
     "- Plans, schedules, and research: write a clear Markdown file in the folder, such as PLAN.md.",

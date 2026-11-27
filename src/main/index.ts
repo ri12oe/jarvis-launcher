@@ -2,7 +2,6 @@ import { execFile, spawn as spawnProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import {
   app,
   BrowserWindow,
@@ -83,6 +82,8 @@ import {
 import { WindowsInput } from "./windows-input";
 import { CliPipe } from "./cli-pipe";
 import { DeepAgent } from "./deep-agent";
+import { PreviewServer } from "./preview-server";
+import { previewUrlPath } from "../shared/preview";
 import { DEFAULT_DEEP } from "../shared/deep";
 import { edgeUrl } from "../shared/computer";
 import { ComputerTask, type ComputerHost } from "./computer";
@@ -146,6 +147,8 @@ function findClaude(): string | undefined {
   return candidates.find((file) => file && fs.existsSync(file));
 }
 
+const previewServer = new PreviewServer();
+
 const deepAgent = new DeepAgent({
   config: deepConfig,
   workspace: deepWorkspace,
@@ -181,16 +184,21 @@ const deepAgent = new DeepAgent({
       .readdirSync(dir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => ({ name: entry.name, mtimeMs: fs.statSync(path.join(dir, entry.name)).mtimeMs })),
-  open: async (target) => {
+  open: async (target, projectDir) => {
     if (target.kind === "url") {
       await shell.openExternal(target.url);
       return;
     }
-    if (/\.html?$/i.test(target.path) && process.platform === "win32") {
-      await shell.openExternal(edgeUrl(pathToFileURL(target.path).href));
-    } else {
-      await shell.openPath(target.path);
+    if (/\.html?$/i.test(target.path)) {
+      // Served over http so built sites' JavaScript modules run; file:// blocks them.
+      const base = await previewServer.serve(projectDir);
+      const urlPath = previewUrlPath(projectDir, target.path, path) ?? "/";
+      const url = `${base}${urlPath}`;
+      await shell.openExternal(process.platform === "win32" ? edgeUrl(url) : url);
+      return;
     }
+    const failed = await shell.openPath(target.path);
+    if (failed) throw new Error(failed);
   },
   changed: () => voice?.update(),
   announce: (line) => voice?.announce(line),
@@ -1412,6 +1420,7 @@ if (!gotLock) {
 
   app.on("before-quit", () => {
     deepAgent.cancel();
+    previewServer.stop();
     stats.stop();
     systemControls.stop();
     quitting = true;

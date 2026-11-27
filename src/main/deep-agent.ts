@@ -38,7 +38,8 @@ export interface DeepHost {
   writeFile(file: string, text: string): void;
   appendFile(file: string, text: string): void;
   listDirs(dir: string): { name: string; mtimeMs: number }[];
-  open(target: OpenTarget): Promise<void>;
+  /** Show a result. Websites are served from projectDir by the local preview server. */
+  open(target: OpenTarget, projectDir: string): Promise<void>;
   /** The HUD line changed. */
   changed(): void;
   /** Say this out loud when Jarvis is free. */
@@ -86,6 +87,7 @@ export class DeepAgent {
   async handle(call: DeepCall): Promise<string> {
     if (call.action === "status") return this.describe();
     if (call.action === "cancel") return this.cancel();
+    if (call.action === "open") return this.reopen(call.project);
     return this.start(call.project, call.task);
   }
 
@@ -95,6 +97,31 @@ export class DeepAgent {
     run.cancelled = true;
     this.stop(run);
     return `OK: stopped deep think on ${run.project}. Files it already made are still in its folder.`;
+  }
+
+  /** "Open my portfolio site": show what deep think last made for that project. */
+  private async reopen(projectName: string): Promise<string> {
+    const slug = projectSlug(projectName);
+    const workspace = this.host.workspace();
+    let project = slug;
+    if (!this.host.exists(path.join(workspace, project))) {
+      // "portfolio" finds "portfolio-site".
+      const match = this.recentProjects(50).find((name) => name.includes(slug) || slug.includes(name));
+      if (!match) return `Failed: there's no deep think project called ${projectName}. Recent projects: ${this.recentProjects().join(", ") || "none"}.`;
+      project = match;
+    }
+    const dir = path.join(workspace, project);
+    const saved = readSession(this.host.readFile(path.join(dir, STATE_DIR, "session.json")));
+    const guess = ["index.html", path.join("dist", "index.html"), path.join("build", "index.html"), "PLAN.md", "README.md"].find((file) =>
+      this.host.exists(path.join(dir, file)),
+    );
+    const target = safeOpenTarget(saved.open ?? guess, dir, path) ?? { kind: "file" as const, path: dir };
+    try {
+      await this.host.open(target, dir);
+    } catch (caught) {
+      return `Failed: couldn't open ${project} (${caught instanceof Error ? caught.message : "error"}).`;
+    }
+    return `OK: opened ${project}${target.kind === "url" ? " in Figma" : ""}.`;
   }
 
   private describe(): string {
@@ -107,13 +134,13 @@ export class DeepAgent {
     return `OK: deep think is idle.${this.last ? ` Last run: ${this.last}` : ""}${list}`;
   }
 
-  private recentProjects(): string[] {
+  private recentProjects(limit = 5): string[] {
     try {
       return this.host
         .listDirs(this.host.workspace())
         .filter((dir) => !dir.name.startsWith("."))
         .sort((a, b) => b.mtimeMs - a.mtimeMs)
-        .slice(0, 5)
+        .slice(0, limit)
         .map((dir) => dir.name);
     } catch {
       return [];
@@ -139,11 +166,7 @@ export class DeepAgent {
       this.host.mkdir(path.join(dir, ".claude"));
       const settingsFile = path.join(dir, ".claude", "settings.local.json");
       this.host.writeFile(settingsFile, `${JSON.stringify(deepSettings(), null, 2)}\n`);
-      const saved = this.host.readFile(path.join(stateDir, "session.json"));
-      if (saved) {
-        const parsed = JSON.parse(saved) as { sessionId?: unknown };
-        if (typeof parsed.sessionId === "string") resumeId = parsed.sessionId;
-      }
+      resumeId = readSession(this.host.readFile(path.join(stateDir, "session.json"))).sessionId;
     } catch (caught) {
       return `Failed: couldn't set up the project folder (${caught instanceof Error ? caught.message : "error"}).`;
     }
@@ -243,15 +266,8 @@ export class DeepAgent {
       if (buffer.trim()) onLine(buffer);
       clearTimeout(run.timer);
       if (this.run === run) this.run = undefined;
-      if (sessionId) {
-        try {
-          this.host.writeFile(path.join(stateDir, "session.json"), JSON.stringify({ sessionId }));
-        } catch {
-          // The next run starts a fresh session.
-        }
-      }
       this.host.changed();
-      void this.report({ run, ok: ok && gotResult, resultText, spawnError, stderr, figma, denials });
+      void this.report({ run, ok: ok && gotResult, resultText, spawnError, stderr, figma, denials, sessionId });
     };
     child.on("error", (error) => finish(error));
     child.on("close", () => finish());
@@ -271,9 +287,22 @@ export class DeepAgent {
     stderr: string;
     figma?: string;
     denials: number;
+    sessionId?: string;
   }): Promise<void> {
     const { run } = input;
+    const sessionFile = path.join(run.dir, STATE_DIR, "session.json");
+    const previous = readSession(this.host.readFile(sessionFile));
+    const save = (open: string | undefined) => {
+      const sessionId = input.sessionId ?? previous.sessionId;
+      if (!sessionId && !open) return;
+      try {
+        this.host.writeFile(sessionFile, JSON.stringify({ sessionId, open }));
+      } catch {
+        // The next run starts a fresh session.
+      }
+    };
     const name = run.project.replace(/-/g, " ");
+    if (run.cancelled || run.timedOut || input.spawnError || !input.ok) save(previous.open);
     if (run.cancelled) {
       this.last = `${run.project} was cancelled.`;
       return;
@@ -291,6 +320,7 @@ export class DeepAgent {
     }
     const report = finalReport(input.resultText);
     const target = safeOpenTarget(report.open, run.dir, path);
+    save(target ? report.open : previous.open);
     let line = report.spoken || `Deep think finished ${name}.`;
     if (input.figma === "missing" && /figma/i.test(input.resultText) && !/figma\.com/i.test(report.open ?? "")) {
       line += " To let it design in Figma, connect Figma to Claude Code once; the steps are in the README.";
@@ -303,7 +333,7 @@ export class DeepAgent {
     }
     this.last = `${run.project} finished. ${report.spoken}`.trim();
     if (this.host.config().openResult) {
-      await this.host.open(target ?? { kind: "file", path: run.dir }).catch(() => undefined);
+      await this.host.open(target ?? { kind: "file", path: run.dir }, run.dir).catch(() => undefined);
     }
     this.host.announce(line);
   }
@@ -323,6 +353,19 @@ export class DeepAgent {
     } catch {
       // Already gone.
     }
+  }
+}
+
+function readSession(text: string | undefined): { sessionId?: string; open?: string } {
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(text) as { sessionId?: unknown; open?: unknown };
+    return {
+      sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId : undefined,
+      open: typeof parsed.open === "string" ? parsed.open : undefined,
+    };
+  } catch {
+    return {};
   }
 }
 

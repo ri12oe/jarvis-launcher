@@ -462,6 +462,7 @@ export function planLine(calls: readonly ComputerCall[]): string {
     case "deep_task":
       if (first.action === "status") return "Checking on deep think.";
       if (first.action === "cancel") return "Stopping deep think.";
+      if (first.action === "open") return `Opening ${first.project.replace(/[-_]+/g, " ")}.`;
       return `Deep think is on ${first.project.replace(/[-_]+/g, " ")}. I'll tell you when it's done.`;
     default:
       return "On it.";

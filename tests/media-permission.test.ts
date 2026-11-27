@@ -45,7 +45,7 @@ describe("utterance audio", () => {
     result = stepEndpoint(result.state, loud);
     expect(result.speech).toBe(true);
     expect(result.done).toBe(false);
-    const quiet = new Int16Array(16000);
+    const quiet = new Int16Array(27200);
     result = stepEndpoint(result.state, quiet);
     expect(result.done).toBe(true);
     expect(result.speech).toBe(true);

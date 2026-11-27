@@ -259,6 +259,27 @@ describe("DeepAgent", () => {
     expect(said).toEqual([]);
   });
 
+  it("remembers what to open and opens it again later", async () => {
+    const { host, files, child, opened } = fakeHost();
+    const agent = new DeepAgent(host);
+    await agent.handle({ tool: "deep_task", action: "start", project: "portfolio", task: "build" });
+    child.emitLine({ type: "result", subtype: "success", result: "SPOKEN: Done.\nOPEN: dist/index.html", session_id: "22222222-bbbb" });
+    child.emit("close", 0);
+    await flush();
+    const dir = path.join("C:\\b", "portfolio");
+    expect(JSON.parse(files.get(path.join(dir, ".jarvis", "session.json")) ?? "{}")).toEqual({
+      sessionId: "22222222-bbbb",
+      open: "dist/index.html",
+    });
+    files.set(dir, "");
+    opened.length = 0;
+    expect(await agent.handle({ tool: "deep_task", action: "open", project: "Portfolio", task: "" })).toBe("OK: opened portfolio.");
+    expect(opened).toEqual([{ kind: "file", path: path.resolve(dir, "dist/index.html") }]);
+    expect(await agent.handle({ tool: "deep_task", action: "open", project: "folio", task: "" })).toMatch(/^Failed/);
+    expect(parseDeepCall({ action: "open", project: "", task: "" })).toBeUndefined();
+    expect(planLine([{ tool: "deep_task", action: "open", project: "portfolio-site", task: "" }])).toBe("Opening portfolio site.");
+  });
+
   it("quotes a .cmd launcher for cmd.exe", async () => {
     const { host, spawn } = fakeHost({ findClaude: () => "C:\\Users\\Mario Rio\\AppData\\Roaming\\npm\\claude.cmd" });
     await new DeepAgent(host).handle({ tool: "deep_task", action: "start", project: "a", task: "b" });

@@ -2,8 +2,14 @@ export const VOICE_SAMPLE_RATE = 16000;
 
 const SPEECH_RMS = 800;
 const MIN_SPEECH_MS = 280;
-const SILENCE_MS = 900;
-const MAX_UTTERANCE_MS = 8000;
+/** How long a pause ends a request. config.json "voice.pauseMs" changes it. */
+export const DEFAULT_PAUSE_MS = 1600;
+export const PAUSE_RANGE = { min: 700, max: 4000 } as const;
+/** After this much talking it's a long request, and people stop to think mid-sentence. */
+const LONG_REQUEST_MS = 4000;
+const LONG_REQUEST_EXTRA_MS = 600;
+/** One request can be about a minute long. */
+export const MAX_UTTERANCE_MS = 60000;
 const START_TIMEOUT_MS = 4500;
 
 export interface EndpointState {
@@ -32,6 +38,7 @@ export function stepEndpoint(
   state: EndpointState,
   chunk: Int16Array,
   sampleRate = VOICE_SAMPLE_RATE,
+  pauseMs = DEFAULT_PAUSE_MS,
 ): { state: EndpointState; done: boolean; speech: boolean } {
   const ms = sampleRate > 0 ? (chunk.length / sampleRate) * 1000 : 0;
   const speechNow = rmsInt16(chunk) >= SPEECH_RMS;
@@ -44,8 +51,9 @@ export function stepEndpoint(
     elapsedMs: state.elapsedMs + ms,
   };
   const enough = next.speechMs >= MIN_SPEECH_MS;
+  const pause = next.speechMs >= LONG_REQUEST_MS ? pauseMs + LONG_REQUEST_EXTRA_MS : pauseMs;
   const done =
-    (next.heardSpeech && enough && next.silenceMs >= SILENCE_MS) ||
+    (next.heardSpeech && enough && next.silenceMs >= pause) ||
     next.elapsedMs >= MAX_UTTERANCE_MS ||
     (!next.heardSpeech && next.elapsedMs >= START_TIMEOUT_MS);
   return { state: next, done, speech: next.heardSpeech && enough };
