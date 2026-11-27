@@ -1,0 +1,694 @@
+/*
+ * MARIO OS HUD motion, matched to the live wallpaper: rings that turn at
+ * different speeds, a radar sweep, light pulses on the orbits, ripples when
+ * Jarvis listens or speaks, drifting particles, a slow scan line, and a
+ * boot-up sequence. Everything animates transform or opacity, so it stays on
+ * the GPU. ".motion-calm" slows it and drops the particles and scan line;
+ * ".motion-off" and Windows' "Animation effects" off stop it.
+ */
+
+/* ---------- Reactor rings ---------- */
+
+.reactor-art .orbit-heavy,
+.reactor-art .orbit-chip,
+.reactor-art .orbit-thin {
+  transform-origin: 600px 331px;
+  animation: m-spin 240s linear infinite;
+}
+
+.reactor-art .bracket,
+.reactor-art .bracket-accent {
+  transform-origin: 600px 331px;
+  animation: m-spin 180s linear infinite reverse;
+}
+
+.reactor-art .orbit-tick {
+  transform-origin: 600px 331px;
+  animation: m-spin 300s linear infinite reverse;
+}
+
+.reactor-art .tick-ring {
+  transform-origin: 600px 331px;
+  animation: m-spin 150s linear infinite reverse;
+}
+
+.reactor-art .inner-bracket {
+  transform-origin: 600px 331px;
+  animation: m-spin 60s linear infinite;
+}
+
+.reactor-art .dotted {
+  transform-origin: 600px 331px;
+  animation: m-spin 120s linear infinite reverse;
+}
+
+.reactor-art .dot-ring {
+  transform-origin: 600px 331px;
+  animation: m-spin 45s linear infinite;
+}
+
+/* The blue ring breathes while idle; the phase rules in mario.css take over when Jarvis is busy. */
+.reactor-art.phase-idle .blue-ring {
+  animation: m-breathe 4.5s ease-in-out infinite;
+}
+
+.reactor-art.phase-thinking .tick-ring {
+  animation-duration: 20s;
+}
+
+.reactor-art.phase-thinking .inner-bracket {
+  animation-duration: 6s;
+}
+
+/* Satellite dials blink in turn. */
+.reactor-art .sat {
+  animation: m-sat 6s ease-in-out infinite;
+}
+
+.reactor-art .sat:nth-of-type(2) {
+  animation-delay: -1.5s;
+}
+
+.reactor-art .sat:nth-of-type(3) {
+  animation-delay: -3s;
+}
+
+.reactor-art .sat:nth-of-type(4) {
+  animation-delay: -4.5s;
+}
+
+.reactor-art .g-dial-inner,
+.reactor-art .e-dial-inner {
+  stroke-dasharray: 3 2.2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: m-spin 14s linear infinite;
+}
+
+.reactor-art .warn {
+  animation: m-blink 2.4s steps(1, end) infinite;
+}
+
+/* A light runs around the plate ring now and then. Each plate's delay is set in Reactor.tsx. */
+.reactor-art .plate-wrap {
+  animation: m-chase 12s ease-in-out infinite;
+}
+
+/* ---------- Motion overlay (Motion.tsx) ---------- */
+
+.motion {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.motion .shift {
+  position: absolute;
+  inset: 0;
+}
+
+.motion-svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+}
+
+.motion .comet {
+  fill: none;
+  stroke: #b8f2ff;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 3px #57d4ff);
+  animation: m-comet 11s linear infinite;
+}
+
+.motion .comet.reverse {
+  animation-direction: reverse;
+}
+
+.motion .ripple {
+  transform-origin: 600px 331px;
+  opacity: 0;
+}
+
+.motion.phase-listening .ripple {
+  animation: m-ripple 2.2s ease-out infinite;
+}
+
+.motion.phase-listening .ripple.r2 {
+  animation-delay: 1.1s;
+}
+
+.motion.phase-speaking .ripple {
+  animation: m-ripple 1.1s ease-out infinite;
+}
+
+.motion.phase-speaking .ripple.r2 {
+  animation-delay: 0.55s;
+}
+
+.motion-sweep {
+  position: absolute;
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    rgba(143, 230, 255, 0) 0deg,
+    rgba(143, 230, 255, 0) 270deg,
+    rgba(143, 230, 255, 0.5) 357deg,
+    rgba(143, 230, 255, 0) 360deg
+  );
+  /* Only the band between the light segments and the dotted ring. */
+  -webkit-mask: radial-gradient(circle, transparent 112px, #000 113px, #000 158px, transparent 159px);
+  mask: radial-gradient(circle, transparent 112px, #000 113px, #000 158px, transparent 159px);
+  mix-blend-mode: screen;
+  animation: m-spin 7s linear infinite;
+}
+
+.motion.phase-thinking .motion-sweep {
+  animation-duration: 1.8s;
+  background: conic-gradient(
+    from 0deg,
+    rgba(143, 230, 255, 0) 0deg,
+    rgba(143, 230, 255, 0) 250deg,
+    rgba(184, 242, 255, 0.45) 356deg,
+    rgba(143, 230, 255, 0) 360deg
+  );
+}
+
+.motion-particles i {
+  position: absolute;
+  border-radius: 50%;
+  background: #8fe6ff;
+  box-shadow: 0 0 4px #57d4ff;
+  opacity: 0;
+  animation: m-float 12s linear infinite;
+}
+
+.motion-scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -120px;
+  height: 120px;
+  background: linear-gradient(
+    to bottom,
+    rgba(87, 212, 255, 0) 0%,
+    rgba(87, 212, 255, 0.035) 85%,
+    rgba(143, 230, 255, 0.09) 99%,
+    rgba(143, 230, 255, 0) 100%
+  );
+  animation: m-scan 11s linear infinite;
+}
+
+.motion-boot-scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -40px;
+  height: 40px;
+  background: linear-gradient(to bottom, rgba(143, 230, 255, 0), rgba(143, 230, 255, 0.35) 90%, #e9fbff 100%);
+  box-shadow: 0 6px 18px rgba(87, 212, 255, 0.6);
+  animation: m-boot-scan 1.3s cubic-bezier(0.5, 0, 0.3, 1) 0.1s both;
+}
+
+/* ---------- Panels ---------- */
+
+/* Light sheen across the top tabs and left launchers, one after another. */
+.tab::after,
+.launcher::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent 35%, rgba(184, 242, 255, 0.28) 50%, transparent 65%);
+  transform: translateX(-130%);
+  animation: m-sheen 10s ease-in-out infinite;
+}
+
+.tab::after {
+  clip-path: polygon(0 0, 85% 0, 100% 100%, 4% 100%);
+}
+
+.launcher::after {
+  left: 4px;
+  clip-path: polygon(0 4px, 4px 0, 79% 0, 100% 52%, 100% 100%, 4px 100%, 0 calc(100% - 4px));
+}
+
+.tab:nth-child(2)::after,
+.launcher:nth-child(2)::after {
+  animation-delay: 0.25s;
+}
+
+.tab:nth-child(3)::after,
+.launcher:nth-child(3)::after {
+  animation-delay: 0.5s;
+}
+
+.tab:nth-child(4)::after,
+.launcher:nth-child(4)::after {
+  animation-delay: 0.75s;
+}
+
+.tab:nth-child(5)::after,
+.launcher:nth-child(5)::after {
+  animation-delay: 1s;
+}
+
+.tab:nth-child(6)::after,
+.launcher:nth-child(6)::after {
+  animation-delay: 1.25s;
+}
+
+.tab:hover::after,
+.launcher:hover::after,
+.tab:focus-visible::after,
+.launcher:focus-visible::after {
+  animation: m-sheen-hover 0.7s ease-out;
+}
+
+/* The blue bars under each tab carry a slow flow of light. */
+.tab-bar,
+.launcher-bar {
+  background-image: linear-gradient(90deg, #1f6fd4 0%, #1f6fd4 35%, #6fdcff 50%, #1f6fd4 65%, #1f6fd4 100%);
+  background-size: 300% 100%;
+  animation: m-flow 4s linear infinite;
+}
+
+.tab:hover .tab-bar,
+.launcher:hover .launcher-bar {
+  box-shadow: 0 0 6px #48c8ff;
+  animation-duration: 1.2s;
+}
+
+.launcher-tick {
+  animation: m-blink-soft 3s ease-in-out infinite;
+}
+
+.launcher:nth-child(even) .launcher-tick {
+  animation-delay: -1.5s;
+}
+
+/* Clock: the colon ticks every second, the digits glow now and then. */
+.desk-clock .colon {
+  animation: m-colon 1s steps(1, end) infinite;
+}
+
+.desk-digits {
+  animation: m-glow-flicker 9s ease-in-out infinite;
+}
+
+.day-number {
+  animation: m-text-breathe 5s ease-in-out infinite;
+}
+
+.a-sweep {
+  animation: m-breathe 3s ease-in-out infinite;
+}
+
+/* Weather */
+.weather .w-dot {
+  animation: m-blink 1.6s steps(1, end) infinite;
+}
+
+.weather .w-temp {
+  animation: m-text-breathe 6s ease-in-out infinite;
+}
+
+/* Gauges glide to new readings and their rims breathe. */
+.gauge-needle {
+  transition: transform 0.9s cubic-bezier(0.25, 1.4, 0.4, 1);
+}
+
+.gauge-rim {
+  animation: m-breathe 5s ease-in-out infinite;
+}
+
+.gauge:nth-child(2) .gauge-rim {
+  animation-delay: -2.5s;
+}
+
+.wifi-arc {
+  animation: m-breathe 4s ease-in-out infinite;
+}
+
+.round-btn {
+  animation: m-ring-glow 5s ease-in-out infinite;
+}
+
+.round-btn + .round-btn,
+.bin-size ~ .round-btn {
+  animation-delay: -2.5s;
+}
+
+.chassis .status-dot {
+  animation: m-blink-soft 2.2s ease-in-out infinite;
+}
+
+.chassis .em-ring {
+  animation: m-breathe 4s ease-in-out infinite;
+}
+
+.media-progress {
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(184, 242, 255, 0.55) 50%, rgba(255, 255, 255, 0) 100%);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: m-flow-fast 2.6s linear infinite;
+}
+
+/* Bottom dock icons lift on hover. */
+.dock button,
+.dock-icons button {
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+
+.dock button:hover,
+.dock-icons button:hover,
+.dock button:focus-visible,
+.dock-icons button:focus-visible {
+  transform: translateY(-2px);
+  filter: drop-shadow(0 0 5px rgba(87, 212, 255, 0.8));
+}
+
+/* Subtitle and deep think line slide in. */
+.subtitle,
+.deep-status {
+  animation: m-rise 0.35s ease-out both;
+}
+
+/* ---------- Boot-up sequence ---------- */
+
+.mario-canvas.booting > .chassis {
+  animation: m-boot-wipe 0.8s cubic-bezier(0.6, 0, 0.2, 1) both;
+}
+
+.mario-canvas.booting .reactor-art {
+  transform-origin: 600px 331px;
+  animation: m-boot-reactor 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) 0.15s both;
+}
+
+.mario-canvas.booting .shift,
+.mario-canvas.booting .shift-g {
+  animation: m-boot-slide 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: var(--boot-delay, 400ms);
+}
+
+/* The chassis and reactor have their own entrances; don't slide their inner groups too. */
+.mario-canvas.booting > .chassis .shift-g,
+.mario-canvas.booting .reactor-art .shift-g,
+.mario-canvas.booting .motion .shift {
+  animation: none;
+}
+
+/* ---------- Calm and off ---------- */
+
+.motion-calm .reactor-art .orbit-heavy,
+.motion-calm .reactor-art .orbit-chip,
+.motion-calm .reactor-art .orbit-thin,
+.motion-calm .reactor-art .bracket,
+.motion-calm .reactor-art .bracket-accent,
+.motion-calm .reactor-art .tick-ring,
+.motion-calm .reactor-art .dotted {
+  animation-duration: 600s;
+}
+
+.motion-calm .tab::after,
+.motion-calm .launcher::after,
+.motion-calm .desk-digits,
+.motion-calm .reactor-art .plate-wrap {
+  animation: none;
+}
+
+.motion-off .mario-canvas *,
+.motion-off .mario-canvas *::before,
+.motion-off .mario-canvas *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+.motion-off .tab::after,
+.motion-off .launcher::after {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mario-canvas *,
+  .mario-canvas *::before,
+  .mario-canvas *::after {
+    animation: none !important;
+  }
+  .motion,
+  .tab::after,
+  .launcher::after {
+    display: none;
+  }
+}
+
+/* ---------- Keyframes ---------- */
+
+@keyframes m-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes m-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes m-sat {
+  0%,
+  70%,
+  100% {
+    opacity: 0.7;
+  }
+  80% {
+    opacity: 1;
+    filter: drop-shadow(0 0 4px #57d4ff);
+  }
+}
+
+@keyframes m-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes m-blink-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes m-chase {
+  0%,
+  6%,
+  100% {
+    opacity: 1;
+    filter: none;
+  }
+  2% {
+    opacity: 1;
+    filter: brightness(1.9) drop-shadow(0 0 4px rgba(87, 212, 255, 0.9));
+  }
+}
+
+@keyframes m-comet {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+@keyframes m-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+
+@keyframes m-float {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.7;
+  }
+  85% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translateY(var(--drift, -60px));
+    opacity: 0;
+  }
+}
+
+@keyframes m-scan {
+  to {
+    transform: translateY(790px);
+  }
+}
+
+@keyframes m-boot-scan {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(720px);
+    opacity: 0;
+  }
+}
+
+@keyframes m-sheen {
+  0%,
+  78% {
+    transform: translateX(-130%);
+  }
+  92%,
+  100% {
+    transform: translateX(130%);
+  }
+}
+
+@keyframes m-sheen-hover {
+  from {
+    transform: translateX(-130%);
+  }
+  to {
+    transform: translateX(130%);
+  }
+}
+
+@keyframes m-flow {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes m-flow-fast {
+  from {
+    background-position: -60% 0;
+  }
+  to {
+    background-position: 160% 0;
+  }
+}
+
+@keyframes m-colon {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+@keyframes m-glow-flicker {
+  0%,
+  88%,
+  100% {
+    filter: none;
+  }
+  90% {
+    filter: drop-shadow(0 0 6px rgba(87, 212, 255, 0.9));
+  }
+  91% {
+    filter: none;
+  }
+  93% {
+    filter: drop-shadow(0 0 8px rgba(87, 212, 255, 0.9));
+  }
+}
+
+@keyframes m-text-breathe {
+  0%,
+  100% {
+    text-shadow: 0 0 0 rgba(87, 212, 255, 0);
+  }
+  50% {
+    text-shadow: 0 0 10px rgba(87, 212, 255, 0.7);
+  }
+}
+
+@keyframes m-ring-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(87, 212, 255, 0);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(87, 212, 255, 0.55);
+  }
+}
+
+@keyframes m-rise {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes m-boot-wipe {
+  from {
+    clip-path: inset(0 50% 0 50%);
+    opacity: 0.2;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+
+@keyframes m-boot-reactor {
+  from {
+    opacity: 0;
+    transform: scale(0.82) rotate(-35deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes m-boot-slide {
+  from {
+    opacity: 0;
+    translate: var(--boot-x, 0) var(--boot-y, 0);
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}

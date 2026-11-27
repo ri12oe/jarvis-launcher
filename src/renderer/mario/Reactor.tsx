@@ -146,7 +146,12 @@ export const Reactor = memo(function Reactor({
           const mid = (slot + 0.5) * STEP;
           const [tx, ty] = polar(cx, cy, (plateInner + plateOuter) / 2, mid);
           return (
-            <g key={slot}>
+            <g
+              key={slot}
+              className="plate-wrap"
+              // The chase light reaches each plate in turn around the ring.
+              style={{ animationDelay: `${((slot / RING_PLATES.length) * 2.4 - 12).toFixed(2)}s` }}
+            >
               <path
                 className={className}
                 d={plate(

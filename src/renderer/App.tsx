@@ -72,6 +72,8 @@ import {
   WeatherPanel,
 } from "./mario/Panels";
 import { Reactor, type PlateState } from "./mario/Reactor";
+import { Motion } from "./mario/Motion";
+import { isMotionMode, type MotionMode } from "../shared/motion";
 import { SettingsPanel } from "./mario/Settings";
 import { Shift, SpareRoomProvider } from "./mario/shift";
 import { startMicrophone } from "./mic";
@@ -187,6 +189,13 @@ const PHASE_LABEL: Record<VoicePhase, string> = {
   speaking: "SPEAKING",
 };
 
+/** Dev preview only: ?motion=calm or ?motion=off. */
+function previewMotion(): MotionMode | undefined {
+  if (typeof window === "undefined" || window.jarvis || !import.meta.env.DEV) return undefined;
+  const value = new URLSearchParams(window.location.search).get("motion");
+  return isMotionMode(value) ? value : undefined;
+}
+
 function previewVoice(): VoiceSnapshot {
   const params = new URLSearchParams(window.location.search);
   const requested = params.get("voice");
@@ -282,6 +291,12 @@ export function App() {
   settingsOpenRef.current = settingsOpen;
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+  // The boot-up sequence plays once each time the HUD loads.
+  const [booting, setBooting] = useState(true);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setBooting(false), 2300);
+    return () => window.clearTimeout(timer);
+  }, []);
   const [voice, setVoice] = useState<VoiceSnapshot>(() =>
     typeof window !== "undefined" && !window.jarvis && import.meta.env.DEV
       ? previewVoice()
@@ -868,15 +883,17 @@ export function App() {
     pressed: pressed === keyOf(slot),
   }));
 
+  const motionMode: MotionMode = previewMotion() ?? state?.motion ?? "full";
+
   const showSubtitle =
     voice.phase !== "idle" || voice.heard.length > 0 || voice.reply.length > 0;
 
   return (
     <NowProvider>
-      <div className="mario-screen">
+      <div className={`mario-screen motion-${motionMode}`}>
         <SpareRoomProvider value={{ extraX: fit.extraX, extraY: fit.extraY }}>
           <div
-            className="mario-canvas"
+            className={`mario-canvas${booting && motionMode !== "off" ? " booting" : ""}`}
             style={{
               width: 1192 + fit.extraX,
               height: 670 + fit.extraY,
@@ -889,6 +906,7 @@ export function App() {
               cpu={live.stats?.cpuPct ?? null}
               plates={plates}
             />
+            <Motion mode={motionMode} phase={voice.phase} booting={booting} />
             <Gauges stats={live.stats} />
             <AnalogClock />
             <LevelMeter stats={live.stats} battery={battery} />

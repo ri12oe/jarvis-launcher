@@ -41,6 +41,12 @@ The readings are live:
 
 Anything the PC cannot report shows `--`. The weather panel reads `--` until a location is set.
 
+### Motion
+
+The HUD moves like the MARIO OS live wallpaper. The reactor's rings turn at different speeds, a radar sweep circles the light segments, and pulses of light run around the orbits. A light chases around the plate ring now and then. Ripples spread from the orb while Jarvis listens or speaks, and the sweep speeds up while it thinks. The tabs and launchers catch a passing sheen and their blue bars carry a flow of light. The clock's colon ticks, gauges glide to new readings, and particles drift up with a faint scan line. Each time the HUD loads it boots up: a scan line runs down the screen, the chassis opens from the middle, the reactor spins in, and the panels slide in from their edges.
+
+`"motion": "calm"` in `config.json` slows the rings and drops the particles, scan line, and sheen. `"motion": "off"` stops everything except the orb and live readings. Turning off Settings > Accessibility > Visual effects > Animation effects in Windows also stops it.
+
 ### Icons
 
 The top programs and the left list use a HUD icon set: a glowing chamfered frame with a neon glyph for each kind of app, not each brand. So any app gets a matching icon with no new artwork: Chrome and Firefox get the same browser glyph as Edge, Discord gets chat, Steam gets game. The kinds are `browser`, `files`, `music`, `mail`, `repo`, `social`, `chat`, `ai-spark`, `ai-chat`, `ai-orbit`, `ai-neural`, `code`, `document`, `spreadsheet`, `slides`, `notes`, `pdf`, `design`, `video`, `call`, `game`, `terminal`, `settings`, `store`, `photos`, `camera`, `calendar`, `calculator`, `cloud`, `maps`, `security`, and `app` for anything unknown.

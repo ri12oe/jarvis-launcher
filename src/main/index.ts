@@ -432,6 +432,7 @@ function currentState(): LauncherState {
     leftList: snapshot?.config.leftList ?? "recent",
     iconStyle: snapshot?.config.iconStyle,
     icons: snapshot?.config.icons,
+    motion: snapshot?.config.motion,
   };
 }
 

@@ -1,3 +1,4 @@
+import { isMotionMode } from "./motion";
 import { DEFAULT_PAUSE_MS, PAUSE_RANGE } from "./voice-audio";
 import { readDeepConfig } from "./deep";
 import { DEFAULT_GREETING, type GreetingConfig } from "./greeting";
@@ -320,6 +321,10 @@ export function parseConfig(input: unknown): ParsedConfig {
     dials: readDials(input.dials, warnings),
     leftList: readLeftList(input.leftList, warnings),
   };
+  if (input.motion !== undefined) {
+    if (isMotionMode(input.motion)) config.motion = input.motion;
+    else warnings.push('motion must be "full", "calm", or "off"; using "full"');
+  }
   if (input.iconStyle !== undefined) {
     if (input.iconStyle === "hud" || input.iconStyle === "app") config.iconStyle = input.iconStyle;
     else warnings.push('iconStyle must be "hud" or "app"; using "hud"');

@@ -12,6 +12,7 @@ import "@fontsource/exo-2/600.css";
 import "@fontsource/share-tech/400.css";
 import { App } from "./App";
 import "./mario.css";
+import "./motion.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing #root");

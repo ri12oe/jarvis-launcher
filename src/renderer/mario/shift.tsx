@@ -1,5 +1,17 @@
 import { createContext, useContext, type ReactNode } from "react";
+import type { CSSProperties } from "react";
 import { shift, type CanvasFit } from "../../shared/mario";
+import { bootDelay, bootOffset } from "../../shared/motion";
+
+/** Where a group slides in from during the boot-up sequence, as CSS variables. */
+function bootVars(fx: number, fy: number): CSSProperties {
+  const offset = bootOffset(fx, fy);
+  return {
+    ["--boot-delay" as string]: `${bootDelay(fx, fy)}ms`,
+    ["--boot-x" as string]: `${offset.x}px`,
+    ["--boot-y" as string]: `${offset.y}px`,
+  };
+}
 
 const SpareRoom = createContext<Pick<CanvasFit, "extraX" | "extraY">>({
   extraX: 0,
@@ -26,7 +38,7 @@ export function Shift({
   children: ReactNode;
 }) {
   return (
-    <div className="shift" style={{ transform: useOffset(fx, fy) }}>
+    <div className="shift" style={{ transform: useOffset(fx, fy), ...bootVars(fx, fy) }}>
       {children}
     </div>
   );
@@ -42,7 +54,11 @@ export function G({
   fy: number;
   children: ReactNode;
 }) {
-  return <g style={{ transform: useOffset(fx, fy) }}>{children}</g>;
+  return (
+    <g className="shift-g" style={{ transform: useOffset(fx, fy), ...bootVars(fx, fy) }}>
+      {children}
+    </g>
+  );
 }
 
 export function useSpareRoom() {

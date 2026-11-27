@@ -1,5 +1,6 @@
 import type { HudIconKind, IconStyle } from "./hud-icons";
 import type { DeepConfig } from "./deep";
+import type { MotionMode } from "./motion";
 import type { GreetingConfig } from "./greeting";
 import type { RecentItem } from "./recent";
 import type { Place, SettingsValues } from "./settings";
@@ -165,6 +166,8 @@ export interface JarvisConfig {
   greeting?: GreetingConfig;
   /** Deep think: big jobs go to Claude Code. Unset means on, with the defaults. */
   deep?: DeepConfig;
+  /** HUD animation: "full" (the default), "calm", or "off". */
+  motion?: MotionMode;
 }
 
 export type LeftListMode = "recent" | "design";
@@ -264,6 +267,7 @@ export interface LauncherState {
   leftList: LeftListMode;
   iconStyle?: IconStyle;
   icons?: Record<string, HudIconKind>;
+  motion?: MotionMode;
 }
 
 export interface LaunchResult {
