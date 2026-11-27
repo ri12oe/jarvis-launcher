@@ -2,6 +2,7 @@ import { execFile, spawn as spawnProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   app,
   BrowserWindow,
@@ -81,6 +82,9 @@ import {
 } from "../shared/greeting";
 import { WindowsInput } from "./windows-input";
 import { CliPipe } from "./cli-pipe";
+import { DeepAgent } from "./deep-agent";
+import { DEFAULT_DEEP } from "../shared/deep";
+import { edgeUrl } from "../shared/computer";
 import { ComputerTask, type ComputerHost } from "./computer";
 import { readStartApps } from "../discovery/start-apps";
 import { matchTile } from "../shared/voice-command";
@@ -112,6 +116,86 @@ let voice: VoiceSession | null = null;
 const windowsSpeech = new WindowsSpeech();
 const windowsInput = new WindowsInput();
 let cliPipe: CliPipe | null = null;
+
+function deepConfig() {
+  return (launcher?.config ?? loadConfig(app.getPath("userData")).config).deep ?? DEFAULT_DEEP;
+}
+
+/** <home>\FA26\jarvis-builds when FA26 exists, else Documents\jarvis-builds. config.json "deep.workspace" wins. */
+function deepWorkspace(): string {
+  const configured = deepConfig().workspace;
+  if (configured) return path.resolve(configured.replace(/^~(?=[\\/]|$)/, os.homedir()));
+  const fa26 = path.join(os.homedir(), "FA26");
+  if (fs.existsSync(fa26)) return path.join(fa26, "jarvis-builds");
+  return path.join(app.getPath("documents"), "jarvis-builds");
+}
+
+/** claude.exe from the native installer, or claude.cmd from npm, or whatever is on PATH. */
+function findClaude(): string | undefined {
+  const configured = deepConfig().command;
+  if (configured) return fs.existsSync(configured) ? configured : undefined;
+  const home = os.homedir();
+  const candidates = [
+    path.join(home, ".local", "bin", "claude.exe"),
+    process.env.APPDATA ? path.join(process.env.APPDATA, "npm", "claude.cmd") : "",
+  ];
+  for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (!dir) continue;
+    candidates.push(path.join(dir, "claude.exe"), path.join(dir, "claude.cmd"));
+  }
+  return candidates.find((file) => file && fs.existsSync(file));
+}
+
+const deepAgent = new DeepAgent({
+  config: deepConfig,
+  workspace: deepWorkspace,
+  findClaude,
+  spawn: (file, args, cwd, shell) =>
+    spawnProcess(file, [...args], {
+      cwd,
+      shell,
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: "jarvis-launcher" },
+    }),
+  killTree: (pid) => {
+    if (process.platform === "win32") {
+      execFile(windowsSystemFile("taskkill.exe"), ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, () => undefined);
+    } else {
+      process.kill(pid);
+    }
+  },
+  exists: (file) => fs.existsSync(file),
+  mkdir: (dir) => fs.mkdirSync(dir, { recursive: true }),
+  readFile: (file) => {
+    try {
+      return fs.readFileSync(file, "utf8");
+    } catch {
+      return undefined;
+    }
+  },
+  writeFile: (file, text) => fs.writeFileSync(file, text),
+  appendFile: (file, text) => fs.appendFileSync(file, text),
+  listDirs: (dir) =>
+    fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => ({ name: entry.name, mtimeMs: fs.statSync(path.join(dir, entry.name)).mtimeMs })),
+  open: async (target) => {
+    if (target.kind === "url") {
+      await shell.openExternal(target.url);
+      return;
+    }
+    if (/\.html?$/i.test(target.path) && process.platform === "win32") {
+      await shell.openExternal(edgeUrl(pathToFileURL(target.path).href));
+    } else {
+      await shell.openPath(target.path);
+    }
+  },
+  changed: () => voice?.update(),
+  announce: (line) => voice?.announce(line),
+  now: () => new Date(),
+});
 let launcher: {
   config: JarvisConfig;
   tiles: ResolvedTile[];
@@ -623,6 +707,7 @@ const EMPTY_VOICE: VoiceSnapshot = {
   reply: "",
   error: "",
   launchError: "",
+  deep: "",
 };
 
 /** C:\Windows\System32\<file>, or C:\Windows\<file> for explorer.exe. */
@@ -787,6 +872,7 @@ const computerHost: ComputerHost = {
     fs.writeFileSync(file, text, { flag: text ? "w" : "wx" }),
   ownPid: () => process.pid,
   popUp: (hwnd) => popUpWindow(hwnd),
+  deep: (call) => deepAgent.handle(call),
   setTaskbarAutoHide: (on) => windowsInput.taskbarAutoHide(on),
   now: () => Date.now(),
   sleep: (ms, signal) =>
@@ -1297,6 +1383,8 @@ if (!gotLock) {
         windowsInput.available() ? new ComputerTask(computerHost) : undefined,
       modelDir: () => resolveWakeDir(app.getAppPath()),
       patchEnabled: patchVoiceEnabledText,
+      deepEnabled: () => process.platform === "win32" && deepConfig().enabled,
+      deepStatus: () => deepAgent.status(),
     });
     registerIpc();
     stats.start();
@@ -1323,6 +1411,7 @@ if (!gotLock) {
   });
 
   app.on("before-quit", () => {
+    deepAgent.cancel();
     stats.stop();
     systemControls.stop();
     quitting = true;

@@ -1,3 +1,4 @@
+import { parseDeepCall, type DeepCall } from "./deep";
 /**
  * Computer control for the voice assistant: the tools the model may call, the
  * checks on their arguments, and the spoken plan line. Nothing here touches
@@ -271,7 +272,8 @@ export type ComputerCall =
     }
   | { tool: "type_text"; text: string }
   | { tool: "press_keys"; keys: string }
-  | { tool: "wait"; seconds: number };
+  | { tool: "wait"; seconds: number }
+  | DeepCall;
 
 export const COMPUTER_TOOL_NAMES = [
   "open_app",
@@ -285,6 +287,7 @@ export const COMPUTER_TOOL_NAMES = [
   "type_text",
   "press_keys",
   "wait",
+  "deep_task",
 ] as const;
 
 function text(value: unknown, max: number): string | undefined {
@@ -422,6 +425,8 @@ export function parseComputerCall(
       if (!Number.isFinite(seconds)) return undefined;
       return { tool: "wait", seconds: Math.max(0.2, Math.min(5, seconds)) };
     }
+    case "deep_task":
+      return parseDeepCall(args);
     default:
       return undefined;
   }
@@ -454,6 +459,10 @@ export function planLine(calls: readonly ComputerCall[]): string {
         : "Bringing the taskbar back.";
     case "type_text":
       return "Typing that now.";
+    case "deep_task":
+      if (first.action === "status") return "Checking on deep think.";
+      if (first.action === "cancel") return "Stopping deep think.";
+      return `Deep think is on ${first.project.replace(/[-_]+/g, " ")}. I'll tell you when it's done.`;
     default:
       return "On it.";
   }

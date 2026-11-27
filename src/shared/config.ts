@@ -1,3 +1,4 @@
+import { readDeepConfig } from "./deep";
 import { DEFAULT_GREETING, type GreetingConfig } from "./greeting";
 import { HUD_ICON_KINDS, isHudIconKind, type HudIconKind } from "./hud-icons";
 import type { DialConfig, ExtraTile, LeftListMode, JarvisConfig, LaunchWindowConfig, PinnedFolder, VoiceConfig, WeatherConfig } from "./types";
@@ -323,6 +324,7 @@ export function parseConfig(input: unknown): ParsedConfig {
     else warnings.push('iconStyle must be "hud" or "app"; using "hud"');
   }
   if (input.greeting !== undefined) config.greeting = readGreeting(input.greeting, warnings);
+  if (input.deep !== undefined) config.deep = readDeepConfig(input.deep, warnings);
   if (input.icons !== undefined) {
     const icons = readIcons(input.icons, warnings);
     if (Object.keys(icons).length > 0) config.icons = icons;

@@ -32,6 +32,7 @@ const voice: VoiceSnapshot = {
   reply: "",
   error: "",
   launchError: "",
+  deep: "",
 };
 
 const system: SystemState = {

@@ -1,4 +1,5 @@
 import { COMPUTER_TOOL_NAMES, computerTools, parseComputerCall, type ComputerCall } from "./computer";
+import { DEEP_PROMPT, deepTool } from "./deep";
 import { checkSystemAction, type SystemAction } from "./system";
 import type { VoiceTile } from "./voice-command";
 
@@ -132,7 +133,7 @@ export const COMPUTER_PROMPT = [
   "You can never send emails or messages, delete files, close apps, or buy anything. If asked to, say the user has to do that part.",
 ].join(" ");
 
-export function jarvisSystemPrompt(tiles: readonly VoiceTile[], now: Date = new Date(), computer = false): string {
+export function jarvisSystemPrompt(tiles: readonly VoiceTile[], now: Date = new Date(), computer = false, deep = false): string {
   const list = tiles.map((tile) => `${tile.id} (${tile.label})`).join(", ");
   return [
     "You are JARVIS, a capable, witty AI assistant who lives in the user's Windows PC and speaks out loud.",
@@ -147,6 +148,7 @@ export function jarvisSystemPrompt(tiles: readonly VoiceTile[], now: Date = new 
     "web_search looks things up online. Use it for news, weather, sports, prices, and anything that may have changed recently or that you are not sure of.",
     "Do not invent tiles. If the user is only chatting, do not call a tool.",
     ...(computer ? [COMPUTER_PROMPT] : []),
+    ...(computer && deep ? [DEEP_PROMPT] : []),
   ].join(" ");
 }
 
@@ -298,6 +300,8 @@ export async function completeChat(
     tileIds: readonly string[];
     /** Offer the computer-control tools. Only on Windows. */
     computer?: boolean;
+    /** Offer deep_task, the hand-off to Claude Code. Needs computer. */
+    deep?: boolean;
   },
 ): Promise<ChatResult> {
   const tileIds = [...new Set(input.tileIds.filter((id) => id.length > 0))];
@@ -314,6 +318,7 @@ export async function completeChat(
       pcControlTool(),
       webSearchTool(),
       ...(input.computer ? computerTools() : []),
+      ...(input.computer && input.deep ? [deepTool()] : []),
     ],
     tool_choice: "auto",
   };

@@ -33,6 +33,8 @@ function session(env: NodeJS.ProcessEnv) {
     computerTask: () => undefined,
     modelDir: () => "/nowhere",
     patchEnabled: (text) => text,
+    deepEnabled: () => false,
+    deepStatus: () => "",
   });
   return { voice, published, shown: () => shown };
 }
@@ -55,6 +57,25 @@ describe("push to talk", () => {
     expect(shown()).toBe(1);
     expect(voice.talk()).toEqual({ ok: true });
     expect(voice.snapshot().phase).toBe("idle");
+    voice.stop();
+  });
+});
+
+describe("announcements", () => {
+  it("speaks a deep think result when idle, and waits while Jarvis is listening", async () => {
+    const { voice, published } = session({ GROQ_API_KEY: "gsk_test-key" });
+    await voice.start();
+    voice.announce("Your portfolio is ready.");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(voice.snapshot().phase).toBe("speaking");
+    expect(voice.snapshot().reply).toBe("Your portfolio is ready.");
+    voice.playbackEnded();
+    expect(voice.talk()).toEqual({ ok: true });
+    voice.announce("Second update.");
+    expect(voice.snapshot().phase).toBe("listening");
+    voice.talk();
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    expect(published.some((snapshot) => snapshot.reply === "Second update.")).toBe(true);
     voice.stop();
   });
 });

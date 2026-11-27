@@ -14,6 +14,7 @@ import {
   textLines,
   type ComputerCall,
 } from "../shared/computer";
+import type { DeepCall } from "../shared/deep";
 import { scoreTileLabel, TILE_MATCH_THRESHOLD } from "../shared/voice-command";
 import type { ForegroundWindow } from "./windows-input";
 
@@ -50,6 +51,8 @@ export interface ComputerHost {
   /** Center a window over the HUD, the same size a launched tile gets. */
   popUp(hwnd: number): Promise<boolean>;
   setTaskbarAutoHide(on: boolean): Promise<boolean>;
+  /** Start, check on, or stop deep think (Claude Code). */
+  deep(call: DeepCall): Promise<string>;
   now(): number;
   sleep(ms: number, signal: AbortSignal): Promise<void>;
 }
@@ -172,6 +175,8 @@ export class ComputerTask {
       case "wait":
         await this.host.sleep(call.seconds * 1000, signal);
         return ok(`waited ${call.seconds} seconds`);
+      case "deep_task":
+        return this.host.deep(call);
     }
   }
 

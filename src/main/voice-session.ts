@@ -66,6 +66,10 @@ export interface VoiceHost {
   computerTask(): ComputerTaskRunner | undefined;
   modelDir(): string;
   patchEnabled(text: string, enabled: boolean): string | undefined;
+  /** Offer deep think (the Claude Code hand-off) to the model. */
+  deepEnabled(): boolean;
+  /** One short line for the HUD while deep think runs, or "". */
+  deepStatus(): string;
 }
 
 export interface ComputerTaskRunner {
@@ -93,6 +97,10 @@ export interface VoiceSession {
    * With speak false nothing is spoken; the HUD still shows the request.
    */
   ask(text: string, speak: boolean): Promise<AskResult>;
+  /** Say a line on its own, such as deep think finishing. Waits until Jarvis is idle. */
+  announce(line: string): void;
+  /** Re-send the snapshot, for example when the deep think status line changes. */
+  update(): void;
 }
 
 export interface AskResult {
@@ -116,6 +124,8 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
   let error = "";
   let launchError = "";
   let history: ChatMessage[] = [];
+  /** Lines waiting to be said once Jarvis is idle, such as "deep think finished". */
+  const announcements: string[] = [];
   let overrideEnabled: boolean | undefined;
   let stopped = false;
   const queue: Int16Array[] = [];
@@ -159,11 +169,26 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       reply: hud.reply,
       error,
       launchError,
+      deep: host.deepStatus(),
     };
   }
 
   function publish(): void {
     host.publish(snapshot());
+    if (announcements.length > 0 && hud.phase === "idle" && !stopped) {
+      setTimeout(flushAnnouncement, 400);
+    }
+  }
+
+  function flushAnnouncement(): void {
+    if (stopped || hud.phase !== "idle" || announcements.length === 0) return;
+    const line = announcements.shift();
+    if (!line) return;
+    generation += 1;
+    const gen = generation;
+    history = appendChatHistory(history, "(deep think update)", line);
+    hud = { phase: "thinking", heard: "", reply: "" };
+    void say(gen, line);
   }
 
   async function loadEngine(): Promise<void> {
@@ -335,7 +360,7 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       const messages: WireMessage[] = [
         {
           role: "system",
-          content: jarvisSystemPrompt(tiles, new Date(), Boolean(task)),
+          content: jarvisSystemPrompt(tiles, new Date(), Boolean(task), Boolean(task) && host.deepEnabled()),
         },
         ...history,
         { role: "user", content: text },
@@ -346,6 +371,7 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
         messages,
         tileIds: tiles.map((tile) => tile.id),
         computer: Boolean(task),
+        deep: Boolean(task) && host.deepEnabled(),
         signal: requestSignal(),
       });
       if (!alive(gen)) return;
@@ -486,6 +512,7 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
         messages,
         tileIds: tiles.map((tile) => tile.id),
         computer: true,
+        deep: host.deepEnabled(),
         signal: requestSignal(),
       });
       if (!alive(gen)) return;
@@ -669,6 +696,15 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       }
       if (error && lines.length === 0) return { ok: false, lines, error };
       return { ok: true, lines };
+    },
+    announce(line) {
+      const trimmed = line.replace(/\s+/g, " ").trim().slice(0, 500);
+      if (!trimmed || stopped) return;
+      announcements.push(trimmed);
+      flushAnnouncement();
+    },
+    update() {
+      publish();
     },
     playbackEnded() {
       if (hud.phase !== "speaking") return;

@@ -71,6 +71,8 @@ describe("jarvis terminal pipe", () => {
       computerTask: () => undefined,
       modelDir: () => "/nowhere",
       patchEnabled: (text) => text,
+      deepEnabled: () => false,
+      deepStatus: () => "",
     });
     const quiet = await voice.ask("open edge", false);
     expect(quiet.ok).toBe(true);
@@ -105,6 +107,8 @@ describe("jarvis terminal pipe", () => {
       computerTask: () => undefined,
       modelDir: () => "/nowhere",
       patchEnabled: (text) => text,
+      deepEnabled: () => false,
+      deepStatus: () => "",
     });
     expect(await voice.ask("hello", false)).toEqual({
       ok: false,

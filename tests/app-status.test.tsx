@@ -16,6 +16,7 @@ const voiceSnapshot: VoiceSnapshot = {
   reply: "",
   error: "",
   launchError: "",
+  deep: "",
 };
 
 const state: LauncherState = {

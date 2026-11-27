@@ -1,4 +1,5 @@
 import type { HudIconKind, IconStyle } from "./hud-icons";
+import type { DeepConfig } from "./deep";
 import type { GreetingConfig } from "./greeting";
 import type { RecentItem } from "./recent";
 import type { Place, SettingsValues } from "./settings";
@@ -111,6 +112,8 @@ export interface VoiceSnapshot {
   error: string;
   /** Empty, or a launch failure from a spoken open command. */
   launchError: string;
+  /** Empty, or what deep think (Claude Code) is doing right now. */
+  deep: string;
 }
 
 export type LaunchWindowMode = "centered" | "default";
@@ -158,6 +161,8 @@ export interface JarvisConfig {
   icons?: Record<string, HudIconKind>;
   /** Spoken greeting when Jarvis starts. Unset means { mode: "daily", name: "" }. */
   greeting?: GreetingConfig;
+  /** Deep think: big jobs go to Claude Code. Unset means on, with the defaults. */
+  deep?: DeepConfig;
 }
 
 export type LeftListMode = "recent" | "design";

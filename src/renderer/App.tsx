@@ -177,6 +177,7 @@ const EMPTY_VOICE: VoiceSnapshot = {
   reply: "",
   error: "",
   launchError: "",
+  deep: "",
 };
 
 const PHASE_LABEL: Record<VoicePhase, string> = {
@@ -208,6 +209,7 @@ function previewVoice(): VoiceSnapshot {
       params.get("reply") ?? (phase === "speaking" ? "Opening Projects." : ""),
     error: params.get("voiceError") ?? "",
     launchError: "",
+    deep: params.get("deep") ?? "",
   };
 }
 
@@ -1225,6 +1227,12 @@ export function App() {
                   {voice.reply ? (
                     <span className="reply">{voice.reply}</span>
                   ) : null}
+                </p>
+              ) : null}
+              {voice.deep ? (
+                <p className="deep-status" role="status" title={voice.deep}>
+                  <i aria-hidden="true" />
+                  {voice.deep}
                 </p>
               ) : null}
             </Shift>

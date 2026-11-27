@@ -195,6 +195,40 @@ Safety:
 - It cannot send emails or messages, delete files, close apps, or buy anything. Keys are an allow list that leaves out send and close shortcuts (Ctrl+Enter, Alt+S, Alt+F4, Ctrl+W), select-all, and Delete
 - A task is limited to 6 rounds with the model and 12 actions
 
+### Deep think (Claude Code)
+
+Big jobs go to Claude Code, a much stronger AI, which works on its own for a few minutes in a project folder while Jarvis stays free. Jarvis hands off by itself when you ask for something big, or whenever you say "deep think":
+
+- "Build me a portfolio website with a dark futuristic theme, an about page, and a projects page"
+- "Deep think, design a mobile app screen for a habit tracker in Figma"
+- "Make a two-week study plan for my chemistry final"
+- "Change the portfolio colors to purple": the same project name continues the earlier work
+
+Each project gets its own folder in `FA26\jarvis-builds` (or `Documents\jarvis-builds` when there is no FA26 folder). While it works, a `DEEP THINK` line under the orb shows the project, the time, and the current step. When it finishes, Jarvis says what was made and opens it: a site in Edge, a plan file, or the Figma file. Ask "how is deep think going?" or "cancel deep think" anytime. The `jarvis` terminal command works too: `jarvis deep think build a landing page for my club`.
+
+Set up once:
+
+1. Install Claude Code: in PowerShell, `irm https://claude.ai/install.ps1 | iex`
+2. Run `claude` once in a terminal and sign in with your Claude account. Deep think uses your Claude plan
+3. For Figma designs, connect Figma to Claude Code: `claude mcp add --scope user --transport http figma https://mcp.figma.com/mcp`, then run `claude`, type `/mcp`, pick figma, and choose Authenticate
+
+What it may do on its own: write files inside its project folder, run `npm`, `npx`, `node`, `python`, and `pip`, use git locally, search the web, and use Figma. It cannot push to GitHub, deploy, publish, or download with `curl` or PowerShell's `Invoke-WebRequest`; anything else that needs permission is skipped and noted in its summary. Each project keeps `.jarvis/last-run.jsonl` (the full log) and `.jarvis/summary.md` (its last reply). A run stops after 45 minutes.
+
+Optional `deep` fields in `config.json`:
+
+```json
+"deep": {
+  "enabled": true,
+  "workspace": "C:\\Users\\you\\FA26\\jarvis-builds",
+  "model": "opus",
+  "maxMinutes": 45,
+  "permissionMode": "acceptEdits",
+  "openResult": true
+}
+```
+
+`model` is any Claude Code model name or alias; leave it out to use your Claude Code default. `permissionMode` `"auto"` lets Claude Code's safety classifier approve more commands where your plan offers auto mode. `command` is the full path to `claude.exe` if it is somewhere unusual.
+
 What was heard and the reply show inside the reactor, below the centre number. The text stays clear of the tiles. The model may also ask to open a tile. Only a tile id that is on screen is accepted.
 
 Optional `voice` fields in `config.json`:
