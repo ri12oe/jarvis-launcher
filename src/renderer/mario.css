@@ -1236,6 +1236,59 @@ body,
   object-fit: contain;
 }
 
+/* HUD icon set: chamfered glowing frame with a neon line glyph. */
+.hud-icon {
+  overflow: visible;
+  filter: drop-shadow(0 0 1.5px rgba(92, 220, 255, 0.85)) drop-shadow(0 0 5px rgba(40, 160, 255, 0.45));
+  transition: filter 160ms ease, transform 160ms ease;
+}
+
+.hud-icon .hud-icon-frame {
+  stroke-width: 1.8;
+}
+
+.hud-icon .hud-icon-inner {
+  fill: none;
+  stroke: rgba(110, 230, 255, 0.28);
+  stroke-width: 0.8;
+}
+
+.hud-icon .hud-icon-ticks {
+  fill: none;
+  stroke: #7cf0ff;
+  stroke-width: 1.6;
+  stroke-linecap: square;
+}
+
+.hud-icon .hud-icon-glyph {
+  fill: none;
+  stroke-width: 2.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 1.6px #5cf6ff);
+}
+
+.hud-icon .hud-icon-glyph .thin {
+  stroke-width: 1.4;
+  opacity: 0.8;
+}
+
+.hud-icon .hud-icon-glyph .dot {
+  stroke-width: 3.4;
+}
+
+.hud-icon .hud-icon-glyph .fill {
+  fill: #c9fbff;
+  stroke: none;
+}
+
+.tab:hover .hud-icon,
+.launcher:hover .hud-icon,
+.tab:focus-visible .hud-icon,
+.launcher:focus-visible .hud-icon {
+  filter: drop-shadow(0 0 2px rgba(150, 240, 255, 1)) drop-shadow(0 0 9px rgba(40, 170, 255, 0.8));
+}
+
 .tab.dim,
 .launcher.dim,
 .plate-btn.dim {

@@ -1,3 +1,4 @@
+import type { HudIconKind, IconStyle } from "./hud-icons";
 import type { RecentItem } from "./recent";
 import type { Place, SettingsValues } from "./settings";
 import type { SystemAction, SystemState } from "./system";
@@ -150,6 +151,10 @@ export interface JarvisConfig {
   dials: DialConfig;
   /** What the text list left of the reactor shows: recent files, or the design's text. */
   leftList: LeftListMode;
+  /** "hud" (the default) draws the HUD icon set. "app" shows each app's own icon. */
+  iconStyle?: IconStyle;
+  /** HUD icon kind for a tile, keyed by tile id or label, for example { "chrome": "browser" }. */
+  icons?: Record<string, HudIconKind>;
 }
 
 export type LeftListMode = "recent" | "design";
@@ -247,6 +252,8 @@ export interface LauncherState {
   /** Tile id for each reactor dial, or null. */
   dials: DialConfig;
   leftList: LeftListMode;
+  iconStyle?: IconStyle;
+  icons?: Record<string, HudIconKind>;
 }
 
 export interface LaunchResult {

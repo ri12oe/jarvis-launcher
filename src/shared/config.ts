@@ -1,3 +1,4 @@
+import { HUD_ICON_KINDS, isHudIconKind, type HudIconKind } from "./hud-icons";
 import type { DialConfig, ExtraTile, LeftListMode, JarvisConfig, LaunchWindowConfig, PinnedFolder, VoiceConfig, WeatherConfig } from "./types";
 import { PLATE_SLOTS } from "./mario";
 import { AI_APP_IDS, BUILTIN_IDS, WEB_TILE_IDS } from "./types";
@@ -316,6 +317,14 @@ export function parseConfig(input: unknown): ParsedConfig {
     dials: readDials(input.dials, warnings),
     leftList: readLeftList(input.leftList, warnings),
   };
+  if (input.iconStyle !== undefined) {
+    if (input.iconStyle === "hud" || input.iconStyle === "app") config.iconStyle = input.iconStyle;
+    else warnings.push('iconStyle must be "hud" or "app"; using "hud"');
+  }
+  if (input.icons !== undefined) {
+    const icons = readIcons(input.icons, warnings);
+    if (Object.keys(icons).length > 0) config.icons = icons;
+  }
   if (input.weather !== undefined) {
     const weather = readWeather(input.weather, warnings);
     if (weather) config.weather = weather;
@@ -370,6 +379,21 @@ function readPlates(value: unknown, warnings: string[]): Record<string, string> 
     plates[key] = id;
   }
   return plates;
+}
+
+function readIcons(value: unknown, warnings: string[]): Record<string, HudIconKind> {
+  const icons: Record<string, HudIconKind> = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    warnings.push("icons must be an object of tile id to icon kind; ignoring it");
+    return icons;
+  }
+  for (const [key, kind] of Object.entries(value as Record<string, unknown>)) {
+    const name = key.trim();
+    if (!name || name.length > 80) continue;
+    if (isHudIconKind(kind)) icons[name.toLowerCase()] = kind;
+    else warnings.push(`icons.${name}: unknown icon "${String(kind)}"; use one of ${HUD_ICON_KINDS.join(", ")}`);
+  }
+  return icons;
 }
 
 function readLeftList(value: unknown, warnings: string[]): LeftListMode {

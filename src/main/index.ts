@@ -330,6 +330,8 @@ function currentState(): LauncherState {
     plates: snapshot?.plates ?? [],
     dials: snapshot?.dials ?? { G: null, E: null },
     leftList: snapshot?.config.leftList ?? "recent",
+    iconStyle: snapshot?.config.iconStyle,
+    icons: snapshot?.config.icons,
   };
 }
 

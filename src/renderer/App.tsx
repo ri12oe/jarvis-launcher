@@ -16,6 +16,8 @@ import {
   voiceStatusText,
 } from "../shared/grid";
 import { tileFallbackIcon } from "../shared/icons";
+import { iconForTile } from "../shared/hud-icons";
+import { HudIcon } from "./mario/HudIcon";
 import { FitText } from "./mario/FitText";
 import { windowsExplorerPath } from "../shared/launch";
 import {
@@ -83,10 +85,16 @@ const LOG_LIMIT = 30;
 const INFO_MS = 3000;
 
 /** Short confirmation for a control that worked, or "" when the HUD already shows the change. */
-function confirmationFor(action: SystemAction, state: SystemState | undefined): string {
-  if (action === "volume-step" && state?.volume != null) return `VOLUME ${state.volume}%`;
-  if (action === "mute-toggle" && state?.muted != null) return state.muted ? "MUTED" : "SOUND ON";
-  if (action === "mic-toggle" && state?.micMuted != null) return state.micMuted ? "MIC MUTED" : "MIC ON";
+function confirmationFor(
+  action: SystemAction,
+  state: SystemState | undefined,
+): string {
+  if (action === "volume-step" && state?.volume != null)
+    return `VOLUME ${state.volume}%`;
+  if (action === "mute-toggle" && state?.muted != null)
+    return state.muted ? "MUTED" : "SOUND ON";
+  if (action === "mic-toggle" && state?.micMuted != null)
+    return state.micMuted ? "MIC MUTED" : "MIC ON";
   if (action === "empty-recyclebin") return "RECYCLE BIN EMPTIED";
   return "";
 }
@@ -113,7 +121,9 @@ const PREVIEW_APPS: DiscoveredApp[] = [
 }));
 
 function hudSlots(
-  config: Parameters<typeof resolveHudSlots>[0] & { leftList: LauncherState["leftList"] },
+  config: Parameters<typeof resolveHudSlots>[0] & {
+    leftList: LauncherState["leftList"];
+  },
   ids: string[],
 ) {
   const { dock, plates, dials } = resolveHudSlots(config, ids);
@@ -257,7 +267,9 @@ export function App() {
   logOpenRef.current = logOpen;
   const infoTimer = useRef<number | undefined>(undefined);
   const record = (text: string, warn = false) =>
-    setLog((entries) => [{ at: Date.now(), text, warn }, ...entries].slice(0, LOG_LIMIT));
+    setLog((entries) =>
+      [{ at: Date.now(), text, warn }, ...entries].slice(0, LOG_LIMIT),
+    );
   const flash = (text: string) => {
     record(text);
     setInfo(text);
@@ -538,7 +550,8 @@ export function App() {
     if (isLaunchStatus(status) || isVoiceStatus(status)) record(status, true);
   }, [status]);
 
-  const labelOf = (id: string) => tiles.find((tile) => tile.id === id)?.label ?? id;
+  const labelOf = (id: string) =>
+    tiles.find((tile) => tile.id === id)?.label ?? id;
 
   const launchSlot = async (slot: PlacedSlot) => {
     const tile = slot.tile >= 0 ? tiles[slot.tile] : undefined;
@@ -672,7 +685,8 @@ export function App() {
     const bridge = window.jarvis;
     if (!bridge) return;
     const result = await bridge.talk();
-    if (!result.ok) setNotice((result.error ?? "Voice is unavailable").toUpperCase());
+    if (!result.ok)
+      setNotice((result.error ?? "Voice is unavailable").toUpperCase());
     else setNotice("");
   };
 
@@ -828,6 +842,15 @@ export function App() {
 
   const icon = (slot: PlacedSlot) => {
     const tile = slot.tile >= 0 ? tiles[slot.tile] : undefined;
+    if ((state?.iconStyle ?? "hud") === "hud") {
+      // The HUD icon set: one glyph per kind of app, so new apps match.
+      return (
+        <HudIcon
+          className="slot-icon"
+          kind={iconForTile(state?.icons, tile?.id, tile?.label, slot.name)}
+        />
+      );
+    }
     return tile?.icon ? (
       <img className="slot-icon" src={tile.icon} alt="" draggable={false} />
     ) : (
@@ -878,8 +901,16 @@ export function App() {
               <button
                 type="button"
                 className={`emblem-btn phase-${voice.phase}`}
-                aria-label={voice.phase === "listening" ? "Stop listening" : "Talk to Jarvis"}
-                title={voice.phase === "listening" ? "Stop listening" : "Talk to Jarvis"}
+                aria-label={
+                  voice.phase === "listening"
+                    ? "Stop listening"
+                    : "Talk to Jarvis"
+                }
+                title={
+                  voice.phase === "listening"
+                    ? "Stop listening"
+                    : "Talk to Jarvis"
+                }
                 onClick={() => void talk()}
               />
             </Shift>
