@@ -87,6 +87,18 @@ export interface VoiceSession {
   playbackEnded(): void;
   reportError(message: string): void;
   snapshot(): VoiceSnapshot;
+  /**
+   * Typed request from the `jarvis` terminal command. It runs the same
+   * commands, chat, and PC tasks as speech, and returns what Jarvis said.
+   * With speak false nothing is spoken; the HUD still shows the request.
+   */
+  ask(text: string, speak: boolean): Promise<AskResult>;
+}
+
+export interface AskResult {
+  ok: boolean;
+  lines: string[];
+  error?: string;
 }
 
 export function createVoiceSession(host: VoiceHost): VoiceSession {
@@ -98,6 +110,9 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
   let engineFailed = false;
   let generation = 0;
   let abort = new AbortController();
+  /** While a typed request runs: where Jarvis's lines go, and whether to speak them. */
+  let replySink: ((line: string) => void) | null = null;
+  let speakReplies = true;
   let error = "";
   let launchError = "";
   let history: ChatMessage[] = [];
@@ -270,6 +285,15 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       return;
     }
     if (!alive(gen)) return;
+    await act(gen, transcript, key);
+  }
+
+  /** Everything after speech-to-text: local commands, chat, and PC tasks. */
+  async function act(
+    gen: number,
+    transcript: string,
+    key: string,
+  ): Promise<void> {
     const action = actionForTranscript(transcript, host.tiles());
     if (action.type === "ignore" || action.type === "stop") {
       hud = reduceVoice(hud, { type: "stop" });
@@ -517,6 +541,14 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       publish();
       return;
     }
+    replySink?.(trimmed);
+    if (!speakReplies) {
+      // A typed request without speech: show the reply, then settle back to idle.
+      hud = reduceVoice(hud, { type: "reply", text: trimmed });
+      hud = reduceVoice(hud, { type: "played" });
+      publish();
+      return;
+    }
     const voice = host.voice();
     try {
       const audio = await host.synthesize(
@@ -603,6 +635,40 @@ export function createVoiceSession(host: VoiceHost): VoiceSession {
       }
       onWake();
       return { ok: true };
+    },
+    async ask(text, speak) {
+      const typed = text.replace(/\s+/g, " ").trim().slice(0, 500);
+      if (stopped)
+        return { ok: false, lines: [], error: "Jarvis is shutting down" };
+      if (!typed) return { ok: false, lines: [], error: "Nothing to ask" };
+      const key = readVoiceApiKey(host.env(), host.voice().apiKeyEnv);
+      if (!key)
+        return { ok: false, lines: [], error: "Voice needs a Groq API key" };
+      // A typed request takes over from any spoken turn in progress.
+      generation += 1;
+      refreshAbort();
+      const gen = generation;
+      const lines: string[] = [];
+      replySink = (line) => lines.push(line);
+      speakReplies = speak;
+      error = "";
+      hud = { phase: "thinking", heard: typed, reply: "" };
+      publish();
+      try {
+        await act(gen, typed, key);
+      } finally {
+        replySink = null;
+        speakReplies = true;
+        if (alive(gen) && !speak && hud.phase !== "idle") {
+          hud = reduceVoice(hud, { type: "stop" });
+          publish();
+        }
+      }
+      if (!alive(gen) && lines.length === 0) {
+        return { ok: false, lines, error: "Stopped" };
+      }
+      if (error && lines.length === 0) return { ok: false, lines, error };
+      return { ok: true, lines };
     },
     playbackEnded() {
       if (hud.phase !== "speaking") return;

@@ -80,6 +80,7 @@ import {
   shouldGreet,
 } from "../shared/greeting";
 import { WindowsInput } from "./windows-input";
+import { CliPipe } from "./cli-pipe";
 import { ComputerTask, type ComputerHost } from "./computer";
 import { readStartApps } from "../discovery/start-apps";
 import { matchTile } from "../shared/voice-command";
@@ -110,6 +111,7 @@ let configFilePath = "";
 let voice: VoiceSession | null = null;
 const windowsSpeech = new WindowsSpeech();
 const windowsInput = new WindowsInput();
+let cliPipe: CliPipe | null = null;
 let launcher: {
   config: JarvisConfig;
   tiles: ResolvedTile[];
@@ -1303,6 +1305,17 @@ if (!gotLock) {
     createWindow(startHidden);
     createTray();
     void voice.start();
+    // The `jarvis` terminal command sends typed requests here.
+    cliPipe = new CliPipe(app.getPath("userData"), (text, speak) =>
+      voice
+        ? voice.ask(text, speak)
+        : Promise.resolve({
+            ok: false,
+            lines: [],
+            error: "Jarvis is starting",
+          }),
+    );
+    cliPipe.start();
     void greetOnStart();
     await refreshGate.requestRefresh().catch(() => {
       // refreshSession published refreshFailed and cleared scanning.
@@ -1316,6 +1329,7 @@ if (!gotLock) {
     voice?.stop();
     windowsSpeech.stop();
     windowsInput.stop();
+    cliPipe?.stop();
     placementHelper.stop();
     if (refreshTimer) clearTimeout(refreshTimer);
     if (configFilePath) fs.unwatchFile(configFilePath);

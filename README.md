@@ -153,6 +153,18 @@ Say "hey jarvis". The window shows if it was hidden, and the reactor marks liste
 
 Web searches use more of Groq's free per-minute token limit. If it runs out, the status bar says `Groq is busy, try again in a minute`.
 
+### The jarvis terminal command
+
+With the MARIO OS terminal pack installed, type requests to the running Jarvis from any PowerShell window:
+
+```powershell
+jarvis what's the weather tomorrow
+jarvis open figma
+jarvis -speak write a hello world python file
+```
+
+The reply is printed; `-speak` also says it out loud. Typed requests go through the same commands, chat, web search, and PC tasks as speech, and the HUD shows them. Jarvis listens on a named pipe for your Windows account only, and each start writes a fresh random token to `cli.json` next to `config.json`; requests without it are refused.
+
 ### Startup greeting
 
 When Jarvis starts, it greets you out loud in the MARIO OS voice: "Good morning, Rio. It's Friday, November 27. It's 38 degrees and cloudy in Indianapolis, with a high of 39. All systems online." The weather part needs a location in `weather`. Set your name and how often it greets in `config.json`:
