@@ -1,4 +1,5 @@
 import type { HudIconKind, IconStyle } from "./hud-icons";
+import type { GreetingConfig } from "./greeting";
 import type { RecentItem } from "./recent";
 import type { Place, SettingsValues } from "./settings";
 import type { SystemAction, SystemState } from "./system";
@@ -155,6 +156,8 @@ export interface JarvisConfig {
   iconStyle?: IconStyle;
   /** HUD icon kind for a tile, keyed by tile id or label, for example { "chrome": "browser" }. */
   icons?: Record<string, HudIconKind>;
+  /** Spoken greeting when Jarvis starts. Unset means { mode: "daily", name: "" }. */
+  greeting?: GreetingConfig;
 }
 
 export type LeftListMode = "recent" | "design";

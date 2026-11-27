@@ -1,3 +1,4 @@
+import { DEFAULT_GREETING, type GreetingConfig } from "./greeting";
 import { HUD_ICON_KINDS, isHudIconKind, type HudIconKind } from "./hud-icons";
 import type { DialConfig, ExtraTile, LeftListMode, JarvisConfig, LaunchWindowConfig, PinnedFolder, VoiceConfig, WeatherConfig } from "./types";
 import { PLATE_SLOTS } from "./mario";
@@ -321,6 +322,7 @@ export function parseConfig(input: unknown): ParsedConfig {
     if (input.iconStyle === "hud" || input.iconStyle === "app") config.iconStyle = input.iconStyle;
     else warnings.push('iconStyle must be "hud" or "app"; using "hud"');
   }
+  if (input.greeting !== undefined) config.greeting = readGreeting(input.greeting, warnings);
   if (input.icons !== undefined) {
     const icons = readIcons(input.icons, warnings);
     if (Object.keys(icons).length > 0) config.icons = icons;
@@ -379,6 +381,24 @@ function readPlates(value: unknown, warnings: string[]): Record<string, string> 
     plates[key] = id;
   }
   return plates;
+}
+
+function readGreeting(value: unknown, warnings: string[]): GreetingConfig {
+  const greeting: GreetingConfig = { ...DEFAULT_GREETING };
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    warnings.push('greeting must be an object like { "mode": "daily", "name": "Rio" }; using the default');
+    return greeting;
+  }
+  const input = value as Record<string, unknown>;
+  if (input.mode !== undefined) {
+    if (input.mode === "daily" || input.mode === "launch" || input.mode === "off") greeting.mode = input.mode;
+    else warnings.push('greeting.mode must be "daily", "launch", or "off"; using "daily"');
+  }
+  if (input.name !== undefined) {
+    if (typeof input.name === "string" && input.name.trim().length <= 40) greeting.name = input.name.trim();
+    else warnings.push("greeting.name must be text up to 40 characters; leaving it out");
+  }
+  return greeting;
 }
 
 function readIcons(value: unknown, warnings: string[]): Record<string, HudIconKind> {

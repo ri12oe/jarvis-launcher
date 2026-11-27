@@ -153,6 +153,16 @@ Say "hey jarvis". The window shows if it was hidden, and the reactor marks liste
 
 Web searches use more of Groq's free per-minute token limit. If it runs out, the status bar says `Groq is busy, try again in a minute`.
 
+### Startup greeting
+
+When Jarvis starts, it greets you out loud in the MARIO OS voice: "Good morning, Rio. It's Friday, November 27. It's 38 degrees and cloudy in Indianapolis, with a high of 39. All systems online." The weather part needs a location in `weather`. Set your name and how often it greets in `config.json`:
+
+```json
+"greeting": { "mode": "daily", "name": "Rio" }
+```
+
+`mode` is `"daily"` (the first start of each day, the default), `"launch"` (every start), or `"off"`. Turning voice off (`"voice": { "enabled": false }`) also turns the greeting off.
+
 ### Computer control (Windows)
 
 Jarvis can also work the PC for you. It says its plan out loud and does it in front of you, with each window it opens centered over the HUD:

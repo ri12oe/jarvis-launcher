@@ -73,6 +73,12 @@ import { StatsService } from "./stats";
 import { SystemControls } from "./system-controls";
 import { createVoiceSession, type VoiceSession } from "./voice-session";
 import { WindowsSpeech } from "./windows-speech";
+import {
+  DEFAULT_GREETING,
+  greetingLine,
+  localDay,
+  shouldGreet,
+} from "../shared/greeting";
 import { WindowsInput } from "./windows-input";
 import { ComputerTask, type ComputerHost } from "./computer";
 import { readStartApps } from "../discovery/start-apps";
@@ -809,6 +815,56 @@ function sendSpeech(audio: Uint8Array, contentType: string): void {
   });
 }
 
+/**
+ * Jarvis says good morning when it starts: the date, and the weather once the
+ * HUD has it. "daily" greets on the first start of each day; config.json
+ * "greeting": { "mode": "launch" | "off", "name": "Rio" } changes that.
+ */
+async function greetOnStart(): Promise<void> {
+  if (process.platform !== "win32") return;
+  const config = loadConfig(app.getPath("userData")).config;
+  const greeting = config.greeting ?? DEFAULT_GREETING;
+  if (config.voice.enabled === false) return;
+  const stateFile = path.join(app.getPath("userData"), "greeting.json");
+  let lastDay: string | undefined;
+  try {
+    const saved = JSON.parse(fs.readFileSync(stateFile, "utf8")) as {
+      lastDay?: unknown;
+    };
+    if (typeof saved.lastDay === "string") lastDay = saved.lastDay;
+  } catch {
+    // First greeting.
+  }
+  if (!shouldGreet(greeting.mode, lastDay, new Date())) return;
+
+  // Give the weather and the page a moment to arrive; greet without weather after 12 seconds.
+  const until = Date.now() + 12_000;
+  while (Date.now() < until) {
+    const pageReady = mainWindow && !mainWindow.webContents.isLoading();
+    if (pageReady && (stats.snapshot().weather || !config.weather)) break;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  const line = greetingLine({
+    now: new Date(),
+    name: greeting.name,
+    weather: stats.snapshot().weather,
+  });
+  try {
+    const audio = await windowsSpeech.speak(
+      line,
+      config.voice.voiceId,
+      AbortSignal.timeout(20_000),
+    );
+    sendSpeech(audio.bytes, audio.contentType);
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({ lastDay: localDay(new Date()) }),
+    );
+  } catch {
+    // No greeting this time; the HUD works the same.
+  }
+}
+
 function installPermissions(): void {
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   const ownWindow = (contents: Electron.WebContents | null): boolean => {
@@ -1247,6 +1303,7 @@ if (!gotLock) {
     createWindow(startHidden);
     createTray();
     void voice.start();
+    void greetOnStart();
     await refreshGate.requestRefresh().catch(() => {
       // refreshSession published refreshFailed and cleared scanning.
     });
